@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>RUC System</title>
+
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
+  </head>
+
+  <body>
+    <div class="topbar">
+      <img class="logo" src="{{ url_for('static', filename='images/ruc_logo.png') }}" />
+
+      RUC Management System
+    </div>
+
+    <div class="menu">
+      <a href="/dashboard">Dashboard</a>
+      <a href="/create_project">Create Project</a>
+      <a href="/search">Search</a>
+      <a href="/id_generator">ID Generator</a>
+      <a href="/logout">Logout</a>
+
+      <br /><br />
+
+      <!-- SYSTEM RESET BUTTON -->
+      <a class="btn danger" href="/reset_system">Reset System</a>
+    </div> <!-- CLOSE MENU -->
+
+    <div style="padding:30px;">
+      <!-- SYSTEM STATS -->
+
+      <div class="card">
+        Projects
+        <br /><br />
+        <b>{{ total_projects }}</b>
+      </div>
+
+      <div class="card">
+        Employees
+        <br /><br />
+        <b>{{ total_employees }}</b>
+      </div>
+
+      <div class="card">
+        IDs Generated
+        <br /><br />
+        <b>{{ total_ids }}</b>
+      </div>
+
+      <br /><br />
+
+      <!-- MASTER TRACKER -->
+
+      <a class="btn" href="/master_tracker" target="_blank">MASTER TRACKER</a>
+
+      <a class="btn" href="/upload_master_tracker">Upload Updated Master Tracker</a>
+
+      <br /><br />
+
+      <h2>Projects</h2>
+
+      <table>
+        <tr>
+          <th>Project</th>
+          <th>Region</th>
+          <th>Company</th>
+          <th>Actions</th>
+        </tr>
+
+        {% for project in projects %}
+          <tr>
+            <td>{{ project.1 }}</td>
+            <td>{{ project.2 }}</td>
+            <td>{{ project.3 }}</td>
+
+            <td>
+              <a class="btn" href="/form/{{ project.4 }}" target="_blank">FORM</a>
+
+              <a class="btn" href="/open_excel/{{ project.4 }}">EXCEL</a>
+
+              <a class="btn-small" href="#" onclick="copyProjectLink('{{ project.4 }}'); return false;">📋 COPY LINK</a>
+
+              <a class="btn delete" href="/delete_project/{{ project.4 }}" onclick="return confirm('Delete this project?')">DELETE</a>
+            </td>
+          </tr>
+        {% endfor %}
+      </table>
+    </div>
+
+    <!-- COPY PROJECT LINK SCRIPT -->
+
+    <script>
+      function copyProjectLink(projectCode) {
+        const link = window.location.origin + '/form/' + projectCode
+      
+        navigator.clipboard
+          .writeText(link)
+          .then(() => {
+            alert('Project form link copied!')
+          })
+          .catch(() => {
+            alert('Copy failed.')
+          })
+      }
+    </script>
+  </body>
+</html>

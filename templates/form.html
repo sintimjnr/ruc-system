@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Employee Registration</title>
+
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
+  </head>
+
+  <body>
+    <!-- TOP BAR -->
+
+    <div class="topbar">
+      <a href="/dashboard" class="btn-small" style="margin:20px; display:inline-block;">← Back to Dashboard</a>
+
+      <img class="logo" src="{{ url_for('static', filename='images/ruc_logo.png') }}" />
+
+      Employee Registration
+    </div>
+
+    <!-- FORM CONTAINER -->
+
+    <div class="container">
+      <div class="card">
+        <h2>Employee Registration Form</h2>
+
+        <form method="POST" enctype="multipart/form-data">
+          <!-- BASIC INFO -->
+
+          <h3>Basic Information</h3>
+
+          <input type="text" name="first_name" placeholder="First Name" required />
+
+          <input type="text" name="last_name" placeholder="Last Name" required />
+
+          <select name="position" required>
+            <option value="">Select Position</option>
+            <option>TEAM LEADER</option>
+            <option>RIGGER</option>
+          </select>
+
+          <input type="text" name="mobile" placeholder="Mobile Number" required />
+
+          <input type="email" name="email" placeholder="Email" />
+
+          <!-- PHONE -->
+
+          <h3>Phone Information</h3>
+
+          <select name="phone_type">
+            <option>ANDROID</option>
+            <option>IPHONE</option>
+          </select>
+
+          <input type="text" name="ftap_imei" placeholder="FTAP IMEI" />
+
+          <input type="text" name="ftap_email" placeholder="FTAP Email" />
+
+          <input type="text" name="philtower_imei" placeholder="Philtower IMEI" />
+
+          <input type="text" name="philtower_email" placeholder="Philtower Email" />
+
+          <!-- SEC ID -->
+
+          <h3>SEC ID (Optional)</h3>
+
+          <input type="text" name="sec_number" placeholder="SEC Number" />
+
+          <input type="date" name="sec_expiry" />
+
+          <label>Upload SEC ID</label>
+
+          <input type="file" name="sec_id" />
+
+          <!-- FILE UPLOADS -->
+
+          <h3>Required Uploads</h3>
+
+          <label>2x2 Photo</label>
+
+          <input type="file" name="photo" required />
+
+          <label>NBI</label>
+
+          <input type="file" name="nbi" required />
+
+          <label>Certificate</label>
+
+          <input type="file" name="certificate" required />
+
+          <label>Signature</label>
+
+          <input type="file" name="signature" required />
+
+          <!-- WAH CERT -->
+
+          <h3>WAH Certificate</h3>
+
+          <label>Upload WAH Certificate</label>
+
+          <input type="file" name="wah_cert" required />
+
+          <br />
+
+          <button class="btn">Submit Form</button>
+        </form>
+      </div>
+    </div>
+  </body>
+</html>

@@ -1,0 +1,277 @@
+/* COMPANY COLORS */
+
+body {
+    font-family: Segoe UI;
+    margin: 0;
+    background: #f7f9fc;
+}
+
+
+/* HEADER */
+
+.topbar {
+    background: #0a2a66;
+    color: white;
+    padding: 15px 30px;
+    font-size: 22px;
+    font-weight: bold;
+    display: flex;
+    align-items: center;
+}
+
+.logo {
+    height: 50px;
+    margin-right: 15px;
+}
+
+
+/* MENU */
+
+.menu {
+    background: #FFD400;
+    padding: 12px 30px;
+    border-bottom: 3px solid #0a2a66;
+}
+
+.menu a {
+    margin-right: 25px;
+    text-decoration: none;
+    color: #0a2a66;
+    font-weight: bold;
+}
+
+.menu a:hover {
+    color: black;
+}
+
+
+/* CONTENT */
+
+.container {
+    padding: 30px;
+}
+
+
+/* CARDS */
+
+.card {
+    background: white;
+    padding: 25px;
+    margin: 15px;
+    display: inline-block;
+    width: 230px;
+    border-radius: 12px;
+    box-shadow: 0px 4px 12px rgba(0, 0, 0, 0.15);
+    text-align: center;
+    font-size: 20px;
+}
+
+
+/* TABLES */
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+    background: white;
+    box-shadow: 0px 3px 10px rgba(0, 0, 0, 0.1);
+}
+
+th {
+    background: #0a2a66;
+    color: white;
+    padding: 14px;
+}
+
+td {
+    padding: 12px;
+    border-bottom: 1px solid #eee;
+}
+
+
+/* ========================= */
+/* MAIN BUTTON STYLE */
+/* ========================= */
+
+.btn {
+    background: #0a2a66;
+    /* Dark Blue */
+    color: white;
+    padding: 10px 18px;
+    text-decoration: none;
+    border-radius: 6px;
+    font-weight: bold;
+    display: inline-block;
+    margin-right: 6px;
+    transition: all 0.3s ease;
+}
+
+.btn:hover {
+    background: #FFD400;
+    /* Yellow */
+    color: #0a2a66;
+    transform: scale(1.08);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+/* Delete Button */
+.delete {
+    background: #8b0000;
+}
+
+.delete:hover {
+    background: #FFD400;
+    color: #0a2a66;
+}
+
+/* Reset Button */
+.danger {
+    background: #8b0000;
+}
+
+.danger:hover {
+    background: #FFD400;
+    color: #0a2a66;
+}
+
+
+/* FORMS */
+
+.form-box {
+    background: white;
+    padding: 30px;
+    width: 500px;
+    margin: auto;
+    margin-top: 40px;
+    border-radius: 15px;
+    box-shadow: 0px 5px 15px rgba(0, 0, 0, 0.2);
+}
+
+input,
+select {
+    width: 100%;
+    padding: 12px;
+    margin: 10px 0;
+    border-radius: 6px;
+    border: 1px solid #ccc;
+}
+
+button {
+    background: #0a2a66;
+    color: white;
+    padding: 12px;
+    border: none;
+    width: 100%;
+    border-radius: 6px;
+    font-size: 16px;
+    cursor: pointer;
+    transition: 0.3s ease;
+}
+
+button:hover {
+    background: #FFD400;
+    color: #0a2a66;
+}
+
+
+/* LOGIN */
+
+.login-box {
+    width: 400px;
+    margin: auto;
+    margin-top: 150px;
+    background: white;
+    padding: 40px;
+    border-radius: 15px;
+    box-shadow: 0px 5px 15px rgba(0, 0, 0, 0.2);
+    text-align: center;
+}
+
+
+/* EMPLOYEE GRID */
+
+.grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, 260px);
+    gap: 25px;
+    margin-top: 20px;
+}
+
+.employee-box {
+    background: white;
+    padding: 20px;
+    border-radius: 10px;
+    box-shadow: 0px 3px 10px rgba(0, 0, 0, 0.2);
+    text-align: center;
+    width: 260px;
+}
+
+.photo {
+    width: 120px;
+    height: 120px;
+    object-fit: cover;
+    border-radius: 8px;
+    border: 3px solid #0a2a66;
+    margin-bottom: 10px;
+}
+
+.employee-box h3 {
+    color: #0a2a66;
+    margin-bottom: 5px;
+}
+
+.employee-box p {
+    color: #555;
+    margin-bottom: 15px;
+}
+
+
+/* FORM CARD */
+
+.form-card {
+    width: 400px;
+    background: white;
+    padding: 30px;
+    border-radius: 10px;
+    box-shadow: 0px 5px 15px rgba(0, 0, 0, 0.1);
+}
+
+.form-card h3 {
+    color: #0b2c66;
+    margin-bottom: 10px;
+}
+
+.form-card input {
+    width: 100%;
+    padding: 12px;
+    margin-top: 5px;
+    margin-bottom: 15px;
+    border: 1px solid #ccc;
+    border-radius: 6px;
+    font-size: 14px;
+}
+
+.form-card label {
+    font-weight: bold;
+    color: #0b2c66;
+}
+
+/* Small Button */
+.btn-small {
+    background-color: #0b3d91;
+    color: white;
+    padding: 4px 10px;
+    /* smaller padding */
+    font-size: 12px;
+    /* smaller text */
+    border-radius: 5px;
+    font-weight: bold;
+    cursor: pointer;
+    border: none;
+    transition: all 0.3s ease;
+}
+
+.btn-small:hover {
+    background-color: #ffd700;
+    color: black;
+    transform: scale(1.05);
+}

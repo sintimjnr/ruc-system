@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Confirm System Reset</title>
+
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
+  </head>
+
+  <body>
+    <div style="width:400px;margin:120px auto;text-align:center;">
+      <h2>Confirm System Reset</h2>
+
+      <p style="color:red;">This will delete ALL projects, employees, uploads, and ID cards.</p>
+
+      <form method="POST">
+        <input type="password" name="password" placeholder="Enter Admin Password" required style="padding:10px;width:100%;margin-bottom:15px;" />
+
+        <br />
+
+        <button class="btn danger" type="submit">Confirm Reset</button>
+
+        <br /><br />
+
+        <a href="/dashboard">Cancel</a>
+      </form>
+    </div>
+  </body>
+</html>

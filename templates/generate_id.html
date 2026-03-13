@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+
+<link rel="stylesheet"
+href="{{ url_for('static',filename='css/style.css') }}">
+
+</head>
+
+<body>
+
+
+<div class="topbar">
+
+<img class="logo"
+src="{{ url_for('static',filename='images/ruc_logo.png') }}">
+
+Generate ID
+
+</div>
+
+
+
+<div class="menu">
+
+<a href="/dashboard">Dashboard</a>
+<a href="/create_project">Create Project</a>
+<a href="/search">Search</a>
+<a href="/id_generator">ID Generator</a>
+<a href="/logout">Logout</a>
+
+</div>
+
+
+
+<div class="container">
+
+<h2>Generate Employee ID</h2>
+
+
+<div class="form-card">
+
+<h3>{{emp[0]}} {{emp[1]}}</h3>
+
+<p>
+Position: {{emp[2]}}
+</p>
+
+
+<form method="POST">
+
+
+<label>ID Number</label>
+
+<input type="text"
+name="id_number"
+placeholder="Example: 2026-309"
+required>
+
+
+
+<label>Expiry Year</label>
+
+<input type="text"
+name="expiry"
+placeholder="Example: 2026"
+required>
+
+
+
+<label>Address</label>
+
+<input type="text"
+name="address"
+placeholder="Example: NEGROS"
+required>
+
+
+
+<label>Contact Number</label>
+
+<input type="text"
+name="contact_number"
+placeholder="Example: 09123456789"
+required>
+
+
+
+<br><br>
+
+<button class="btn">
+
+Generate ID
+
+</button>
+
+
+</form>
+
+
+</div>
+
+</div>
+
+
+</body>
+
+</html>

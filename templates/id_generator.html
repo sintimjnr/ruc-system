@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>ID Generator</title>
+
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
+  </head>
+
+  <body>
+    <div class="topbar">
+      <img class="logo" src="{{ url_for('static', filename='images/ruc_logo.png') }}" />
+
+      ID Generator
+    </div>
+
+    <div class="menu">
+      <a href="/dashboard">Dashboard</a>
+      <a href="/create_project">Create Project</a>
+      <a href="/search">Search</a>
+      <a href="/logout">Logout</a>
+    </div>
+
+    <div class="container">
+      <h2>Generate Employee ID</h2>
+
+      <div class="grid">
+        {% for emp in employees %}
+          <div class="employee-box">
+            <!-- CLOUDINARY IMAGE -->
+            <img class="photo" src="{{ emp.4 }}" width="120" />
+
+            <h3>{{ emp.1 }} {{ emp.2 }}</h3>
+
+            <p>{{ emp.3 }}</p>
+
+            <a class="btn" href="/generate_id/{{ emp.5 }}/{{ emp.0 }}">Generate ID</a>
+          </div>
+        {% endfor %}
+      </div>
+    </div>
+  </body>
+</html>

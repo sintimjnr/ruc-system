@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Upload Master Tracker</title>
+
+    <style>
+      body {
+        font-family: Arial, Helvetica, sans-serif;
+        background: #0f1f3d;
+        padding: 40px;
+      }
+      
+      /* Container */
+      .container {
+        width: 500px;
+        margin: auto;
+      }
+      
+      /* Card */
+      .card {
+        background: white;
+        padding: 35px;
+        border-radius: 10px;
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+      }
+      
+      /* Title */
+      h2 {
+        text-align: center;
+        color: #0f1f3d;
+        margin-bottom: 25px;
+      }
+      
+      /* Info box */
+      .info {
+        background: #fff8d6;
+        border-left: 5px solid #ffd400;
+        padding: 12px;
+        margin-bottom: 20px;
+        font-size: 14px;
+      }
+      
+      /* File input */
+      input[type='file'] {
+        width: 100%;
+        padding: 10px;
+        border: 1px solid #ccc;
+        border-radius: 6px;
+      }
+      
+      /* Upload button */
+      button {
+        width: 100%;
+        padding: 12px;
+        margin-top: 20px;
+        background: #ffd400;
+        color: #0f1f3d;
+        border: none;
+        border-radius: 6px;
+        font-size: 16px;
+        font-weight: bold;
+        cursor: pointer;
+      }
+      
+      button:hover {
+        background: #ffcc00;
+      }
+      
+      /* Back link */
+      .back {
+        text-align: center;
+        margin-top: 20px;
+      }
+      
+      .back a {
+        text-decoration: none;
+        color: #0f1f3d;
+        font-weight: bold;
+      }
+    </style>
+  </head>
+
+  <body>
+    <div class="container">
+      <div class="card">
+        <h2>Upload Master Tracker</h2>
+
+        <div class="info">
+          <b>Important Instructions</b><br /><br />
+          • Upload only the <b>NLZ Master Tracker</b><br />
+          • Do <b>NOT</b> change column names<br />
+          • Do <b>NOT</b> delete existing rows<br />
+          • Only update tracker information
+        </div>
+
+        <form method="POST" enctype="multipart/form-data">
+          <input type="file" name="tracker" accept=".xlsx" required />
+
+          <button type="submit">Upload Updated Tracker</button>
+        </form>
+
+        <div class="back">
+          <a href="/dashboard">← Back to Dashboard</a>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>
