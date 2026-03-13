@@ -16,6 +16,20 @@ import time
 
 
 #############################################
+# FLASK APP
+#############################################
+
+app = Flask(__name__)
+app.secret_key = "ruc_secret"
+
+app.config["MAX_CONTENT_LENGTH"] = 50 * 1024 * 1024
+
+
+def connect_db():
+    return psycopg2.connect(os.environ["DATABASE_URL"])
+
+
+#############################################
 # EXCEL LOCK SYSTEM
 #############################################
 
@@ -148,18 +162,6 @@ def backup_file(file_path, backup_folder):
         backup_path = os.path.join(backup_folder, new_name)
 
         shutil.copy(file_path, backup_path)
-
-
-#############################################
-# FLASK APP
-#############################################
-
-app = Flask(__name__)
-app.secret_key = "ruc_secret"
-
-
-def connect_db():
-    return psycopg2.connect(os.environ["DATABASE_URL"])
 
 
 #############################################
