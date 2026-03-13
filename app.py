@@ -15,6 +15,15 @@ from io import BytesIO
 import time
 
 
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+EXCEL_FOLDER = os.path.join(BASE_DIR, "excel_files")
+UPLOAD_FOLDER = os.path.join(BASE_DIR, "uploads")
+ID_TEMPLATE_FOLDER = os.path.join(BASE_DIR, "id_templates")
+
+os.makedirs(EXCEL_FOLDER, exist_ok=True)
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
 #############################################
 # FLASK APP
 #############################################
@@ -699,7 +708,7 @@ def form(code):
         # OPEN EXCEL
         #################################
 
-        file_path = "excel_files/" + code + ".xlsx"
+        file_path = os.path.join(EXCEL_FOLDER, code + ".xlsx")
         lock_file = file_path + ".lock"
 
         wait_for_excel_lock(lock_file)
@@ -835,7 +844,7 @@ def form(code):
 @app.route("/open_excel/<code>")
 def open_excel(code):
 
-    file_path = "excel_files/" + code + ".xlsx"
+    file_path = os.path.join(EXCEL_FOLDER, code + ".xlsx")
 
     if os.path.exists(file_path):
         return send_file(file_path)
@@ -860,7 +869,7 @@ def delete_project(code):
     cursor.execute("DELETE FROM projects WHERE project_code=%s", (code,))
     conn.commit()
 
-    file_path = "excel_files/" + code + ".xlsx"
+    file_path = os.path.join(EXCEL_FOLDER, code + ".xlsx")
 
     if os.path.exists(file_path):
         os.remove(file_path)
