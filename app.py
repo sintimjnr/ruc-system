@@ -24,6 +24,8 @@ app.secret_key = "ruc_secret"
 
 app.config["MAX_CONTENT_LENGTH"] = 50 * 1024 * 1024
 
+os.makedirs("excel_files", exist_ok=True)
+
 
 def connect_db():
     return psycopg2.connect(os.environ["DATABASE_URL"])
@@ -462,7 +464,6 @@ def create_project():
         #################################
 
         # Ensure folder exists
-        os.makedirs("excel_files", exist_ok=True)
 
         wb = Workbook()
 
@@ -699,6 +700,11 @@ def form(code):
         wait_for_excel_lock(lock_file)
 
         open(lock_file, "w").close()
+
+        # create file if it doesn't exist
+        if not os.path.exists(file_path):
+            wb = Workbook()
+            wb.save(file_path)
 
         wb = load_workbook(file_path)
 
