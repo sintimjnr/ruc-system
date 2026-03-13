@@ -36,9 +36,14 @@ def connect_db():
 #############################################
 
 
-def wait_for_excel_lock(lock_file):
+def wait_for_excel_lock(lock_file, timeout=30):
+    start_time = time.time()
 
     while os.path.exists(lock_file):
+        if time.time() - start_time > timeout:
+            # remove stale lock
+            os.remove(lock_file)
+            break
         time.sleep(1)
 
 
