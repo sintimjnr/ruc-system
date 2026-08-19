@@ -30,34 +30,75 @@
         </div>
       </div>
 
+      {% with messages = get_flashed_messages() %}
+        {% if messages %}
+          {% for message in messages %}
+            <div class="notice">{{ message }}</div>
+          {% endfor %}
+        {% endif %}
+      {% endwith %}
+
       <form method="POST" enctype="multipart/form-data">
         <div class="form-box wide">
           <h2>Report</h2>
           <div class="filter-grid">
-            <select name="project_id">
-              <option value="">No Project</option>
-              {% for project in projects %}
-                <option value="{{ project.id }}" {% if log.project_id == project.id %}selected{% endif %}>{{ project.project_name }} - {{ project.project_code }}</option>
-              {% endfor %}
-            </select>
-            <input type="date" name="report_date" value="{{ log.report_date or '' }}" required />
-            <select name="current_stage" required>
-              {% for stage in stages %}
-                <option value="{{ stage }}" {% if log.current_stage == stage %}selected{% endif %}>{{ stage }}</option>
-              {% endfor %}
-            </select>
-            <input type="number" name="progress_before" min="0" max="100" value="{{ log.progress_before or 0 }}" required />
-            <input type="number" name="progress_after" min="0" max="100" value="{{ log.progress_after or 0 }}" required />
-            <select name="blocker_category">
-              {% for category in blocker_categories %}
-                <option value="{{ category }}" {% if log.blocker_category == category %}selected{% endif %}>{% if category %}{{ category }}{% else %}No Blocker Category{% endif %}</option>
-              {% endfor %}
-            </select>
-            <textarea name="work_completed" placeholder="Work Completed">{{ log.work_completed or '' }}</textarea>
-            <textarea name="blockers" placeholder="Blockers / Problems">{{ log.blockers or '' }}</textarea>
-            <textarea name="next_day_plan" placeholder="Next Day Plan">{{ log.next_day_plan or '' }}</textarea>
-            <textarea name="weather_notes" placeholder="Weather Notes">{{ log.weather_notes or '' }}</textarea>
-            <textarea name="general_notes" placeholder="General Notes">{{ log.general_notes or '' }}</textarea>
+            <div class="form-field">
+              <label for="daily_project_id">Project</label>
+              <select id="daily_project_id" name="project_id">
+                <option value="">No Project</option>
+                {% for project in projects %}
+                  <option value="{{ project.id }}" {% if log.project_id == project.id %}selected{% endif %}>{{ project.project_name }} - {{ project.project_code }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="form-field">
+              <label for="daily_report_date">Report Date</label>
+              <input id="daily_report_date" type="date" name="report_date" value="{{ log.report_date or '' }}" required />
+            </div>
+            <div class="form-field">
+              <label for="daily_current_stage">Stage</label>
+              <select id="daily_current_stage" name="current_stage" required>
+                {% for stage in stages %}
+                  <option value="{{ stage }}" {% if log.current_stage == stage %}selected{% endif %}>{{ stage }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="form-field">
+              <label for="daily_progress_before">Starting Progress (%)</label>
+              <input id="daily_progress_before" type="number" name="progress_before" min="0" max="100" value="{{ log.progress_before or 0 }}" required />
+            </div>
+            <div class="form-field">
+              <label for="daily_progress_after">Ending Progress (%)</label>
+              <input id="daily_progress_after" type="number" name="progress_after" min="0" max="100" value="{{ log.progress_after or 0 }}" required />
+            </div>
+            <div class="form-field">
+              <label for="daily_blocker_category">Blocker Category</label>
+              <select id="daily_blocker_category" name="blocker_category">
+                {% for category in blocker_categories %}
+                  <option value="{{ category }}" {% if log.blocker_category == category %}selected{% endif %}>{% if category %}{{ category }}{% else %}No Blocker Category{% endif %}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="form-field wide-field">
+              <label for="daily_work_completed">Work Completed</label>
+              <textarea id="daily_work_completed" name="work_completed">{{ log.work_completed or '' }}</textarea>
+            </div>
+            <div class="form-field wide-field">
+              <label for="daily_blockers">Blockers / Problems</label>
+              <textarea id="daily_blockers" name="blockers">{{ log.blockers or '' }}</textarea>
+            </div>
+            <div class="form-field wide-field">
+              <label for="daily_next_day_plan">Next Day Plan</label>
+              <textarea id="daily_next_day_plan" name="next_day_plan">{{ log.next_day_plan or '' }}</textarea>
+            </div>
+            <div class="form-field wide-field">
+              <label for="daily_weather_notes">Weather Notes</label>
+              <textarea id="daily_weather_notes" name="weather_notes">{{ log.weather_notes or '' }}</textarea>
+            </div>
+            <div class="form-field wide-field">
+              <label for="daily_general_notes">General Notes</label>
+              <textarea id="daily_general_notes" name="general_notes">{{ log.general_notes or '' }}</textarea>
+            </div>
           </div>
         </div>
 

@@ -324,6 +324,21 @@ td {
     min-height: 90px;
 }
 
+.form-field {
+    display: flex;
+    flex-direction: column;
+}
+
+.form-field label {
+    color: #0a2a66;
+    font-weight: bold;
+    margin-bottom: 4px;
+}
+
+.wide-field {
+    grid-column: 1 / -1;
+}
+
 input,
 select,
 textarea {

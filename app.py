@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, redirect, session, send_file, url_for
+from flask import Flask, render_template, request, redirect, session, send_file, url_for, flash
 import psycopg2
 from openpyxl import Workbook, load_workbook
 from openpyxl.drawing.image import Image as ExcelImage
@@ -458,6 +458,16 @@ def parse_date_value(value):
         return None
 
 
+def format_display_date(value):
+
+    parsed_date = parse_date_value(value)
+
+    if parsed_date:
+        return parsed_date.strftime("%d/%m/%Y")
+
+    return clean_text(value)
+
+
 def validate_duid_value(du_id):
 
     du_id = clean_text(du_id)
@@ -501,6 +511,14 @@ def validate_progress(value):
         raise ValueError("Progress must be between 0 and 100")
 
     return progress
+
+
+def validate_daily_progress(value, field_label):
+
+    try:
+        return validate_progress(value)
+    except ValueError as exc:
+        raise ValueError(f"{field_label} must be a number between 0 and 100.") from exc
 
 
 def safe_return_path(value, fallback):
@@ -1299,8 +1317,12 @@ def collect_daily_log_form_data(cursor, duid, existing_log=None):
         request.form.get("current_stage"), SITE_STAGES, ""
     )
     report_date = validate_date_field(request.form.get("report_date"), "Report date")
-    progress_before = validate_progress(request.form.get("progress_before"))
-    progress_after = validate_progress(request.form.get("progress_after"))
+    progress_before = validate_daily_progress(
+        request.form.get("progress_before"), "Starting Progress (%)"
+    )
+    progress_after = validate_daily_progress(
+        request.form.get("progress_after"), "Ending Progress (%)"
+    )
     blocker_category = normalize_choice(
         request.form.get("blocker_category"), DAILY_BLOCKER_CATEGORIES, ""
     )
@@ -1321,7 +1343,7 @@ def collect_daily_log_form_data(cursor, duid, existing_log=None):
 
     if progress_after < progress_before and not (blockers or general_notes):
         raise ValueError(
-            "Progress after cannot be less than progress before without a blocker or note"
+            "Ending Progress (%) cannot be lower than Starting Progress (%) unless you describe the blocker or note why progress moved backward."
         )
 
     if project_id:
@@ -4691,6 +4713,20 @@ def site_detail(du_id):
     )
     recent_daily_logs = rows_to_dicts(cursor)
 
+    cursor.execute(
+        """
+        SELECT id,
+               report_date
+        FROM daily_site_logs
+        WHERE duid=%s
+          AND report_date=%s
+        ORDER BY id DESC
+        LIMIT 1
+        """,
+        (du_id, date.today()),
+    )
+    today_daily_log = row_to_dict(cursor)
+
     cursor.close()
     conn.close()
 
@@ -4702,6 +4738,7 @@ def site_detail(du_id):
         recent_permits=recent_permits,
         recent_incidents=recent_incidents,
         recent_daily_logs=recent_daily_logs,
+        today_daily_log=today_daily_log,
         projects=get_projects_for_select(),
         employees=get_employees_for_select(),
         task_types=TELECOM_TASK_TYPES,
@@ -4976,7 +5013,8 @@ def new_daily_log(du_id):
         except ValueError as exc:
             cursor.close()
             conn.close()
-            return str(exc)
+            flash(str(exc))
+            return redirect(url_for("new_daily_log", du_id=du_id))
 
         cursor.execute(
             """
@@ -4988,10 +5026,16 @@ def new_daily_log(du_id):
             (du_id, log_data["report_date"]),
         )
 
-        if cursor.fetchone():
+        existing_daily_log = cursor.fetchone()
+
+        if existing_daily_log:
+            flash(
+                f"A daily report already exists for {du_id} on {format_display_date(log_data['report_date'])}. You can edit the existing report below."
+            )
+            existing_daily_log_id = existing_daily_log[0]
             cursor.close()
             conn.close()
-            return "Daily report already exists for this DUID and date"
+            return redirect(url_for("edit_daily_log", log_id=existing_daily_log_id))
 
         try:
             cursor.execute(
@@ -5209,7 +5253,8 @@ def edit_daily_log(log_id):
         except ValueError as exc:
             cursor.close()
             conn.close()
-            return str(exc)
+            flash(str(exc))
+            return redirect(url_for("edit_daily_log", log_id=log_id))
 
         cursor.execute(
             """
@@ -5222,10 +5267,16 @@ def edit_daily_log(log_id):
             (log["duid"], log_data["report_date"], log_id),
         )
 
-        if cursor.fetchone():
+        existing_daily_log = cursor.fetchone()
+
+        if existing_daily_log:
+            flash(
+                f"A daily report already exists for {log['duid']} on {format_display_date(log_data['report_date'])}. You can edit the existing report below."
+            )
+            existing_daily_log_id = existing_daily_log[0]
             cursor.close()
             conn.close()
-            return "Daily report already exists for this DUID and date"
+            return redirect(url_for("edit_daily_log", log_id=existing_daily_log_id))
 
         try:
             cursor.execute(

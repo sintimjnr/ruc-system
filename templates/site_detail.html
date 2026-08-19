@@ -110,7 +110,11 @@
 
       <div class="toolbar">
         {% if session.get('role') == 'admin' %}
-          <a class="btn" href="{{ url_for('new_daily_log', du_id=site.du_id) }}">Add Daily Report</a>
+          {% if today_daily_log %}
+            <a class="btn" href="{{ url_for('edit_daily_log', log_id=today_daily_log.id) }}">View/Edit Today's Report</a>
+          {% else %}
+            <a class="btn" href="{{ url_for('new_daily_log', du_id=site.du_id) }}">Add Daily Report</a>
+          {% endif %}
         {% endif %}
         <a class="btn" href="{{ url_for('daily_operations', duid=site.du_id) }}">View Daily History</a>
       </div>
