@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+
+<link rel="stylesheet"
+href="{{ url_for('static',filename='css/style.css') }}">
+
+</head>
+
+
+<body>
+
+
+<div class="login-box">
+
+
+<center>
+
+<img
+src="{{ url_for('static',
+filename='images/ruc_logo.png') }}"
+width="150">
+
+<h2>RUC Management System</h2>
+
+</center>
+
+
+
+<form method="POST">
+
+
+<input name="username"
+placeholder="Username">
+
+
+<input name="password"
+type="password"
+placeholder="Password">
+
+
+
+<button>
+
+Login
+
+</button>
+
+
+</form>
+
+
+</div>
+
+
+</body>
+
+</html>

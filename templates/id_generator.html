@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>ID Generator</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
+  </head>
+
+  <body>
+    <div class="topbar">
+      <img class="logo" src="{{ url_for('static', filename='images/ruc_logo.png') }}" />
+      ID Generator
+    </div>
+
+    <div class="menu">
+      <a href="/dashboard">Dashboard</a>
+      <a href="/create_project">Create Project</a>
+      <a href="/search">Search</a>
+      <a href="/sites">Sites</a>
+      <a href="/id_generator">ID Generator</a>
+      <a href="/logout">Logout</a>
+    </div>
+
+    <div class="container">
+      <h2>Generate Employee ID</h2>
+
+      <div class="grid">
+        {% for emp in employees %}
+          <div class="employee-box">
+            <img class="photo" src="/uploads/photos/{{ emp.photo }}" />
+            <h3>{{ emp.first_name }} {{ emp.last_name }}</h3>
+            <p>{{ emp.telecom_role or emp.position }}</p>
+            <p>DUID: {{ emp.assigned_du_id or '-' }}</p>
+            <span class="status {{ emp.overall_safety_status|lower|replace(' ', '-') }}">{{ emp.overall_safety_status }}</span>
+            <br /><br />
+            <a class="btn" href="/generate_id/{{ emp.project_id }}/{{ emp.id }}">Generate ID</a>
+          </div>
+        {% endfor %}
+      </div>
+    </div>
+  </body>
+</html>

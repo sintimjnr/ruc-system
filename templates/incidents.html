@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Incident Reporting</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
+  </head>
+  <body>
+    <div class="topbar">
+      <img class="logo" src="{{ url_for('static', filename='images/ruc_logo.png') }}" />
+      Incident Reporting
+    </div>
+
+    <div class="menu">
+      <a href="/dashboard">Dashboard</a>
+      <a href="/sites">Sites</a>
+      <a href="/telecom_tasks">Tasks</a>
+      <a href="/permits">Permits</a>
+      <a href="/toolbox_talks">Toolbox Talks</a>
+      <a href="/logout">Logout</a>
+    </div>
+
+    <div class="container">
+      <div class="form-box wide">
+        <h2>Report Incident</h2>
+        <form method="POST" enctype="multipart/form-data" class="filter-grid">
+          <select name="project_id" required>
+            <option value="">Project</option>
+            {% for project in projects %}
+              <option value="{{ project.id }}">{{ project.project_name }} - {{ project.project_code }}</option>
+            {% endfor %}
+          </select>
+          <select name="du_id" required>
+            <option value="">DUID</option>
+            {% for duid in duids %}
+              <option value="{{ duid }}">{{ duid }}</option>
+            {% endfor %}
+          </select>
+          <select name="reported_by">
+            <option value="">Reported By</option>
+            {% for emp in employees %}
+              <option value="{{ emp.id }}">{{ emp.first_name }} {{ emp.last_name }}</option>
+            {% endfor %}
+          </select>
+          <input type="date" name="incident_date" required />
+          <select name="severity">
+            {% for severity in severities %}
+              <option>{{ severity }}</option>
+            {% endfor %}
+          </select>
+          <input name="category" placeholder="Category" />
+          <select name="status">
+            {% for status in statuses %}
+              <option {% if status == 'OPEN' %}selected{% endif %}>{{ status }}</option>
+            {% endfor %}
+          </select>
+          <textarea name="description" placeholder="Description" required></textarea>
+          <textarea name="action_taken" placeholder="Action Taken"></textarea>
+          <input type="file" name="attachments" multiple />
+          <button type="submit">Save Incident</button>
+        </form>
+      </div>
+
+      <div class="form-box wide">
+        <h2>Incident Filters</h2>
+        <form method="GET" class="filter-grid">
+          <select name="project_id">
+            <option value="">All Projects</option>
+            {% for project in projects %}
+              <option value="{{ project.id }}" {% if filters.project_id == project.id|string %}selected{% endif %}>{{ project.project_name }} - {{ project.project_code }}</option>
+            {% endfor %}
+          </select>
+          <select name="du_id">
+            <option value="">All DUIDs</option>
+            {% for duid in duids %}
+              <option value="{{ duid }}" {% if filters.du_id == duid %}selected{% endif %}>{{ duid }}</option>
+            {% endfor %}
+          </select>
+          <select name="status">
+            <option value="">Any Status</option>
+            {% for status in statuses %}
+              <option value="{{ status }}" {% if filters.status == status %}selected{% endif %}>{{ status }}</option>
+            {% endfor %}
+          </select>
+          <button type="submit">Filter Incidents</button>
+        </form>
+      </div>
+
+      <h2>Incidents</h2>
+      <table>
+        <tr>
+          <th>Date</th>
+          <th>DUID</th>
+          <th>Project</th>
+          <th>Severity</th>
+          <th>Category</th>
+          <th>Reported By</th>
+          <th>Status</th>
+          <th>Files</th>
+          <th>Update</th>
+        </tr>
+        {% for incident in incidents %}
+          <tr>
+            <td>{{ incident.incident_date }}</td>
+            <td>{{ incident.du_id }}</td>
+            <td>{{ incident.project_name or '-' }}</td>
+            <td>{{ incident.severity or '-' }}</td>
+            <td>{{ incident.category or '-' }}</td>
+            <td>{{ incident.first_name or '' }} {{ incident.last_name or '' }}</td>
+            <td>{{ incident.status }}</td>
+            <td>{{ incident.attachments }}</td>
+            <td>
+              <form method="POST" action="/incidents/{{ incident.id }}/status" class="table-form">
+                <select name="status">
+                  {% for status in statuses %}
+                    <option value="{{ status }}" {% if incident.status == status %}selected{% endif %}>{{ status }}</option>
+                  {% endfor %}
+                </select>
+                <button type="submit">Save</button>
+              </form>
+            </td>
+          </tr>
+        {% endfor %}
+      </table>
+    </div>
+  </body>
+</html>

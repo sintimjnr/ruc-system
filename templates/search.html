@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
+    <title>Employee Search</title>
+  </head>
+
+  <body>
+    <div class="topbar">
+      <img class="logo" src="{{ url_for('static', filename='images/ruc_logo.png') }}" />
+      Employee Search
+    </div>
+
+    <div class="menu">
+      <a href="/dashboard">Dashboard</a>
+      <a href="/create_project">Create Project</a>
+      <a href="/search">Search</a>
+      <a href="/sites">Sites</a>
+      <a href="/safety_documents">Safety Documents</a>
+      <a href="/telecom_tasks">Tasks</a>
+      <a href="/permits">Permits</a>
+      <a href="/id_generator">ID Generator</a>
+      <a href="/logout">Logout</a>
+    </div>
+
+    <div class="container">
+      <h2>Search Employees</h2>
+
+      <div class="form-box wide">
+        <form method="GET" action="/search" class="filter-grid">
+          <input name="search" value="{{ filters.search }}" placeholder="Name, email, or mobile" />
+          <input name="employee_id" value="{{ filters.employee_id }}" placeholder="Employee ID" />
+
+          <select name="project_id">
+            <option value="">All Projects</option>
+            {% for project in projects %}
+              <option value="{{ project.id }}" {% if filters.project_id == project.id|string %}selected{% endif %}>{{ project.project_name }} - {{ project.project_code }}</option>
+            {% endfor %}
+          </select>
+
+          <select name="du_id">
+            <option value="">All DUIDs</option>
+            {% for duid in duids %}
+              <option value="{{ duid }}" {% if filters.du_id == duid %}selected{% endif %}>{{ duid }}</option>
+            {% endfor %}
+          </select>
+
+          <input name="role" value="{{ filters.role }}" placeholder="Role" />
+
+          <select name="nbi_status">
+            <option value="">NBI Status</option>
+            {% for status in ['VALID','EXPIRING SOON','EXPIRED','MISSING'] %}
+              <option value="{{ status }}" {% if filters.nbi_status == status %}selected{% endif %}>{{ status }}</option>
+            {% endfor %}
+          </select>
+
+          <select name="wah_status">
+            <option value="">WAH Status</option>
+            {% for status in ['VALID','EXPIRING SOON','EXPIRED','MISSING'] %}
+              <option value="{{ status }}" {% if filters.wah_status == status %}selected{% endif %}>{{ status }}</option>
+            {% endfor %}
+          </select>
+
+          <select name="first_aid_status">
+            <option value="">First Aid Status</option>
+            {% for status in ['VALID','EXPIRING SOON','EXPIRED','MISSING'] %}
+              <option value="{{ status }}" {% if filters.first_aid_status == status %}selected{% endif %}>{{ status }}</option>
+            {% endfor %}
+          </select>
+
+          <select name="overall_safety_status">
+            <option value="">Overall Safety</option>
+            {% for status in ['VALID','EXPIRING SOON','EXPIRED','MISSING'] %}
+              <option value="{{ status }}" {% if filters.overall_safety_status == status %}selected{% endif %}>{{ status }}</option>
+            {% endfor %}
+          </select>
+
+          <button type="submit">Search</button>
+        </form>
+      </div>
+
+      <br />
+
+      <table>
+        <tr>
+          <th>ID</th>
+          <th>Name</th>
+          <th>Position</th>
+          <th>Role</th>
+          <th>DUID</th>
+          <th>Email</th>
+          <th>Mobile</th>
+          <th>Project</th>
+          <th>Safety</th>
+          <th>Actions</th>
+        </tr>
+
+        {% for emp in employees %}
+          <tr>
+            <td>{{ emp.id }}</td>
+            <td>{{ emp.first_name }} {{ emp.last_name }}</td>
+            <td>{{ emp.position }}</td>
+            <td>{{ emp.telecom_role or '-' }}</td>
+            <td>{{ emp.assigned_du_id or '-' }}</td>
+            <td>{{ emp.email or '-' }}</td>
+            <td>{{ emp.mobile or '-' }}</td>
+            <td>{{ emp.project_code or '-' }}</td>
+            <td><span class="status {{ emp.overall_safety_status|lower|replace(' ', '-') }}">{{ emp.overall_safety_status }}</span></td>
+            <td>
+              <a class="btn-small" href="/edit_employee/{{ emp.id }}">Edit</a>
+              {% if emp.project_id %}
+                <a class="btn-small" href="/generate_id/{{ emp.project_id }}/{{ emp.id }}">Generate ID</a>
+              {% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+      </table>
+    </div>
+  </body>
+</html>

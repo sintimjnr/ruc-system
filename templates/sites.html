@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Telecom Sites</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
+  </head>
+  <body>
+    <div class="topbar">
+      <img class="logo" src="{{ url_for('static', filename='images/ruc_logo.png') }}" />
+      Telecom Sites
+    </div>
+
+    <div class="menu">
+      <a href="/dashboard">Dashboard</a>
+      <a href="/site_assignments">Assignments</a>
+      <a href="/telecom_tasks">Tasks</a>
+      <a href="/permits">Permits</a>
+      <a href="/incidents">Incidents</a>
+      {% if session.get('role') == 'admin' %}
+        <a href="{{ url_for('new_site') }}">Register Site</a>
+      {% endif %}
+      <a href="/logout">Logout</a>
+    </div>
+
+    <div class="container">
+      <div class="form-box wide">
+        <h2>Site Filters</h2>
+        <form method="GET" class="filter-grid">
+          <input name="du_id" value="{{ filters.du_id }}" placeholder="DUID" />
+          <input name="site_name" value="{{ filters.site_name }}" placeholder="Site Name" />
+          <select name="towerco">
+            <option value="">All TowerCos</option>
+            {% for towerco in towercos %}
+              <option value="{{ towerco }}" {% if filters.towerco == towerco %}selected{% endif %}>{{ towerco }}</option>
+            {% endfor %}
+          </select>
+          <input name="region" value="{{ filters.region }}" placeholder="Region / Province" />
+          <input name="municipality" value="{{ filters.municipality }}" placeholder="Municipality" />
+          <select name="stage">
+            <option value="">Any Stage</option>
+            {% for stage in stages %}
+              <option value="{{ stage }}" {% if filters.stage == stage %}selected{% endif %}>{{ stage }}</option>
+            {% endfor %}
+          </select>
+          <select name="site_status">
+            <option value="">Any Site Status</option>
+            {% for status in site_statuses %}
+              <option value="{{ status }}" {% if filters.site_status == status %}selected{% endif %}>{{ status }}</option>
+            {% endfor %}
+          </select>
+          <select name="project_id">
+            <option value="">All Projects</option>
+            {% for project in projects %}
+              <option value="{{ project.id }}" {% if filters.project_id == project.id|string %}selected{% endif %}>{{ project.project_name }} - {{ project.project_code }}</option>
+            {% endfor %}
+          </select>
+          <button type="submit">Filter Sites</button>
+        </form>
+      </div>
+
+      <div class="toolbar">
+        {% if session.get('role') == 'admin' %}
+          <a class="btn" href="{{ url_for('new_site') }}">Register Operational Site</a>
+        {% endif %}
+        <a class="btn" href="/master_tracker" target="_blank">MASTER TRACKER</a>
+      </div>
+
+      <h2>DUID Site Register</h2>
+      <table>
+        <tr>
+          <th>DUID</th>
+          <th>Site</th>
+          <th>TowerCo / Vendor</th>
+          <th>Region / Municipality</th>
+          <th>Stage</th>
+          <th>Progress</th>
+          <th>Status</th>
+          <th>Access</th>
+          <th>PAT</th>
+          <th>Team Leader</th>
+          <th>Activity</th>
+          <th>Actions</th>
+        </tr>
+        {% for site in sites %}
+          <tr>
+            <td><strong>{{ site.du_id }}</strong></td>
+            <td>
+              {{ site.display_site_name or '-' }}<br />
+              <span class="muted">{{ site.customer_site_id or site.du_name or '-' }}</span>
+            </td>
+            <td>
+              {{ site.towerco or '-' }}<br />
+              <span class="muted">{{ site.vendor or '-' }}</span>
+            </td>
+            <td>
+              {{ site.region_province or '-' }}<br />
+              <span class="muted">{{ site.municipality or '-' }}</span>
+            </td>
+            <td><span class="status {{ site.current_stage|lower|replace(' ', '-') }}">{{ site.current_stage }}</span></td>
+            <td>
+              <div class="progress-bar">
+                <span style="width: {{ site.overall_progress }}%"></span>
+              </div>
+              <span class="muted">{{ site.overall_progress }}%</span>
+            </td>
+            <td><span class="status {{ site.overall_status|lower|replace(' ', '-') }}">{{ site.overall_status }}</span></td>
+            <td><span class="status {{ site.access_validity|lower|replace(' ', '-') }}">{{ site.access_validity }}</span></td>
+            <td><span class="status {{ site.pat_status|lower|replace(' ', '-') }}">{{ site.pat_status }}</span></td>
+            <td>{{ site.team_leader or '-' }}</td>
+            <td>
+              {{ site.assigned_workers }} workers<br />
+              {{ site.open_tasks }} tasks<br />
+              {{ site.active_permits }} permits<br />
+              {{ site.open_incidents }} incidents
+            </td>
+            <td>
+              <a class="btn-small" href="{{ url_for('site_detail', du_id=site.du_id) }}">View</a>
+              {% if session.get('role') == 'admin' %}
+                <a class="btn-small" href="{{ url_for('edit_site', du_id=site.du_id) }}">Edit</a>
+              {% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+      </table>
+    </div>
+  </body>
+</html>

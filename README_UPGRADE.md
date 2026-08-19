@@ -1,0 +1,104 @@
+# RUC System Telecom/Safety Upgrade
+
+This upgrade extends the existing local Flask + PostgreSQL + OpenPyXL + Pillow RUC System. It does not replace the current application, existing tables, project Excel files, master tracker, uploads, or ID-card workflow.
+
+## 1. Back Up PostgreSQL
+
+Open PowerShell and run:
+
+```powershell
+$env:PGPASSWORD="3598"
+& "C:\Program Files\PostgreSQL\13\bin\pg_dump.exe" -h localhost -U postgres -d ruc_system -F c -f "D:\RUC_SYSTEM\backups\ruc_system_before_telecom_safety.backup"
+```
+
+If you use environment variables for the local DB password, replace `3598` with your current `DB_PASSWORD`.
+
+## 2. Run The Migration
+
+```powershell
+$env:PGPASSWORD="3598"
+& "C:\Program Files\PostgreSQL\13\bin\psql.exe" -h localhost -U postgres -d ruc_system -f "D:\RUC_SYSTEM\db_upgrade_telecom_safety.sql"
+```
+
+The migration is written with `IF NOT EXISTS` and guarded constraints so it can be run again safely.
+
+For Phase 2 Telecom Site / DUID Management, run the additional idempotent migration:
+
+```powershell
+$env:PGPASSWORD="3598"
+& "C:\Program Files\PostgreSQL\13\bin\psql.exe" -h localhost -U postgres -d ruc_system -f "D:\RUC_SYSTEM\db_phase2_telecom_sites.sql"
+```
+
+This creates the `telecom_sites` operational table without modifying `globe_nlz`, `planning_reference`, or the master tracker workbook.
+
+## 3. Configure Local Secrets
+
+The app still falls back to the original local development values, but production-like local use should set:
+
+```powershell
+$env:FLASK_SECRET_KEY="change-this-local-secret"
+$env:DB_HOST="localhost"
+$env:DB_PORT="5432"
+$env:DB_NAME="ruc_system"
+$env:DB_USER="postgres"
+$env:DB_PASSWORD="3598"
+```
+
+You may also use `DATABASE_URL` instead:
+
+```powershell
+$env:DATABASE_URL="postgresql://postgres:3598@localhost:5432/ruc_system"
+```
+
+## 4. Test Database Connection
+
+```powershell
+python test_db.py
+```
+
+Expected output:
+
+```text
+Database connected successfully!
+```
+
+## 5. Start Flask Locally
+
+```powershell
+python app.py
+```
+
+Open:
+
+```text
+http://localhost:5000
+```
+
+## 6. Application Smoke Test
+
+After logging in as an admin:
+
+1. Open Dashboard and confirm the original project list appears.
+2. Create a project and confirm an Excel workbook appears in `D:\RUC_SYSTEM\excel_files`.
+3. Open a project form and submit an employee with photo, NBI, WAH, certificate, signature, and optional First Aid details.
+4. Search employees by name, employee ID, project, DUID, role, and safety status.
+5. Edit an employee and confirm the safety statuses recalculate from expiry dates.
+6. Open Safety Documents and confirm NBI, WAH, and First Aid metadata is listed.
+7. Open Sites and confirm existing `globe_nlz.du_id` records are shown.
+8. Open a Site Detail page from a DUID.
+9. Register or edit an operational site record and confirm tracker/reference fields remain unchanged.
+10. Create a Site Assignment using an existing DUID.
+11. Create and update a Telecom Task from the global task page or Site Detail.
+12. Create and update a Permit To Work.
+13. Record a Toolbox Talk with attendance.
+14. Create and update an Incident Report with attachments.
+15. Generate an ID card and confirm employee ID, telecom role, DUID, and safety badge appear.
+16. Print the ID preview.
+17. Download the Master Tracker and upload a valid updated tracker.
+
+## Notes
+
+- Uploaded operational files remain local under `D:\RUC_SYSTEM\static\uploads\projects`.
+- Existing legacy uploads remain under `D:\RUC_SYSTEM\uploads`.
+- Existing project workbooks keep the current `<project_code>.xlsx` naming convention.
+- The master tracker keeps its original sheets; the app adds/updates a `RUC SAFETY` sheet when employee safety data is submitted.

@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Telecom Tasks</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
+  </head>
+  <body>
+    <div class="topbar">
+      <img class="logo" src="{{ url_for('static', filename='images/ruc_logo.png') }}" />
+      Telecom Tasks
+    </div>
+
+    <div class="menu">
+      <a href="/dashboard">Dashboard</a>
+      <a href="/sites">Sites</a>
+      <a href="/site_assignments">Assignments</a>
+      <a href="/permits">Permits</a>
+      <a href="/incidents">Incidents</a>
+      <a href="/logout">Logout</a>
+    </div>
+
+    <div class="container">
+      {% if session.get('role') == 'admin' %}
+        <div class="form-box wide">
+          <h2>Create Telecom Task</h2>
+          <form method="POST" class="filter-grid">
+            <select name="project_id" required>
+              <option value="">Project</option>
+              {% for project in projects %}
+                <option value="{{ project.id }}">{{ project.project_name }} - {{ project.project_code }}</option>
+              {% endfor %}
+            </select>
+            <select name="du_id" required>
+              <option value="">DUID</option>
+              {% for duid in duids %}
+                <option value="{{ duid }}">{{ duid }}</option>
+              {% endfor %}
+            </select>
+            <select name="task_type" required>
+              <option value="">Task Type</option>
+              {% for task_type in task_types %}
+                <option>{{ task_type }}</option>
+              {% endfor %}
+            </select>
+            <select name="priority">
+              {% for priority in priorities %}
+                <option {% if priority == 'MEDIUM' %}selected{% endif %}>{{ priority }}</option>
+              {% endfor %}
+            </select>
+            <select name="assigned_employee_id">
+              <option value="">Assigned Employee</option>
+              {% for emp in employees %}
+                <option value="{{ emp.id }}">{{ emp.first_name }} {{ emp.last_name }}</option>
+              {% endfor %}
+            </select>
+            <input type="date" name="planned_date" />
+            <select name="status">
+              {% for status in statuses %}
+                <option {% if status == 'PENDING' %}selected{% endif %}>{{ status }}</option>
+              {% endfor %}
+            </select>
+            <textarea name="description" placeholder="Description"></textarea>
+            <button type="submit">Create Task</button>
+          </form>
+        </div>
+      {% endif %}
+
+      <div class="form-box wide">
+        <h2>Task Filters</h2>
+        <form method="GET" class="filter-grid">
+          <select name="project_id">
+            <option value="">All Projects</option>
+            {% for project in projects %}
+              <option value="{{ project.id }}" {% if filters.project_id == project.id|string %}selected{% endif %}>{{ project.project_name }} - {{ project.project_code }}</option>
+            {% endfor %}
+          </select>
+          <select name="du_id">
+            <option value="">All DUIDs</option>
+            {% for duid in duids %}
+              <option value="{{ duid }}" {% if filters.du_id == duid %}selected{% endif %}>{{ duid }}</option>
+            {% endfor %}
+          </select>
+          <select name="employee_id">
+            <option value="">All Employees</option>
+            {% for emp in employees %}
+              <option value="{{ emp.id }}" {% if filters.employee_id == emp.id|string %}selected{% endif %}>{{ emp.first_name }} {{ emp.last_name }}</option>
+            {% endfor %}
+          </select>
+          <select name="status">
+            <option value="">Any Status</option>
+            {% for status in statuses %}
+              <option value="{{ status }}" {% if filters.status == status %}selected{% endif %}>{{ status }}</option>
+            {% endfor %}
+          </select>
+          <button type="submit">Filter Tasks</button>
+        </form>
+      </div>
+
+      <h2>Tasks</h2>
+      <table>
+        <tr>
+          <th>DUID</th>
+          <th>Project</th>
+          <th>Type</th>
+          <th>Priority</th>
+          <th>Assigned</th>
+          <th>Planned</th>
+          <th>Completed</th>
+          <th>Status</th>
+          <th>Update</th>
+        </tr>
+        {% for task in tasks %}
+          <tr>
+            <td><a href="{{ url_for('site_detail', du_id=task.du_id) }}">{{ task.du_id }}</a></td>
+            <td>{{ task.project_name or '-' }}</td>
+            <td>{{ task.task_type }}</td>
+            <td>{{ task.priority }}</td>
+            <td>{{ task.first_name or '' }} {{ task.last_name or '' }}</td>
+            <td>{{ task.planned_date or '-' }}</td>
+            <td>{{ task.completed_date or '-' }}</td>
+            <td><span class="status {{ task.status|lower|replace(' ', '-') }}">{{ task.status }}</span></td>
+            <td>
+              {% if session.get('role') == 'admin' %}
+                <form method="POST" action="/telecom_tasks/{{ task.id }}/status" class="table-form">
+                  <select name="status">
+                    {% for status in statuses %}
+                      <option value="{{ status }}" {% if task.status == status %}selected{% endif %}>{{ status }}</option>
+                    {% endfor %}
+                  </select>
+                  <input type="date" name="completed_date" value="{{ task.completed_date or '' }}" />
+                  <button type="submit">Save</button>
+                </form>
+              {% else %}
+                -
+              {% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+      </table>
+    </div>
+  </body>
+</html>

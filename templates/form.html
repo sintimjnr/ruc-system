@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Employee Registration</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
+  </head>
+
+  <body>
+    <div class="topbar">
+      <a href="/dashboard" class="btn-small" style="margin:20px; display:inline-block;">Back to Dashboard</a>
+      <img class="logo" src="{{ url_for('static', filename='images/ruc_logo.png') }}" />
+      Employee Registration
+    </div>
+
+    <div class="container">
+      <div class="form-box wide">
+        <h2>Employee Registration Form</h2>
+        {% if project %}
+          <p class="muted">Project: {{ project.project_name }} - {{ project.project_code }}</p>
+        {% endif %}
+
+        <form method="POST" enctype="multipart/form-data">
+          <h3>Basic Information</h3>
+
+          <div class="form-grid">
+            <input type="text" name="first_name" placeholder="First Name" required />
+            <input type="text" name="last_name" placeholder="Last Name" required />
+            <select name="position" required>
+              <option value="">Select Position</option>
+              <option>TEAM LEADER</option>
+              <option>RIGGER</option>
+            </select>
+            <input type="text" name="mobile" placeholder="Mobile Number" required />
+            <input type="email" name="email" placeholder="Email" />
+          </div>
+
+          <h3>Telecom Assignment</h3>
+          <div class="form-grid">
+            <input type="text" name="telecom_role" placeholder="Telecom Role" />
+            <select name="assigned_du_id">
+              <option value="">Assigned DUID</option>
+              {% for duid in duids %}
+                <option value="{{ duid }}">{{ duid }}</option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <h3>Phone Information</h3>
+          <div class="form-grid">
+            <select name="phone_type">
+              <option>ANDROID</option>
+              <option>IPHONE</option>
+            </select>
+            <input type="text" name="ftap_imei" placeholder="FTAP IMEI" />
+            <input type="text" name="ftap_email" placeholder="FTAP Email" />
+            <input type="text" name="philtower_imei" placeholder="Philtower IMEI" />
+            <input type="text" name="philtower_email" placeholder="Philtower Email" />
+          </div>
+
+          <h3>NBI</h3>
+          <div class="form-grid">
+            <input type="text" name="nbi_reference" placeholder="NBI Reference" />
+            <input type="date" name="nbi_issue_date" />
+            <input type="date" name="nbi_expiry_date" />
+          </div>
+
+          <label>NBI File</label>
+          <input type="file" name="nbi" required />
+
+          <h3>WAH</h3>
+          <div class="form-grid">
+            <input type="text" name="wah_reference" placeholder="WAH Reference" />
+            <input type="date" name="wah_issue_date" />
+            <input type="date" name="wah_expiry_date" />
+          </div>
+
+          <label>WAH Certificate</label>
+          <input type="file" name="wah_cert" required />
+
+          <h3>First Aid</h3>
+          <div class="form-grid">
+            <input type="text" name="first_aid_reference" placeholder="First Aid Reference" />
+            <input type="date" name="first_aid_issue_date" />
+            <input type="date" name="first_aid_expiry_date" />
+          </div>
+
+          <label>First Aid Certificate</label>
+          <input type="file" name="first_aid_file" />
+
+          <h3>SEC ID (Optional)</h3>
+          <div class="form-grid">
+            <input type="text" name="sec_number" placeholder="SEC Number" />
+            <input type="date" name="sec_expiry" />
+          </div>
+
+          <label>Upload SEC ID</label>
+          <input type="file" name="sec_id" />
+
+          <h3>Required Uploads</h3>
+
+          <label>2x2 Employee Photo</label>
+          <input type="file" name="photo" required />
+
+          <label>Safety Certificate</label>
+          <input type="file" name="certificate" required />
+
+          <label>Signature</label>
+          <input type="file" name="signature" required />
+
+          <br />
+          <button class="btn" type="submit">Submit Form</button>
+        </form>
+      </div>
+    </div>
+  </body>
+</html>

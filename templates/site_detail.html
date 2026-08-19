@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Site {{ site.du_id }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
+  </head>
+  <body>
+    <div class="topbar">
+      <img class="logo" src="{{ url_for('static', filename='images/ruc_logo.png') }}" />
+      Site {{ site.du_id }}
+    </div>
+
+    <div class="menu">
+      <a href="/dashboard">Dashboard</a>
+      <a href="/sites">Telecom Sites</a>
+      <a href="/site_assignments">Assignments</a>
+      <a href="/telecom_tasks">Tasks</a>
+      <a href="/permits">Permits</a>
+      <a href="/incidents">Incidents</a>
+      {% if session.get('role') == 'admin' %}
+        <a href="{{ url_for('edit_site', du_id=site.du_id) }}">Edit Site</a>
+      {% endif %}
+      <a href="/logout">Logout</a>
+    </div>
+
+    <div class="container">
+      <div class="site-heading">
+        <div>
+          <h1>{{ site.du_id }}</h1>
+          <p>{{ site.display_site_name or site.du_name or 'Unnamed Site' }}</p>
+        </div>
+        <div class="site-badges">
+          <span class="status {{ site.current_stage|lower|replace(' ', '-') }}">{{ site.current_stage }}</span>
+          <span class="status {{ site.overall_status|lower|replace(' ', '-') }}">{{ site.overall_status }}</span>
+          <span class="status {{ site.access_validity|lower|replace(' ', '-') }}">Access {{ site.access_validity }}</span>
+          <span class="status {{ site.pat_status|lower|replace(' ', '-') }}">PAT {{ site.pat_status }}</span>
+        </div>
+      </div>
+
+      <div class="detail-grid">
+        <section class="info-panel">
+          <h2>Site Information</h2>
+          <dl class="detail-list">
+            <dt>DUID</dt>
+            <dd>{{ site.du_id }}</dd>
+            <dt>Site Name</dt>
+            <dd>{{ site.display_site_name or '-' }}</dd>
+            <dt>Customer Site ID</dt>
+            <dd>{{ site.customer_site_id or '-' }}</dd>
+            <dt>DU Name</dt>
+            <dd>{{ site.du_name or '-' }}</dd>
+            <dt>TowerCo</dt>
+            <dd>{{ site.towerco or '-' }}</dd>
+            <dt>Vendor</dt>
+            <dd>{{ site.vendor or '-' }}</dd>
+            <dt>Region / Province</dt>
+            <dd>{{ site.region_province or '-' }}</dd>
+            <dt>Municipality</dt>
+            <dd>{{ site.municipality or '-' }}</dd>
+            <dt>GPS</dt>
+            <dd>
+              {% if site.lat and site.long %}
+                {{ site.lat }}, {{ site.long }}
+                <a class="btn-small" href="https://www.google.com/maps?q={{ site.lat }},{{ site.long }}" target="_blank">Map</a>
+              {% else %}
+                -
+              {% endif %}
+            </dd>
+          </dl>
+        </section>
+
+        <section class="info-panel">
+          <h2>Project / Operation Status</h2>
+          <dl class="detail-list">
+            <dt>Project</dt>
+            <dd>{{ site.project_name or '-' }}</dd>
+            <dt>Current Stage</dt>
+            <dd>{{ site.current_stage }}</dd>
+            <dt>Overall Progress</dt>
+            <dd>
+              <div class="progress-bar">
+                <span style="width: {{ site.overall_progress }}%"></span>
+              </div>
+              {{ site.overall_progress }}%
+            </dd>
+            <dt>Overall Status</dt>
+            <dd>{{ site.overall_status }}</dd>
+            <dt>Access Validity</dt>
+            <dd>{{ site.access_validity }}</dd>
+            <dt>PAT Status</dt>
+            <dd>{{ site.pat_status }}</dd>
+            <dt>Team Leader</dt>
+            <dd>{{ site.team_leader or '-' }}</dd>
+            <dt>Remarks</dt>
+            <dd>{{ site.remarks or '-' }}</dd>
+            <dt>Date Created</dt>
+            <dd>{{ site.created_at or '-' }}</dd>
+            <dt>Last Updated</dt>
+            <dd>{{ site.updated_at or '-' }}</dd>
+          </dl>
+        </section>
+      </div>
+
+      {% if not site.has_operational_record and session.get('role') == 'admin' %}
+        <div class="toolbar">
+          <a class="btn" href="{{ url_for('edit_site', du_id=site.du_id) }}">Create Operational Record</a>
+        </div>
+      {% endif %}
+
+      <h2>Assigned Personnel</h2>
+      {% if session.get('role') == 'admin' %}
+        <div class="form-box wide compact-box">
+          <form method="POST" action="/site_assignments" class="filter-grid">
+            <input type="hidden" name="du_id" value="{{ site.du_id }}" />
+            <input type="hidden" name="return_to" value="{{ url_for('site_detail', du_id=site.du_id) }}" />
+            <select name="project_id" required>
+              <option value="">Project</option>
+              {% for project in projects %}
+                <option value="{{ project.id }}" {% if site.project_id == project.id %}selected{% endif %}>{{ project.project_name }} - {{ project.project_code }}</option>
+              {% endfor %}
+            </select>
+            <select name="employee_id" required>
+              <option value="">Employee</option>
+              {% for emp in employees %}
+                <option value="{{ emp.id }}">{{ emp.first_name }} {{ emp.last_name }}</option>
+              {% endfor %}
+            </select>
+            <input name="role" placeholder="Role" />
+            <select name="assignment_status">
+              {% for status in assignment_statuses %}
+                <option>{{ status }}</option>
+              {% endfor %}
+            </select>
+            <input type="date" name="start_date" />
+            <input type="date" name="end_date" />
+            <button type="submit">Assign Worker</button>
+          </form>
+        </div>
+      {% endif %}
+
+      <table>
+        <tr>
+          <th>Employee</th>
+          <th>Role</th>
+          <th>Project</th>
+          <th>Status</th>
+          <th>Start</th>
+          <th>End</th>
+          <th>Safety</th>
+        </tr>
+        {% for assignment in assignments %}
+          <tr>
+            <td>{{ assignment.first_name or '' }} {{ assignment.last_name or '' }}</td>
+            <td>{{ assignment.role or assignment.telecom_role or assignment.position or '-' }}</td>
+            <td>{{ assignment.project_name or '-' }}</td>
+            <td><span class="status {{ assignment.assignment_status|lower|replace(' ', '-') }}">{{ assignment.assignment_status }}</span></td>
+            <td>{{ assignment.start_date or '-' }}</td>
+            <td>{{ assignment.end_date or '-' }}</td>
+            <td><span class="status {{ assignment.overall_safety_status|lower|replace(' ', '-') }}">{{ assignment.overall_safety_status }}</span></td>
+          </tr>
+        {% endfor %}
+      </table>
+
+      <h2>Tasks</h2>
+      {% if session.get('role') == 'admin' %}
+        <div class="form-box wide compact-box">
+          <form method="POST" action="/telecom_tasks" class="filter-grid">
+            <input type="hidden" name="du_id" value="{{ site.du_id }}" />
+            <input type="hidden" name="return_to" value="{{ url_for('site_detail', du_id=site.du_id) }}" />
+            <select name="project_id" required>
+              <option value="">Project</option>
+              {% for project in projects %}
+                <option value="{{ project.id }}" {% if site.project_id == project.id %}selected{% endif %}>{{ project.project_name }} - {{ project.project_code }}</option>
+              {% endfor %}
+            </select>
+            <select name="task_type" required>
+              <option value="">Task Type</option>
+              {% for task_type in task_types %}
+                <option>{{ task_type }}</option>
+              {% endfor %}
+            </select>
+            <select name="priority">
+              {% for priority in priorities %}
+                <option {% if priority == 'MEDIUM' %}selected{% endif %}>{{ priority }}</option>
+              {% endfor %}
+            </select>
+            <select name="assigned_employee_id">
+              <option value="">Assigned Employee</option>
+              {% for emp in employees %}
+                <option value="{{ emp.id }}">{{ emp.first_name }} {{ emp.last_name }}</option>
+              {% endfor %}
+            </select>
+            <input type="date" name="planned_date" />
+            <select name="status">
+              {% for status in task_statuses %}
+                <option {% if status == 'PENDING' %}selected{% endif %}>{{ status }}</option>
+              {% endfor %}
+            </select>
+            <textarea name="description" placeholder="Description"></textarea>
+            <button type="submit">Create Task</button>
+          </form>
+        </div>
+      {% endif %}
+
+      <table>
+        <tr>
+          <th>Type</th>
+          <th>Priority</th>
+          <th>Assigned</th>
+          <th>Planned</th>
+          <th>Completed</th>
+          <th>Status</th>
+          <th>Update</th>
+        </tr>
+        {% for task in tasks %}
+          <tr>
+            <td>{{ task.task_type }}</td>
+            <td>{{ task.priority }}</td>
+            <td>{{ task.first_name or '' }} {{ task.last_name or '' }}</td>
+            <td>{{ task.planned_date or '-' }}</td>
+            <td>{{ task.completed_date or '-' }}</td>
+            <td><span class="status {{ task.status|lower|replace(' ', '-') }}">{{ task.status }}</span></td>
+            <td>
+              {% if session.get('role') == 'admin' %}
+                <form method="POST" action="/telecom_tasks/{{ task.id }}/status" class="table-form">
+                  <input type="hidden" name="return_to" value="{{ url_for('site_detail', du_id=site.du_id) }}" />
+                  <select name="status">
+                    {% for status in task_statuses %}
+                      <option value="{{ status }}" {% if task.status == status %}selected{% endif %}>{{ status }}</option>
+                    {% endfor %}
+                  </select>
+                  <input type="date" name="completed_date" value="{{ task.completed_date or '' }}" />
+                  <button type="submit">Save</button>
+                </form>
+              {% else %}
+                -
+              {% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+      </table>
+
+      <h2>Recent Activity</h2>
+      <div class="dashboard-panels two-column">
+        <section>
+          <h3>Recent Permits</h3>
+          <table>
+            <tr>
+              <th>Permit</th>
+              <th>Type</th>
+              <th>Status</th>
+              <th>Valid Until</th>
+            </tr>
+            {% for permit in recent_permits %}
+              <tr>
+                <td>{{ permit.permit_number }}</td>
+                <td>{{ permit.permit_type or '-' }}</td>
+                <td><span class="status {{ permit.status|lower|replace(' ', '-') }}">{{ permit.status }}</span></td>
+                <td>{{ permit.valid_until or '-' }}</td>
+              </tr>
+            {% endfor %}
+          </table>
+        </section>
+        <section>
+          <h3>Recent Incidents</h3>
+          <table>
+            <tr>
+              <th>Date</th>
+              <th>Severity</th>
+              <th>Category</th>
+              <th>Status</th>
+            </tr>
+            {% for incident in recent_incidents %}
+              <tr>
+                <td>{{ incident.incident_date }}</td>
+                <td>{{ incident.severity or '-' }}</td>
+                <td>{{ incident.category or '-' }}</td>
+                <td><span class="status {{ incident.status|lower|replace(' ', '-') }}">{{ incident.status }}</span></td>
+              </tr>
+            {% endfor %}
+          </table>
+        </section>
+      </div>
+    </div>
+  </body>
+</html>

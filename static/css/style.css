@@ -1,0 +1,522 @@
+/* COMPANY COLORS */
+
+body {
+    font-family: Segoe UI;
+    margin: 0;
+    background: #f7f9fc;
+}
+
+
+/* HEADER */
+
+.topbar {
+    background: #0a2a66;
+    color: white;
+    padding: 15px 30px;
+    font-size: 22px;
+    font-weight: bold;
+    display: flex;
+    align-items: center;
+}
+
+.logo {
+    height: 50px;
+    margin-right: 15px;
+}
+
+
+/* MENU */
+
+.menu {
+    background: #FFD400;
+    padding: 12px 30px;
+    border-bottom: 3px solid #0a2a66;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+}
+
+.menu a {
+    margin-right: 15px;
+    text-decoration: none;
+    color: #0a2a66;
+    font-weight: bold;
+}
+
+.menu a:hover {
+    color: black;
+}
+
+
+/* CONTENT */
+
+.container {
+    padding: 30px;
+}
+
+
+/* CARDS */
+
+.card {
+    background: white;
+    padding: 25px;
+    margin: 15px;
+    display: inline-block;
+    width: 230px;
+    border-radius: 12px;
+    box-shadow: 0px 4px 12px rgba(0, 0, 0, 0.15);
+    text-align: center;
+    font-size: 20px;
+}
+
+.summary-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+    gap: 16px;
+}
+
+.summary-grid .card {
+    display: block;
+    width: auto;
+    margin: 0;
+}
+
+.dashboard-panels {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 28px;
+    margin-top: 30px;
+}
+
+.dashboard-panels.two-column {
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+}
+
+.toolbar {
+    margin: 25px 0;
+}
+
+.site-heading {
+    background: white;
+    border-left: 6px solid #FFD400;
+    padding: 18px 22px;
+    margin-bottom: 24px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 18px;
+    box-shadow: 0px 3px 10px rgba(0, 0, 0, 0.1);
+}
+
+.site-heading h1 {
+    color: #0a2a66;
+    margin: 0;
+}
+
+.site-heading p {
+    margin: 6px 0 0;
+    color: #555;
+}
+
+.site-badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    justify-content: flex-end;
+}
+
+.detail-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: 24px;
+    margin-bottom: 28px;
+}
+
+.info-panel {
+    background: white;
+    padding: 22px;
+    box-shadow: 0px 3px 10px rgba(0, 0, 0, 0.1);
+}
+
+.detail-list {
+    display: grid;
+    grid-template-columns: minmax(140px, 190px) 1fr;
+    gap: 10px 14px;
+}
+
+.detail-list dt {
+    color: #0a2a66;
+    font-weight: bold;
+}
+
+.detail-list dd {
+    margin: 0;
+    color: #333;
+}
+
+.progress-bar {
+    background: #e9edf5;
+    border-radius: 999px;
+    height: 10px;
+    overflow: hidden;
+    min-width: 110px;
+}
+
+.progress-bar span {
+    display: block;
+    height: 100%;
+    background: #0a2a66;
+}
+
+.compact-box {
+    margin: 16px 0;
+    padding: 20px;
+}
+
+
+/* TABLES */
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+    background: white;
+    box-shadow: 0px 3px 10px rgba(0, 0, 0, 0.1);
+}
+
+th {
+    background: #0a2a66;
+    color: white;
+    padding: 14px;
+}
+
+td {
+    padding: 12px;
+    border-bottom: 1px solid #eee;
+    vertical-align: top;
+}
+
+
+/* ========================= */
+/* MAIN BUTTON STYLE */
+/* ========================= */
+
+.btn {
+    background: #0a2a66;
+    /* Dark Blue */
+    color: white;
+    padding: 10px 18px;
+    text-decoration: none;
+    border-radius: 6px;
+    font-weight: bold;
+    display: inline-block;
+    margin-right: 6px;
+    transition: all 0.3s ease;
+}
+
+.btn:hover {
+    background: #FFD400;
+    /* Yellow */
+    color: #0a2a66;
+    transform: scale(1.08);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+/* Delete Button */
+.delete {
+    background: #8b0000;
+}
+
+.delete:hover {
+    background: #FFD400;
+    color: #0a2a66;
+}
+
+/* Reset Button */
+.danger {
+    background: #8b0000;
+}
+
+.danger:hover {
+    background: #FFD400;
+    color: #0a2a66;
+}
+
+
+/* FORMS */
+
+.form-box {
+    background: white;
+    padding: 30px;
+    width: 500px;
+    margin: auto;
+    margin-top: 40px;
+    border-radius: 15px;
+    box-shadow: 0px 5px 15px rgba(0, 0, 0, 0.2);
+}
+
+.form-box.wide {
+    width: auto;
+    max-width: 1100px;
+}
+
+.form-grid,
+.filter-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 12px;
+    align-items: start;
+}
+
+.filter-grid textarea,
+.form-grid textarea {
+    min-height: 90px;
+}
+
+input,
+select,
+textarea {
+    width: 100%;
+    padding: 12px;
+    margin: 10px 0;
+    border-radius: 6px;
+    border: 1px solid #ccc;
+    box-sizing: border-box;
+    font-family: Segoe UI;
+}
+
+button {
+    background: #0a2a66;
+    color: white;
+    padding: 12px;
+    border: none;
+    width: 100%;
+    border-radius: 6px;
+    font-size: 16px;
+    cursor: pointer;
+    transition: 0.3s ease;
+}
+
+.inline-form {
+    display: inline-block;
+    margin: 0;
+}
+
+.inline-form button {
+    width: auto;
+}
+
+.table-form {
+    display: grid;
+    grid-template-columns: minmax(130px, 1fr) minmax(130px, 1fr) 80px;
+    gap: 8px;
+    align-items: center;
+}
+
+.table-form input,
+.table-form select,
+.table-form button {
+    margin: 0;
+}
+
+.muted {
+    color: #555;
+}
+
+.status-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 12px 0 20px;
+}
+
+.status {
+    display: inline-block;
+    border-radius: 999px;
+    padding: 5px 10px;
+    font-size: 12px;
+    font-weight: bold;
+    background: #e9edf5;
+    color: #0a2a66;
+    white-space: nowrap;
+}
+
+.status.valid {
+    background: #d9f2e3;
+    color: #17633a;
+}
+
+.status.expiring-soon {
+    background: #fff3c4;
+    color: #775500;
+}
+
+.status.expired {
+    background: #f8d3d3;
+    color: #8b0000;
+}
+
+.status.missing {
+    background: #eeeeee;
+    color: #555;
+}
+
+.status.not-started,
+.status.pending,
+.status.open {
+    background: #e9edf5;
+    color: #0a2a66;
+}
+
+.status.active,
+.status.in-progress,
+.status.passed {
+    background: #d9f2e3;
+    color: #17633a;
+}
+
+.status.on-hold,
+.status.blocked,
+.status.failed {
+    background: #fff3c4;
+    color: #775500;
+}
+
+.status.completed,
+.status.closed {
+    background: #d9f2e3;
+    color: #17633a;
+}
+
+.status.cancelled {
+    background: #eeeeee;
+    color: #555;
+}
+
+.checkbox-panel {
+    grid-column: 1 / -1;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    padding: 12px;
+    max-height: 240px;
+    overflow: auto;
+}
+
+.checkbox-panel label {
+    display: block;
+    margin: 6px 0;
+}
+
+.checkbox-panel input {
+    width: auto;
+    margin-right: 8px;
+}
+
+button:hover {
+    background: #FFD400;
+    color: #0a2a66;
+}
+
+
+/* LOGIN */
+
+.login-box {
+    width: 400px;
+    margin: auto;
+    margin-top: 150px;
+    background: white;
+    padding: 40px;
+    border-radius: 15px;
+    box-shadow: 0px 5px 15px rgba(0, 0, 0, 0.2);
+    text-align: center;
+}
+
+
+/* EMPLOYEE GRID */
+
+.grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, 260px);
+    gap: 25px;
+    margin-top: 20px;
+}
+
+.employee-box {
+    background: white;
+    padding: 20px;
+    border-radius: 10px;
+    box-shadow: 0px 3px 10px rgba(0, 0, 0, 0.2);
+    text-align: center;
+    width: 260px;
+}
+
+.photo {
+    width: 120px;
+    height: 120px;
+    object-fit: cover;
+    border-radius: 8px;
+    border: 3px solid #0a2a66;
+    margin-bottom: 10px;
+}
+
+.employee-box h3 {
+    color: #0a2a66;
+    margin-bottom: 5px;
+}
+
+.employee-box p {
+    color: #555;
+    margin-bottom: 15px;
+}
+
+
+/* FORM CARD */
+
+.form-card {
+    width: 400px;
+    background: white;
+    padding: 30px;
+    border-radius: 10px;
+    box-shadow: 0px 5px 15px rgba(0, 0, 0, 0.1);
+}
+
+.form-card h3 {
+    color: #0b2c66;
+    margin-bottom: 10px;
+}
+
+.form-card input {
+    width: 100%;
+    padding: 12px;
+    margin-top: 5px;
+    margin-bottom: 15px;
+    border: 1px solid #ccc;
+    border-radius: 6px;
+    font-size: 14px;
+}
+
+.form-card label {
+    font-weight: bold;
+    color: #0b2c66;
+}
+
+/* Small Button */
+.btn-small {
+    background-color: #0b3d91;
+    color: white;
+    padding: 4px 10px;
+    /* smaller padding */
+    font-size: 12px;
+    /* smaller text */
+    border-radius: 5px;
+    font-weight: bold;
+    cursor: pointer;
+    border: none;
+    transition: all 0.3s ease;
+}
+
+.btn-small:hover {
+    background-color: #ffd700;
+    color: black;
+    transform: scale(1.05);
+}

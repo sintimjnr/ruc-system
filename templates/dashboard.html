@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
+    <title>RUC System</title>
+  </head>
+
+  <body>
+    <div class="topbar">
+      <img class="logo" src="{{ url_for('static', filename='images/ruc_logo.png') }}" />
+      RUC Management System
+    </div>
+
+    <div class="menu">
+      <a href="/dashboard">Dashboard</a>
+      <a href="/create_project">Create Project</a>
+      <a href="/search">Search</a>
+      <a href="/sites">Sites</a>
+      <a href="/safety_documents">Safety Documents</a>
+      <a href="/site_assignments">Assignments</a>
+      <a href="/telecom_tasks">Tasks</a>
+      <a href="/permits">Permits</a>
+      <a href="/toolbox_talks">Toolbox Talks</a>
+      <a href="/incidents">Incidents</a>
+      <a href="/id_generator">ID Generator</a>
+      <a href="/logout">Logout</a>
+
+      <form class="inline-form" method="POST" action="/reset_system" onsubmit="return confirm('Reset project, employee, upload, ID, and operational records?')">
+        <button class="btn danger" type="submit">Reset System</button>
+      </form>
+    </div>
+
+    <div class="container">
+      <div class="summary-grid">
+        <div class="card">Projects<br /><br /><b>{{ total_projects }}</b></div>
+        <div class="card">Telecom Sites<br /><br /><b>{{ total_telecom_sites }}</b></div>
+        <div class="card">Active Sites<br /><br /><b>{{ active_sites }}</b></div>
+        <div class="card">Completed Sites<br /><br /><b>{{ completed_sites }}</b></div>
+        <div class="card">Sites Attention<br /><br /><b>{{ attention_sites }}</b></div>
+        <div class="card">Employees<br /><br /><b>{{ total_employees }}</b></div>
+        <div class="card">IDs Generated<br /><br /><b>{{ total_ids }}</b></div>
+        <div class="card">Safety Compliant<br /><br /><b>{{ safety_compliant_workers }}</b></div>
+        <div class="card">Expiring Certs<br /><br /><b>{{ expiring_certificates }}</b></div>
+        <div class="card">Expired Certs<br /><br /><b>{{ expired_certificates }}</b></div>
+        <div class="card">Missing Certs<br /><br /><b>{{ missing_certificates }}</b></div>
+        <div class="card">Open Tasks<br /><br /><b>{{ open_telecom_tasks }}</b></div>
+        <div class="card">Active Permits<br /><br /><b>{{ active_permits }}</b></div>
+        <div class="card">Open Incidents<br /><br /><b>{{ open_incidents }}</b></div>
+      </div>
+
+      <div class="toolbar">
+        <a class="btn" href="/master_tracker" target="_blank">MASTER TRACKER</a>
+        <a class="btn" href="/upload_master_tracker">Upload Updated Master Tracker</a>
+      </div>
+
+      <div class="form-box wide">
+        <h2>Dashboard Filters</h2>
+        <form method="GET" action="/dashboard" class="filter-grid">
+          <select name="du_id">
+            <option value="">All DUIDs</option>
+            {% for duid in duids %}
+              <option value="{{ duid }}" {% if filters.du_id == duid %}selected{% endif %}>{{ duid }}</option>
+            {% endfor %}
+          </select>
+
+          <select name="project_id">
+            <option value="">All Projects</option>
+            {% for project in projects %}
+              <option value="{{ project.id }}" {% if filters.project_id == project.id|string %}selected{% endif %}>{{ project.project_name }} - {{ project.project_code }}</option>
+            {% endfor %}
+          </select>
+
+          <select name="employee_id">
+            <option value="">All Employees</option>
+            {% for emp in employees %}
+              <option value="{{ emp.id }}" {% if filters.employee_id == emp.id|string %}selected{% endif %}>{{ emp.first_name }} {{ emp.last_name }}</option>
+            {% endfor %}
+          </select>
+
+          <select name="safety_status">
+            <option value="">Any Safety Status</option>
+            {% for status in ['VALID','EXPIRING SOON','EXPIRED','MISSING'] %}
+              <option value="{{ status }}" {% if filters.safety_status == status %}selected{% endif %}>{{ status }}</option>
+            {% endfor %}
+          </select>
+
+          <select name="task_status">
+            <option value="">Any Task Status</option>
+            {% for status in ['PENDING','IN PROGRESS','BLOCKED','COMPLETED','OPEN','CLOSED','CANCELLED'] %}
+              <option value="{{ status }}" {% if filters.task_status == status %}selected{% endif %}>{{ status }}</option>
+            {% endfor %}
+          </select>
+
+          <select name="permit_status">
+            <option value="">Any Permit Status</option>
+            {% for status in ['PENDING','ACTIVE','EXPIRED','CLOSED','CANCELLED'] %}
+              <option value="{{ status }}" {% if filters.permit_status == status %}selected{% endif %}>{{ status }}</option>
+            {% endfor %}
+          </select>
+
+          <button type="submit">Apply Filters</button>
+        </form>
+      </div>
+
+      <h2>Projects</h2>
+
+      <table>
+        <tr>
+          <th>Project</th>
+          <th>Region</th>
+          <th>Company</th>
+          <th>Actions</th>
+        </tr>
+
+        {% for project in projects %}
+          <tr>
+            <td>{{ project.project_name }}</td>
+            <td>{{ project.region }}</td>
+            <td>{{ project.company }}</td>
+            <td>
+              <a class="btn" href="/form/{{ project.project_code }}" target="_blank">FORM</a>
+              <a class="btn" href="/open_excel/{{ project.project_code }}">EXCEL</a>
+              <form class="inline-form" method="POST" action="/delete_project/{{ project.project_code }}" onsubmit="return confirm('Delete this project and its Excel file?')">
+                <button class="btn delete" type="submit">DELETE</button>
+              </form>
+              <button class="btn-small" onclick="copyProjectLink('{{ project.project_code }}')">Copy</button>
+            </td>
+          </tr>
+        {% endfor %}
+      </table>
+
+      <div class="dashboard-panels">
+        <section>
+          <h2>Sites by Stage</h2>
+          <table>
+            <tr>
+              <th>Stage</th>
+              <th>Sites</th>
+            </tr>
+            {% for row in sites_by_stage %}
+              <tr>
+                <td><span class="status {{ row.current_stage|lower|replace(' ', '-') }}">{{ row.current_stage }}</span></td>
+                <td>{{ row.site_count }}</td>
+              </tr>
+            {% endfor %}
+          </table>
+        </section>
+
+        <section>
+          <h2>Safety Snapshot</h2>
+          <table>
+            <tr>
+              <th>Employee</th>
+              <th>DUID</th>
+              <th>Role</th>
+              <th>NBI</th>
+              <th>WAH</th>
+              <th>First Aid</th>
+              <th>Overall</th>
+            </tr>
+            {% for emp in filtered_safety_employees %}
+              <tr>
+                <td>{{ emp.first_name }} {{ emp.last_name }}</td>
+                <td>{{ emp.assigned_du_id or '-' }}</td>
+                <td>{{ emp.telecom_role or emp.position }}</td>
+                <td><span class="status {{ emp.nbi_status|lower|replace(' ', '-') }}">{{ emp.nbi_status }}</span></td>
+                <td><span class="status {{ emp.wah_status|lower|replace(' ', '-') }}">{{ emp.wah_status }}</span></td>
+                <td><span class="status {{ emp.first_aid_status|lower|replace(' ', '-') }}">{{ emp.first_aid_status }}</span></td>
+                <td><span class="status {{ emp.overall_safety_status|lower|replace(' ', '-') }}">{{ emp.overall_safety_status }}</span></td>
+              </tr>
+            {% endfor %}
+          </table>
+        </section>
+
+        <section>
+          <h2>Recent Tasks</h2>
+          <table>
+            <tr>
+              <th>DUID</th>
+              <th>Task</th>
+              <th>Priority</th>
+              <th>Status</th>
+              <th>Assigned</th>
+            </tr>
+            {% for task in recent_tasks %}
+              <tr>
+                <td>{{ task.du_id }}</td>
+                <td>{{ task.task_type }}</td>
+                <td>{{ task.priority }}</td>
+                <td>{{ task.status }}</td>
+                <td>{{ task.first_name or '' }} {{ task.last_name or '' }}</td>
+              </tr>
+            {% endfor %}
+          </table>
+        </section>
+
+        <section>
+          <h2>Recent Permits</h2>
+          <table>
+            <tr>
+              <th>Permit</th>
+              <th>DUID</th>
+              <th>Type</th>
+              <th>Status</th>
+              <th>Valid Until</th>
+            </tr>
+            {% for permit in recent_permits %}
+              <tr>
+                <td>{{ permit.permit_number }}</td>
+                <td>{{ permit.du_id }}</td>
+                <td>{{ permit.permit_type }}</td>
+                <td>{{ permit.status }}</td>
+                <td>{{ permit.valid_until or '-' }}</td>
+              </tr>
+            {% endfor %}
+          </table>
+        </section>
+
+        <section>
+          <h2>Recent Incidents</h2>
+          <table>
+            <tr>
+              <th>Date</th>
+              <th>DUID</th>
+              <th>Severity</th>
+              <th>Category</th>
+              <th>Status</th>
+            </tr>
+            {% for incident in recent_incidents %}
+              <tr>
+                <td>{{ incident.incident_date }}</td>
+                <td>{{ incident.du_id }}</td>
+                <td>{{ incident.severity }}</td>
+                <td>{{ incident.category }}</td>
+                <td>{{ incident.status }}</td>
+              </tr>
+            {% endfor %}
+          </table>
+        </section>
+      </div>
+    </div>
+
+    <script>
+      function copyProjectLink(projectCode) {
+        const link = window.location.origin + '/form/' + projectCode
+
+        navigator.clipboard
+          .writeText(link)
+          .then(() => {
+            alert('Project link copied successfully!')
+          })
+          .catch(() => {
+            alert('Failed to copy link.')
+          })
+      }
+    </script>
+  </body>
+</html>

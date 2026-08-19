@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Site Assignments</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
+  </head>
+  <body>
+    <div class="topbar">
+      <img class="logo" src="{{ url_for('static', filename='images/ruc_logo.png') }}" />
+      Site Assignments
+    </div>
+
+    <div class="menu">
+      <a href="/dashboard">Dashboard</a>
+      <a href="/sites">Sites</a>
+      <a href="/telecom_tasks">Tasks</a>
+      <a href="/permits">Permits</a>
+      <a href="/toolbox_talks">Toolbox Talks</a>
+      <a href="/logout">Logout</a>
+    </div>
+
+    <div class="container">
+      {% if session.get('role') == 'admin' %}
+        <div class="form-box wide">
+          <h2>Assign Worker to Site</h2>
+          <form method="POST" class="filter-grid">
+            <select name="project_id" required>
+              <option value="">Project</option>
+              {% for project in projects %}
+                <option value="{{ project.id }}">{{ project.project_name }} - {{ project.project_code }}</option>
+              {% endfor %}
+            </select>
+            <select name="employee_id" required>
+              <option value="">Employee</option>
+              {% for emp in employees %}
+                <option value="{{ emp.id }}">{{ emp.first_name }} {{ emp.last_name }}</option>
+              {% endfor %}
+            </select>
+            <select name="du_id" required>
+              <option value="">DUID</option>
+              {% for duid in duids %}
+                <option value="{{ duid }}">{{ duid }}</option>
+              {% endfor %}
+            </select>
+            <input name="role" placeholder="Role" />
+            <select name="assignment_status">
+              <option>ACTIVE</option>
+              <option>INACTIVE</option>
+              <option>COMPLETED</option>
+            </select>
+            <input type="date" name="start_date" />
+            <input type="date" name="end_date" />
+            <button type="submit">Save Assignment</button>
+          </form>
+        </div>
+      {% endif %}
+
+      <h2>Assignments</h2>
+      <table>
+        <tr>
+          <th>DUID</th>
+          <th>Project</th>
+          <th>Employee</th>
+          <th>Role</th>
+          <th>Status</th>
+          <th>Start</th>
+          <th>End</th>
+        </tr>
+        {% for assignment in assignments %}
+          <tr>
+            <td><a href="{{ url_for('site_detail', du_id=assignment.du_id) }}">{{ assignment.du_id }}</a></td>
+            <td>{{ assignment.project_name or '-' }}</td>
+            <td>{{ assignment.first_name or '' }} {{ assignment.last_name or '' }}</td>
+            <td>{{ assignment.role or '-' }}</td>
+            <td>{{ assignment.assignment_status }}</td>
+            <td>{{ assignment.start_date or '-' }}</td>
+            <td>{{ assignment.end_date or '-' }}</td>
+          </tr>
+        {% endfor %}
+      </table>
+    </div>
+  </body>
+</html>

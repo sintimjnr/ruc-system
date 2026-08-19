@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+
+<link rel="stylesheet"
+href="{{ url_for('static',filename='css/style.css') }}">
+
+</head>
+
+
+<body>
+
+
+<div class="topbar">
+
+<img class="logo"
+src="{{ url_for('static',filename='images/ruc_logo.png') }}">
+
+RUC Management System
+
+</div>
+
+
+<div class="menu">
+
+<a href="/dashboard">Dashboard</a>
+<a href="/create_project">Create Project</a>
+<a href="/search">Search</a>
+<a href="/id_generator">ID Generator</a>
+<a href="/logout">Logout</a>
+
+</div>
+
+
+
+<div class="form-box">
+
+<h2>Create Project</h2>
+
+
+<form method="POST">
+
+<input name="project_name"
+placeholder="Project Name">
+
+
+<input name="region"
+placeholder="Region">
+
+
+<input name="company"
+placeholder="Company">
+
+
+<button>
+
+Create Project
+
+</button>
+
+
+</form>
+
+
+</div>
+
+
+</body>
+
+</html>

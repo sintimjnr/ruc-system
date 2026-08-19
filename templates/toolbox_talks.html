@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Toolbox Talks</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
+  </head>
+  <body>
+    <div class="topbar">
+      <img class="logo" src="{{ url_for('static', filename='images/ruc_logo.png') }}" />
+      Toolbox Talks
+    </div>
+
+    <div class="menu">
+      <a href="/dashboard">Dashboard</a>
+      <a href="/sites">Sites</a>
+      <a href="/site_assignments">Assignments</a>
+      <a href="/telecom_tasks">Tasks</a>
+      <a href="/incidents">Incidents</a>
+      <a href="/logout">Logout</a>
+    </div>
+
+    <div class="container">
+      <div class="form-box wide">
+        <h2>Record Toolbox Talk</h2>
+        <form method="POST" class="filter-grid">
+          <select name="project_id" required>
+            <option value="">Project</option>
+            {% for project in projects %}
+              <option value="{{ project.id }}">{{ project.project_name }} - {{ project.project_code }}</option>
+            {% endfor %}
+          </select>
+          <select name="du_id" required>
+            <option value="">DUID</option>
+            {% for duid in duids %}
+              <option value="{{ duid }}">{{ duid }}</option>
+            {% endfor %}
+          </select>
+          <input name="topic" placeholder="Topic" required />
+          <input type="date" name="date" required />
+          <select name="conducted_by">
+            <option value="">Conducted By</option>
+            {% for emp in employees %}
+              <option value="{{ emp.id }}">{{ emp.first_name }} {{ emp.last_name }}</option>
+            {% endfor %}
+          </select>
+          <textarea name="notes" placeholder="Notes"></textarea>
+
+          <div class="checkbox-panel">
+            <h3>Attendance</h3>
+            {% for emp in employees %}
+              <label>
+                <input type="checkbox" name="employee_ids" value="{{ emp.id }}" />
+                {{ emp.first_name }} {{ emp.last_name }}{% if emp.assigned_du_id %} - {{ emp.assigned_du_id }}{% endif %}
+              </label>
+            {% endfor %}
+          </div>
+
+          <button type="submit">Save Toolbox Talk</button>
+        </form>
+      </div>
+
+      <h2>Toolbox Talks</h2>
+      <table>
+        <tr>
+          <th>Date</th>
+          <th>DUID</th>
+          <th>Project</th>
+          <th>Topic</th>
+          <th>Conducted By</th>
+          <th>Attendees</th>
+          <th>Notes</th>
+        </tr>
+        {% for talk in talks %}
+          <tr>
+            <td>{{ talk.date }}</td>
+            <td>{{ talk.du_id }}</td>
+            <td>{{ talk.project_name or '-' }}</td>
+            <td>{{ talk.topic }}</td>
+            <td>{{ talk.conducted_first_name or '' }} {{ talk.conducted_last_name or '' }}</td>
+            <td>{{ talk.attendees }}</td>
+            <td>{{ talk.notes or '-' }}</td>
+          </tr>
+        {% endfor %}
+      </table>
+    </div>
+  </body>
+</html>

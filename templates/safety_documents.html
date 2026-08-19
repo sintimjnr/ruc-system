@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Safety Documents</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
+  </head>
+  <body>
+    <div class="topbar">
+      <img class="logo" src="{{ url_for('static', filename='images/ruc_logo.png') }}" />
+      Safety Documents
+    </div>
+
+    <div class="menu">
+      <a href="/dashboard">Dashboard</a>
+      <a href="/search">Search</a>
+      <a href="/sites">Sites</a>
+      <a href="/telecom_tasks">Tasks</a>
+      <a href="/permits">Permits</a>
+      <a href="/incidents">Incidents</a>
+      <a href="/logout">Logout</a>
+    </div>
+
+    <div class="container">
+      <div class="form-box wide">
+        <h2>Add Safety Document</h2>
+        <form method="POST" enctype="multipart/form-data" class="filter-grid">
+          <select name="employee_id" required>
+            <option value="">Employee</option>
+            {% for emp in employees %}
+              <option value="{{ emp.id }}">{{ emp.first_name }} {{ emp.last_name }}</option>
+            {% endfor %}
+          </select>
+          <select name="project_id">
+            <option value="">Use Employee Project</option>
+            {% for project in projects %}
+              <option value="{{ project.id }}">{{ project.project_name }} - {{ project.project_code }}</option>
+            {% endfor %}
+          </select>
+          <select name="document_type" required>
+            <option value="">Document Type</option>
+            {% for document_type in document_types %}
+              <option>{{ document_type }}</option>
+            {% endfor %}
+          </select>
+          <input name="reference_number" placeholder="Reference Number" />
+          <input type="date" name="issue_date" />
+          <input type="date" name="expiry_date" />
+          <input type="file" name="document_file" />
+          <button type="submit">Save Document</button>
+        </form>
+      </div>
+
+      <div class="form-box wide">
+        <h2>Document Filters</h2>
+        <form method="GET" class="filter-grid">
+          <select name="project_id">
+            <option value="">All Projects</option>
+            {% for project in projects %}
+              <option value="{{ project.id }}" {% if filters.project_id == project.id|string %}selected{% endif %}>{{ project.project_name }} - {{ project.project_code }}</option>
+            {% endfor %}
+          </select>
+          <select name="employee_id">
+            <option value="">All Employees</option>
+            {% for emp in employees %}
+              <option value="{{ emp.id }}" {% if filters.employee_id == emp.id|string %}selected{% endif %}>{{ emp.first_name }} {{ emp.last_name }}</option>
+            {% endfor %}
+          </select>
+          <select name="document_type">
+            <option value="">All Types</option>
+            {% for document_type in document_types %}
+              <option value="{{ document_type }}" {% if filters.document_type == document_type %}selected{% endif %}>{{ document_type }}</option>
+            {% endfor %}
+          </select>
+          <select name="status">
+            <option value="">Any Status</option>
+            {% for status in ['VALID','EXPIRING SOON','EXPIRED','MISSING'] %}
+              <option value="{{ status }}" {% if filters.status == status %}selected{% endif %}>{{ status }}</option>
+            {% endfor %}
+          </select>
+          <button type="submit">Filter Documents</button>
+        </form>
+      </div>
+
+      <h2>Safety Documents</h2>
+      <table>
+        <tr>
+          <th>Employee</th>
+          <th>Project</th>
+          <th>Type</th>
+          <th>Reference</th>
+          <th>Issue Date</th>
+          <th>Expiry Date</th>
+          <th>Status</th>
+          <th>File</th>
+        </tr>
+        {% for document in documents %}
+          <tr>
+            <td>{{ document.first_name or '' }} {{ document.last_name or '' }}</td>
+            <td>{{ document.project_name or '-' }}</td>
+            <td>{{ document.document_type }}</td>
+            <td>{{ document.reference_number or '-' }}</td>
+            <td>{{ document.issue_date or '-' }}</td>
+            <td>{{ document.expiry_date or '-' }}</td>
+            <td><span class="status {{ document.current_status|lower|replace(' ', '-') }}">{{ document.current_status }}</span></td>
+            <td>
+              {% if document.file_path %}
+                <a class="btn-small" href="/{{ document.file_path }}" target="_blank">Open</a>
+              {% else %}
+                -
+              {% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+      </table>
+    </div>
+  </body>
+</html>

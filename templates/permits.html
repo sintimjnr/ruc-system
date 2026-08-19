@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Permit To Work</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
+  </head>
+  <body>
+    <div class="topbar">
+      <img class="logo" src="{{ url_for('static', filename='images/ruc_logo.png') }}" />
+      Permit To Work
+    </div>
+
+    <div class="menu">
+      <a href="/dashboard">Dashboard</a>
+      <a href="/sites">Sites</a>
+      <a href="/telecom_tasks">Tasks</a>
+      <a href="/toolbox_talks">Toolbox Talks</a>
+      <a href="/incidents">Incidents</a>
+      <a href="/logout">Logout</a>
+    </div>
+
+    <div class="container">
+      <div class="form-box wide">
+        <h2>Create Permit</h2>
+        <form method="POST" enctype="multipart/form-data" class="filter-grid">
+          <input name="permit_number" placeholder="Permit Number" required />
+          <select name="project_id" required>
+            <option value="">Project</option>
+            {% for project in projects %}
+              <option value="{{ project.id }}">{{ project.project_name }} - {{ project.project_code }}</option>
+            {% endfor %}
+          </select>
+          <select name="du_id" required>
+            <option value="">DUID</option>
+            {% for duid in duids %}
+              <option value="{{ duid }}">{{ duid }}</option>
+            {% endfor %}
+          </select>
+          <input name="permit_type" placeholder="Permit Type" />
+          <input name="issued_to" placeholder="Issued To" />
+          <input name="issued_by" placeholder="Issued By" />
+          <input type="date" name="valid_from" />
+          <input type="date" name="valid_until" />
+          <select name="status">
+            {% for status in statuses %}
+              <option {% if status == 'PENDING' %}selected{% endif %}>{{ status }}</option>
+            {% endfor %}
+          </select>
+          <input type="file" name="permit_file" />
+          <textarea name="notes" placeholder="Notes"></textarea>
+          <button type="submit">Create Permit</button>
+        </form>
+      </div>
+
+      <div class="form-box wide">
+        <h2>Permit Filters</h2>
+        <form method="GET" class="filter-grid">
+          <select name="project_id">
+            <option value="">All Projects</option>
+            {% for project in projects %}
+              <option value="{{ project.id }}" {% if filters.project_id == project.id|string %}selected{% endif %}>{{ project.project_name }} - {{ project.project_code }}</option>
+            {% endfor %}
+          </select>
+          <select name="du_id">
+            <option value="">All DUIDs</option>
+            {% for duid in duids %}
+              <option value="{{ duid }}" {% if filters.du_id == duid %}selected{% endif %}>{{ duid }}</option>
+            {% endfor %}
+          </select>
+          <select name="status">
+            <option value="">Any Status</option>
+            {% for status in statuses %}
+              <option value="{{ status }}" {% if filters.status == status %}selected{% endif %}>{{ status }}</option>
+            {% endfor %}
+          </select>
+          <button type="submit">Filter Permits</button>
+        </form>
+      </div>
+
+      <h2>Permits</h2>
+      <table>
+        <tr>
+          <th>Permit</th>
+          <th>DUID</th>
+          <th>Project</th>
+          <th>Type</th>
+          <th>Valid</th>
+          <th>Status</th>
+          <th>File</th>
+          <th>Update</th>
+        </tr>
+        {% for permit in permits %}
+          <tr>
+            <td>{{ permit.permit_number }}</td>
+            <td>{{ permit.du_id }}</td>
+            <td>{{ permit.project_name or '-' }}</td>
+            <td>{{ permit.permit_type or '-' }}</td>
+            <td>{{ permit.valid_from or '-' }} to {{ permit.valid_until or '-' }}</td>
+            <td>{{ permit.status }}</td>
+            <td>
+              {% if permit.file_path %}
+                <a class="btn-small" href="/{{ permit.file_path }}" target="_blank">Open</a>
+              {% else %}
+                -
+              {% endif %}
+            </td>
+            <td>
+              <form method="POST" action="/permits/{{ permit.id }}/status" class="table-form">
+                <select name="status">
+                  {% for status in statuses %}
+                    <option value="{{ status }}" {% if permit.status == status %}selected{% endif %}>{{ status }}</option>
+                  {% endfor %}
+                </select>
+                <button type="submit">Save</button>
+              </form>
+            </td>
+          </tr>
+        {% endfor %}
+      </table>
+    </div>
+  </body>
+</html>

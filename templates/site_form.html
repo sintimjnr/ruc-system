@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>{% if mode == 'new' %}Register Site{% else %}Edit Site{% endif %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
+  </head>
+  <body>
+    <div class="topbar">
+      <img class="logo" src="{{ url_for('static', filename='images/ruc_logo.png') }}" />
+      {% if mode == 'new' %}Register Operational Site{% else %}Edit Operational Site{% endif %}
+    </div>
+
+    <div class="menu">
+      <a href="/dashboard">Dashboard</a>
+      <a href="/sites">Telecom Sites</a>
+      <a href="/site_assignments">Assignments</a>
+      <a href="/telecom_tasks">Tasks</a>
+      <a href="/logout">Logout</a>
+    </div>
+
+    <div class="container">
+      <div class="detail-grid">
+        <section class="info-panel">
+          <h2>Tracker / Reference Data</h2>
+          {% if reference_site %}
+            <dl class="detail-list">
+              <dt>DUID</dt>
+              <dd>{{ reference_site.du_id }}</dd>
+              <dt>Site Name</dt>
+              <dd>{{ reference_site.display_site_name or '-' }}</dd>
+              <dt>Customer Site ID</dt>
+              <dd>{{ reference_site.customer_site_id or '-' }}</dd>
+              <dt>DU Name</dt>
+              <dd>{{ reference_site.du_name or '-' }}</dd>
+              <dt>TowerCo</dt>
+              <dd>{{ reference_site.towerco or '-' }}</dd>
+              <dt>Region / Province</dt>
+              <dd>{{ reference_site.region_province or '-' }}</dd>
+              <dt>Municipality</dt>
+              <dd>{{ reference_site.municipality or '-' }}</dd>
+              <dt>Tracker Access</dt>
+              <dd>{{ reference_site.towerco_access_status or '-' }}</dd>
+            </dl>
+          {% else %}
+            <p class="muted">No tracker/reference record selected.</p>
+          {% endif %}
+        </section>
+
+        <section class="info-panel">
+          <h2>RUC Operational Data</h2>
+          <form method="POST" class="form-grid">
+            {% if mode == 'new' %}
+              <input list="duid-options" name="du_id" value="{{ selected_duid }}" placeholder="DUID" required />
+              <datalist id="duid-options">
+                {% for duid in duids %}
+                  <option value="{{ duid }}"></option>
+                {% endfor %}
+              </datalist>
+            {% else %}
+              <input name="du_id" value="{{ site.du_id }}" readonly />
+            {% endif %}
+
+            <select name="project_id">
+              <option value="">No Project Link</option>
+              {% for project in projects %}
+                <option value="{{ project.id }}" {% if site and site.project_id == project.id %}selected{% endif %}>{{ project.project_name }} - {{ project.project_code }}</option>
+              {% endfor %}
+            </select>
+
+            <input name="vendor" value="{{ (site.vendor or '') if site else '' }}" placeholder="Vendor" />
+
+            <select name="current_stage">
+              {% for stage in stages %}
+                <option value="{{ stage }}" {% if site and site.current_stage == stage %}selected{% endif %}>{{ stage }}</option>
+              {% endfor %}
+            </select>
+
+            <input type="number" name="overall_progress" min="0" max="100" value="{{ (site.overall_progress or 0) if site else 0 }}" placeholder="Overall Progress %" />
+
+            <select name="overall_status">
+              {% for status in site_statuses %}
+                <option value="{{ status }}" {% if site and site.overall_status == status %}selected{% endif %}>{{ status }}</option>
+              {% endfor %}
+            </select>
+
+            <input type="date" name="access_valid_from" value="{{ (site.access_valid_from or '') if site else '' }}" />
+            <input type="date" name="access_valid_until" value="{{ (site.access_valid_until or '') if site else '' }}" />
+
+            <select name="access_status">
+              <option value="">Access Status From Date/Tracker</option>
+              {% for status in access_statuses %}
+                <option value="{{ status }}" {% if site and site.access_status == status %}selected{% endif %}>{{ status }}</option>
+              {% endfor %}
+            </select>
+
+            <select name="pat_status">
+              {% for status in pat_statuses %}
+                <option value="{{ status }}" {% if site and site.pat_status == status %}selected{% endif %}>{{ status }}</option>
+              {% endfor %}
+            </select>
+
+            <input name="operational_team_leader" value="{{ (site.operational_team_leader or '') if site else '' }}" placeholder="Operational Team Leader" />
+            <textarea name="remarks" placeholder="Operational Remarks">{{ (site.operational_remarks or '') if site else '' }}</textarea>
+
+            <button type="submit">Save Site</button>
+          </form>
+        </section>
+      </div>
+    </div>
+  </body>
+</html>

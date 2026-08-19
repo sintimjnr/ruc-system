@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Edit Employee</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
+  </head>
+
+  <body>
+    <div class="topbar">
+      <img class="logo" src="{{ url_for('static', filename='images/ruc_logo.png') }}" />
+      Edit Employee
+    </div>
+
+    <div class="menu">
+      <a href="/dashboard">Dashboard</a>
+      <a href="/search">Search</a>
+      <a href="/id_generator">ID Generator</a>
+      <a href="/logout">Logout</a>
+    </div>
+
+    <div class="container">
+      <div class="form-box wide">
+        <h2>{{ emp.first_name }} {{ emp.last_name }}</h2>
+        <p class="muted">Project: {{ emp.project_name or '-' }} - {{ emp.project_code or '-' }}</p>
+
+        <form method="POST" enctype="multipart/form-data">
+          <h3>Basic Information</h3>
+          <div class="form-grid">
+            <input name="first_name" value="{{ emp.first_name or '' }}" placeholder="First Name" required />
+            <input name="last_name" value="{{ emp.last_name or '' }}" placeholder="Last Name" required />
+            <input name="position" value="{{ emp.position or '' }}" placeholder="Position" required />
+            <input name="email" value="{{ emp.email or '' }}" placeholder="Email" />
+            <input name="mobile" value="{{ emp.mobile or '' }}" placeholder="Mobile" required />
+          </div>
+
+          <h3>Telecom Assignment</h3>
+          <div class="form-grid">
+            <input name="telecom_role" value="{{ emp.telecom_role or '' }}" placeholder="Telecom Role" />
+            <select name="assigned_du_id">
+              <option value="">Assigned DUID</option>
+              {% for duid in duids %}
+                <option value="{{ duid }}" {% if emp.assigned_du_id == duid %}selected{% endif %}>{{ duid }}</option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <h3>Phone Information</h3>
+          <div class="form-grid">
+            <select name="phone_type">
+              <option value="ANDROID" {% if emp.phone_type == 'ANDROID' %}selected{% endif %}>ANDROID</option>
+              <option value="IPHONE" {% if emp.phone_type == 'IPHONE' %}selected{% endif %}>IPHONE</option>
+            </select>
+            <input name="ftap_imei" value="{{ emp.ftap_imei or '' }}" placeholder="FTAP IMEI" />
+            <input name="ftap_email" value="{{ emp.ftap_email or '' }}" placeholder="FTAP Email" />
+            <input name="philtower_imei" value="{{ emp.philtower_imei or '' }}" placeholder="Philtower IMEI" />
+            <input name="philtower_email" value="{{ emp.philtower_email or '' }}" placeholder="Philtower Email" />
+          </div>
+
+          <h3>Safety Status</h3>
+          <div class="status-row">
+            <span class="status {{ emp.nbi_status|lower|replace(' ', '-') }}">NBI: {{ emp.nbi_status }}</span>
+            <span class="status {{ emp.wah_status|lower|replace(' ', '-') }}">WAH: {{ emp.wah_status }}</span>
+            <span class="status {{ emp.first_aid_status|lower|replace(' ', '-') }}">First Aid: {{ emp.first_aid_status }}</span>
+            <span class="status {{ emp.overall_safety_status|lower|replace(' ', '-') }}">Overall: {{ emp.overall_safety_status }}</span>
+          </div>
+
+          <h3>NBI</h3>
+          <div class="form-grid">
+            <input name="nbi_reference" value="{{ emp.nbi_reference or '' }}" placeholder="NBI Reference" />
+            <input type="date" name="nbi_issue_date" value="{{ emp.nbi_issue_date or '' }}" />
+            <input type="date" name="nbi_expiry_date" value="{{ emp.nbi_expiry_date or '' }}" />
+          </div>
+          <label>Replace NBI File</label>
+          <input type="file" name="nbi" />
+
+          <h3>WAH</h3>
+          <div class="form-grid">
+            <input name="wah_reference" value="{{ emp.wah_reference or '' }}" placeholder="WAH Reference" />
+            <input type="date" name="wah_issue_date" value="{{ emp.wah_issue_date or '' }}" />
+            <input type="date" name="wah_expiry_date" value="{{ emp.wah_expiry_date or '' }}" />
+          </div>
+          <label>Replace WAH File</label>
+          <input type="file" name="wah_file" />
+
+          <h3>First Aid</h3>
+          <div class="form-grid">
+            <input name="first_aid_reference" value="{{ emp.first_aid_reference or '' }}" placeholder="First Aid Reference" />
+            <input type="date" name="first_aid_issue_date" value="{{ emp.first_aid_issue_date or '' }}" />
+            <input type="date" name="first_aid_expiry_date" value="{{ emp.first_aid_expiry_date or '' }}" />
+          </div>
+          <label>Replace First Aid File</label>
+          <input type="file" name="first_aid_file" />
+
+          <h3>Existing Uploads</h3>
+          <div class="form-grid">
+            <label>Replace Employee Photo<input type="file" name="photo" /></label>
+            <label>Replace Safety Certificate<input type="file" name="certificate" /></label>
+            <label>Replace Signature<input type="file" name="signature" /></label>
+          </div>
+
+          <p class="muted">Dossier: {{ emp.dossier_folder_path or '-' }}</p>
+
+          <button type="submit">Update Employee</button>
+        </form>
+      </div>
+    </div>
+  </body>
+</html>
