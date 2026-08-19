@@ -40,6 +40,15 @@ $env:PGPASSWORD="3598"
 
 This keeps the existing `safety_documents` table, adds current/history metadata, and preserves uploaded safety document records.
 
+For Phase 4 Daily Site Operations & Attendance, run:
+
+```powershell
+$env:PGPASSWORD="3598"
+& "C:\Program Files\PostgreSQL\13\bin\psql.exe" -h localhost -U postgres -d ruc_system -f "D:\RUC_SYSTEM\db_phase4_daily_operations.sql"
+```
+
+This adds `daily_site_logs`, `daily_attendance`, and `daily_log_files` for local daily field reports without modifying tracker/reference data.
+
 ## 3. Configure Local Secrets
 
 The app still falls back to the original local development values, but production-like local use should set:
@@ -108,6 +117,12 @@ After logging in as an admin:
 19. Confirm the dossier shows current NBI, WAH, First Aid, assignment, and legacy RUC files.
 20. Replace a safety document from Edit Employee and confirm the old safety document appears as history.
 21. Try assigning a missing/expired worker to a DUID and confirm the safety warning appears before final confirmation.
+22. Open Daily Operations and confirm daily report filters load.
+23. From Site Detail, create a Daily Report with work completed, blockers, next-day plan, attendance, and site evidence.
+24. Confirm the Daily Report detail page shows site, report, attendance, safety snapshots, and evidence files.
+25. Edit the Daily Report and confirm existing evidence remains available.
+26. Confirm the site operational stage/progress updates from the report while `NLZ_MASTER_TRACKER.xlsx` remains unchanged.
+27. Export Daily Operations to Excel.
 
 ## Notes
 
@@ -115,3 +130,5 @@ After logging in as an admin:
 - Existing legacy uploads remain under `D:\RUC_SYSTEM\uploads`.
 - Existing project workbooks keep the current `<project_code>.xlsx` naming convention.
 - The master tracker keeps its original sheets; the app adds/updates a `RUC SAFETY` sheet when employee safety data is submitted.
+- Daily report evidence remains local under `D:\RUC_SYSTEM\static\uploads\projects\<project_code>\sites\<duid>\daily_logs\<YYYY-MM-DD>`.
+- Daily report data can sync into `DAILY LOGS` and `ATTENDANCE` sheets in an existing project workbook when the daily log is tied to a project.

@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>{% if mode == 'edit' %}Edit{% else %}New{% endif %} Daily Report</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
+  </head>
+  <body>
+    <div class="topbar">
+      <img class="logo" src="{{ url_for('static', filename='images/ruc_logo.png') }}" />
+      {% if mode == 'edit' %}Edit{% else %}New{% endif %} Daily Report
+    </div>
+
+    <div class="menu">
+      <a href="/dashboard">Dashboard</a>
+      <a href="/daily_operations">Daily Operations</a>
+      <a href="{{ url_for('site_detail', du_id=site.du_id) }}">Site Detail</a>
+      <a href="/sites">Sites</a>
+      <a href="/logout">Logout</a>
+    </div>
+
+    <div class="container">
+      <div class="site-heading">
+        <div>
+          <h1>{{ site.du_id }}</h1>
+          <p>{{ site.display_site_name or site.du_name or 'Unnamed Site' }}</p>
+        </div>
+        <div class="site-badges">
+          <span class="status {{ site.current_stage|lower|replace(' ', '-') }}">{{ site.current_stage }}</span>
+          <span class="status {{ site.overall_status|lower|replace(' ', '-') }}">{{ site.overall_status }}</span>
+        </div>
+      </div>
+
+      <form method="POST" enctype="multipart/form-data">
+        <div class="form-box wide">
+          <h2>Report</h2>
+          <div class="filter-grid">
+            <select name="project_id">
+              <option value="">No Project</option>
+              {% for project in projects %}
+                <option value="{{ project.id }}" {% if log.project_id == project.id %}selected{% endif %}>{{ project.project_name }} - {{ project.project_code }}</option>
+              {% endfor %}
+            </select>
+            <input type="date" name="report_date" value="{{ log.report_date or '' }}" required />
+            <select name="current_stage" required>
+              {% for stage in stages %}
+                <option value="{{ stage }}" {% if log.current_stage == stage %}selected{% endif %}>{{ stage }}</option>
+              {% endfor %}
+            </select>
+            <input type="number" name="progress_before" min="0" max="100" value="{{ log.progress_before or 0 }}" required />
+            <input type="number" name="progress_after" min="0" max="100" value="{{ log.progress_after or 0 }}" required />
+            <select name="blocker_category">
+              {% for category in blocker_categories %}
+                <option value="{{ category }}" {% if log.blocker_category == category %}selected{% endif %}>{% if category %}{{ category }}{% else %}No Blocker Category{% endif %}</option>
+              {% endfor %}
+            </select>
+            <textarea name="work_completed" placeholder="Work Completed">{{ log.work_completed or '' }}</textarea>
+            <textarea name="blockers" placeholder="Blockers / Problems">{{ log.blockers or '' }}</textarea>
+            <textarea name="next_day_plan" placeholder="Next Day Plan">{{ log.next_day_plan or '' }}</textarea>
+            <textarea name="weather_notes" placeholder="Weather Notes">{{ log.weather_notes or '' }}</textarea>
+            <textarea name="general_notes" placeholder="General Notes">{{ log.general_notes or '' }}</textarea>
+          </div>
+        </div>
+
+        <h2>Attendance</h2>
+        <table>
+          <tr>
+            <th>Worker</th>
+            <th>Role</th>
+            <th>Safety</th>
+            <th>Status</th>
+            <th>Time In</th>
+            <th>Time Out</th>
+            <th>Remarks</th>
+          </tr>
+          {% for person in attendance_people %}
+            <tr>
+              <td>
+                <input type="hidden" name="attendance_employee_id" value="{{ person.id }}" />
+                <a href="{{ url_for('employee_dossier', employee_id=person.id) }}">{{ person.full_name }}</a>
+                {% if person.overall_safety_status in ['MISSING','EXPIRED'] %}
+                  <div class="notice danger compact-notice">Worker is not safety cleared.</div>
+                {% endif %}
+              </td>
+              <td>
+                <input name="role_at_site_{{ person.id }}" value="{{ person.role_at_site or '' }}" />
+              </td>
+              <td><span class="status {{ person.overall_safety_status|lower|replace(' ', '-') }}">{{ person.overall_safety_status }}</span></td>
+              <td>
+                <select name="attendance_status_{{ person.id }}">
+                  {% for status in attendance_statuses %}
+                    <option value="{{ status }}" {% if person.attendance_status == status %}selected{% endif %}>{{ status }}</option>
+                  {% endfor %}
+                </select>
+              </td>
+              <td><input type="time" name="time_in_{{ person.id }}" value="{{ (person.time_in|string)[:5] if person.time_in else '' }}" /></td>
+              <td><input type="time" name="time_out_{{ person.id }}" value="{{ (person.time_out|string)[:5] if person.time_out else '' }}" /></td>
+              <td><textarea name="attendance_remarks_{{ person.id }}">{{ person.remarks or '' }}</textarea></td>
+            </tr>
+          {% else %}
+            <tr>
+              <td colspan="7">No active assigned personnel for this DUID.</td>
+            </tr>
+          {% endfor %}
+        </table>
+
+        <div class="form-box wide">
+          <h2>Site Evidence</h2>
+          <div class="filter-grid">
+            <select name="daily_file_type">
+              <option value="PHOTO">Photos</option>
+              <option value="DOCUMENT">Documents</option>
+            </select>
+            <input type="file" name="daily_files" multiple accept=".png,.jpg,.jpeg,.pdf" />
+            <input name="file_captions" placeholder="Caption" />
+          </div>
+        </div>
+
+        {% if existing_files %}
+          <h2>Existing Evidence</h2>
+          <table>
+            <tr>
+              <th>Type</th>
+              <th>File</th>
+              <th>Caption</th>
+              <th>Uploaded</th>
+            </tr>
+            {% for file in existing_files %}
+              <tr>
+                <td>{{ file.file_type }}</td>
+                <td><a class="btn-small" href="{{ url_for('daily_log_file', file_id=file.id) }}" target="_blank">{{ file.display_name }}</a></td>
+                <td>{{ file.caption or '-' }}</td>
+                <td>{{ file.uploaded_at or '-' }}</td>
+              </tr>
+            {% endfor %}
+          </table>
+        {% endif %}
+
+        <div class="toolbar">
+          <button type="submit">{% if mode == 'edit' %}Save Daily Report{% else %}Create Daily Report{% endif %}</button>
+        </div>
+      </form>
+    </div>
+  </body>
+</html>

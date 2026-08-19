@@ -14,6 +14,7 @@
       <a href="/dashboard">Dashboard</a>
       <a href="/site_assignments">Assignments</a>
       <a href="/telecom_tasks">Tasks</a>
+      <a href="/daily_operations">Daily Operations</a>
       <a href="/permits">Permits</a>
       <a href="/incidents">Incidents</a>
       {% if session.get('role') == 'admin' %}
@@ -111,7 +112,8 @@
               {{ site.assigned_workers }} workers<br />
               {{ site.open_tasks }} tasks<br />
               {{ site.active_permits }} permits<br />
-              {{ site.open_incidents }} incidents
+              {{ site.open_incidents }} incidents<br />
+              {{ site.daily_reports }} daily reports
             </td>
             <td>
               <a class="btn-small" href="{{ url_for('site_detail', du_id=site.du_id) }}">View</a>

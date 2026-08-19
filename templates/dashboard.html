@@ -17,6 +17,7 @@
       <a href="/search">Search</a>
       <a href="/safety">Safety Compliance</a>
       <a href="/sites">Sites</a>
+      <a href="/daily_operations">Daily Operations</a>
       <a href="/safety_documents">Safety Documents</a>
       <a href="/site_assignments">Assignments</a>
       <a href="/telecom_tasks">Tasks</a>
@@ -47,11 +48,17 @@
         <div class="card">Open Tasks<br /><br /><b>{{ open_telecom_tasks }}</b></div>
         <div class="card">Active Permits<br /><br /><b>{{ active_permits }}</b></div>
         <div class="card">Open Incidents<br /><br /><b>{{ open_incidents }}</b></div>
+        <div class="card">Reports Today<br /><br /><b>{{ reports_today }}</b></div>
+        <div class="card">Active Sites Today<br /><br /><b>{{ active_sites_today }}</b></div>
+        <div class="card">Present Today<br /><br /><b>{{ personnel_present_today }}</b></div>
+        <div class="card">Blockers Today<br /><br /><b>{{ sites_with_blockers }}</b></div>
+        <div class="card">Sites Updated Today<br /><br /><b>{{ sites_updated_today }}</b></div>
       </div>
 
       <div class="toolbar">
         <a class="btn" href="/master_tracker" target="_blank">MASTER TRACKER</a>
         <a class="btn" href="/upload_master_tracker">Upload Updated Master Tracker</a>
+        <a class="btn" href="/daily_operations">Daily Operations</a>
       </div>
 
       <div class="form-box wide">
@@ -131,6 +138,44 @@
       </table>
 
       <div class="dashboard-panels">
+        <section>
+          <h2>Recent Daily Activity</h2>
+          <table>
+            <tr>
+              <th>Date</th>
+              <th>DUID</th>
+              <th>Site</th>
+              <th>Stage</th>
+              <th>Progress</th>
+              <th>Attendance</th>
+              <th>Blocker</th>
+              <th>Action</th>
+            </tr>
+            {% for log in recent_daily_activity %}
+              <tr>
+                <td>{{ log.report_date }}</td>
+                <td><a href="{{ url_for('site_detail', du_id=log.duid) }}">{{ log.duid }}</a></td>
+                <td>{{ log.display_site_name or '-' }}</td>
+                <td><span class="status {{ log.current_stage|lower|replace(' ', '-') }}">{{ log.current_stage }}</span></td>
+                <td>{{ log.progress_after }}%</td>
+                <td>{{ log.present_count }}/{{ log.attendance_count }}</td>
+                <td>
+                  {% if log.blocker_category or log.blockers %}
+                    <span class="status blocked">{{ log.blocker_category or 'Reported' }}</span>
+                  {% else %}
+                    -
+                  {% endif %}
+                </td>
+                <td><a class="btn-small" href="{{ url_for('daily_log_detail', log_id=log.id) }}">View</a></td>
+              </tr>
+            {% else %}
+              <tr>
+                <td colspan="8">No daily reports yet.</td>
+              </tr>
+            {% endfor %}
+          </table>
+        </section>
+
         <section>
           <h2>Sites by Stage</h2>
           <table>

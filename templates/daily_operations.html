@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Daily Operations</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
+  </head>
+  <body>
+    <div class="topbar">
+      <img class="logo" src="{{ url_for('static', filename='images/ruc_logo.png') }}" />
+      Daily Operations
+    </div>
+
+    <div class="menu">
+      <a href="/dashboard">Dashboard</a>
+      <a href="/sites">Sites</a>
+      <a href="/site_assignments">Assignments</a>
+      <a href="/telecom_tasks">Tasks</a>
+      <a href="/safety">Safety Compliance</a>
+      <a href="/logout">Logout</a>
+    </div>
+
+    <div class="container">
+      <div class="form-box wide">
+        <h2>Daily Operation Filters</h2>
+        <form method="GET" class="filter-grid">
+          <input type="date" name="report_date" value="{{ filters.report_date }}" />
+          <select name="duid">
+            <option value="">All DUIDs</option>
+            {% for duid in duids %}
+              <option value="{{ duid }}" {% if filters.duid == duid %}selected{% endif %}>{{ duid }}</option>
+            {% endfor %}
+          </select>
+          <input name="site" value="{{ filters.site }}" placeholder="Site name" />
+          <select name="stage">
+            <option value="">Any Stage</option>
+            {% for stage in stages %}
+              <option value="{{ stage }}" {% if filters.stage == stage %}selected{% endif %}>{{ stage }}</option>
+            {% endfor %}
+          </select>
+          <select name="project_id">
+            <option value="">All Projects</option>
+            {% for project in projects %}
+              <option value="{{ project.id }}" {% if filters.project_id == project.id|string %}selected{% endif %}>{{ project.project_name }} - {{ project.project_code }}</option>
+            {% endfor %}
+          </select>
+          <select name="towerco">
+            <option value="">All TowerCos</option>
+            {% for towerco in towercos %}
+              <option value="{{ towerco }}" {% if filters.towerco == towerco %}selected{% endif %}>{{ towerco }}</option>
+            {% endfor %}
+          </select>
+          <select name="has_blocker">
+            <option value="">Any Blocker State</option>
+            <option value="yes" {% if filters.has_blocker == 'yes' %}selected{% endif %}>With Blockers</option>
+            <option value="no" {% if filters.has_blocker == 'no' %}selected{% endif %}>No Blockers</option>
+          </select>
+          <input name="submitted_by" value="{{ filters.submitted_by }}" placeholder="Submitted by" />
+          <button type="submit">Filter Reports</button>
+        </form>
+      </div>
+
+      <div class="toolbar">
+        <a class="btn" href="{{ url_for('daily_operations_export', report_date=filters.report_date, duid=filters.duid, site=filters.site, stage=filters.stage, project_id=filters.project_id, towerco=filters.towerco, has_blocker=filters.has_blocker, submitted_by=filters.submitted_by) }}">Export Excel</a>
+      </div>
+
+      <h2>Recent Site Activity</h2>
+      <table>
+        <tr>
+          <th>Date</th>
+          <th>DUID</th>
+          <th>Site</th>
+          <th>Project</th>
+          <th>TowerCo</th>
+          <th>Stage</th>
+          <th>Progress</th>
+          <th>Attendance</th>
+          <th>Work Completed</th>
+          <th>Blocker</th>
+          <th>Evidence</th>
+          <th>Action</th>
+        </tr>
+        {% for log in logs %}
+          <tr>
+            <td>{{ log.report_date }}</td>
+            <td><a href="{{ url_for('site_detail', du_id=log.duid) }}">{{ log.duid }}</a></td>
+            <td>{{ log.display_site_name or '-' }}</td>
+            <td>{{ log.project_name or log.project_code or '-' }}</td>
+            <td>{{ log.towerco or '-' }}</td>
+            <td><span class="status {{ log.current_stage|lower|replace(' ', '-') }}">{{ log.current_stage }}</span></td>
+            <td>{{ log.progress_before }}% to {{ log.progress_after }}%</td>
+            <td>{{ log.present_count }}/{{ log.attendance_count }}</td>
+            <td>{{ log.work_completed or '-' }}</td>
+            <td>
+              {% if log.blocker_category or log.blockers %}
+                <span class="status blocked">{{ log.blocker_category or 'Reported' }}</span>
+              {% else %}
+                -
+              {% endif %}
+            </td>
+            <td>{{ log.file_count }}</td>
+            <td>
+              <a class="btn-small" href="{{ url_for('daily_log_detail', log_id=log.id) }}">View</a>
+              {% if session.get('role') == 'admin' %}
+                <a class="btn-small" href="{{ url_for('edit_daily_log', log_id=log.id) }}">Edit</a>
+              {% endif %}
+            </td>
+          </tr>
+        {% else %}
+          <tr>
+            <td colspan="12">No daily site reports found.</td>
+          </tr>
+        {% endfor %}
+      </table>
+    </div>
+  </body>
+</html>

@@ -13,6 +13,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from flask import send_from_directory
 from functools import wraps
 import uuid
+from io import BytesIO
 
 
 #############################################
@@ -177,6 +178,8 @@ UPLOAD_CATEGORIES = {
     "certificates",
     "permits",
     "incidents",
+    "daily_photos",
+    "daily_documents",
     "other",
 }
 LEGACY_UPLOAD_CATEGORIES = {
@@ -197,6 +200,8 @@ CATEGORY_UPLOAD_EXTENSIONS = {
     "secid": ALLOWED_DOCUMENT_EXTENSIONS,
     "permits": ALLOWED_DOCUMENT_EXTENSIONS,
     "incidents": ALLOWED_DOCUMENT_EXTENSIONS,
+    "daily_photos": ALLOWED_IMAGE_EXTENSIONS,
+    "daily_documents": ALLOWED_DOCUMENT_EXTENSIONS,
     "other": ALLOWED_DOCUMENT_EXTENSIONS,
 }
 
@@ -240,6 +245,21 @@ SITE_STATUSES = ["Not Started", "Active", "On Hold", "Blocked", "Completed"]
 ACCESS_STATUSES = ["VALID", "EXPIRING SOON", "EXPIRED", "MISSING"]
 PAT_STATUSES = ["MISSING", "PENDING", "IN PROGRESS", "PASSED", "FAILED", "WAIVED"]
 EXPIRING_SOON_DAYS = 30
+DAILY_ATTENDANCE_STATUSES = ["Present", "Absent", "Late", "Excused"]
+DAILY_BLOCKER_CATEGORIES = [
+    "",
+    "Access Issue",
+    "Weather",
+    "Material Shortage",
+    "Permit Issue",
+    "Power Issue",
+    "Technical Issue",
+    "Safety Issue",
+    "Manpower Issue",
+    "Customer/TowerCo Dependency",
+    "Other",
+]
+DAILY_FILE_TYPES = ["PHOTO", "DOCUMENT"]
 
 
 @app.route("/static/<path:filename>", endpoint="static")
@@ -1194,6 +1214,648 @@ def validate_date_field(value, field_name):
     return value
 
 
+def validate_time_field(value, field_name):
+
+    value = clean_text(value)
+
+    if not value:
+        return None
+
+    for time_format in ("%H:%M", "%H:%M:%S"):
+        try:
+            return datetime.strptime(value, time_format).time()
+        except ValueError:
+            pass
+
+    raise ValueError(f"{field_name} must use HH:MM format")
+
+
+def save_daily_log_upload(file_storage, project_key, duid, report_date, file_type):
+
+    if not file_storage or file_storage.filename == "":
+        return "", "", ""
+
+    file_type = normalize_choice(file_type, DAILY_FILE_TYPES, "PHOTO")
+
+    if not file_type:
+        raise ValueError("Invalid daily log file type")
+
+    allowed_extensions = (
+        ALLOWED_IMAGE_EXTENSIONS
+        if file_type == "PHOTO"
+        else ALLOWED_DOCUMENT_EXTENSIONS
+    )
+
+    if not allowed_file(file_storage.filename, allowed_extensions):
+        raise ValueError("Unsupported daily evidence file type")
+
+    date_value = parse_date_value(report_date)
+
+    if not date_value:
+        raise ValueError("Report date is required before saving evidence")
+
+    safe_project = secure_filename(str(project_key or "general")) or "general"
+    safe_duid = secure_filename(validate_duid_value(duid)) or "site"
+    folder_name = "photos" if file_type == "PHOTO" else "documents"
+    folder_path = safe_abs_path(
+        "static",
+        "uploads",
+        "projects",
+        safe_project,
+        "sites",
+        safe_duid,
+        "daily_logs",
+        date_value.isoformat(),
+        folder_name,
+    )
+    os.makedirs(folder_path, exist_ok=True)
+
+    original_filename = secure_filename(file_storage.filename)
+    filename = str(uuid.uuid4()) + "_" + original_filename
+    file_path = os.path.join(folder_path, filename)
+    file_storage.save(file_path)
+
+    return os.path.relpath(file_path, BASE_DIR).replace("\\", "/"), file_path, original_filename
+
+
+def get_project_code_for_daily_path(cursor, project_id):
+
+    if not project_id:
+        return "general"
+
+    cursor.execute(
+        "SELECT project_code FROM projects WHERE id=%s",
+        (project_id,),
+    )
+    project = row_to_dict(cursor)
+    return project.get("project_code") if project and project.get("project_code") else project_id
+
+
+def collect_daily_log_form_data(cursor, duid, existing_log=None):
+
+    duid = validate_duid_value(duid)
+    project_id = clean_text(request.form.get("project_id"))
+    current_stage = normalize_choice(
+        request.form.get("current_stage"), SITE_STAGES, ""
+    )
+    report_date = validate_date_field(request.form.get("report_date"), "Report date")
+    progress_before = validate_progress(request.form.get("progress_before"))
+    progress_after = validate_progress(request.form.get("progress_after"))
+    blocker_category = normalize_choice(
+        request.form.get("blocker_category"), DAILY_BLOCKER_CATEGORIES, ""
+    )
+    blockers = clean_text(request.form.get("blockers"))
+    general_notes = clean_text(request.form.get("general_notes"))
+
+    if not report_date:
+        raise ValueError("Report date is required")
+
+    if clean_text(request.form.get("current_stage")) and not current_stage:
+        raise ValueError("Invalid site stage")
+
+    if not current_stage:
+        current_stage = (existing_log or {}).get("current_stage") or "Planning"
+
+    if clean_text(request.form.get("blocker_category")) and blocker_category is None:
+        raise ValueError("Invalid blocker category")
+
+    if progress_after < progress_before and not (blockers or general_notes):
+        raise ValueError(
+            "Progress after cannot be less than progress before without a blocker or note"
+        )
+
+    if project_id:
+        cursor.execute("SELECT 1 FROM projects WHERE id=%s", (project_id,))
+
+        if not cursor.fetchone():
+            raise ValueError("Invalid project")
+
+    if not duid_exists(cursor, duid):
+        raise ValueError("Invalid DUID")
+
+    return {
+        "project_id": project_id or None,
+        "duid": duid,
+        "report_date": report_date,
+        "current_stage": current_stage,
+        "progress_before": progress_before,
+        "progress_after": progress_after,
+        "work_completed": clean_text(request.form.get("work_completed")),
+        "blocker_category": blocker_category or None,
+        "blockers": blockers,
+        "next_day_plan": clean_text(request.form.get("next_day_plan")),
+        "general_notes": general_notes,
+        "weather_notes": clean_text(request.form.get("weather_notes")),
+        "submitted_by": session.get("admin", ""),
+    }
+
+
+def apply_daily_site_progress(cursor, log_data):
+
+    overall_status = (
+        "Completed"
+        if log_data["progress_after"] == 100 or log_data["current_stage"] == "Completed"
+        else "Active"
+    )
+
+    cursor.execute(
+        """
+        INSERT INTO telecom_sites(
+            du_id,
+            project_id,
+            current_stage,
+            overall_progress,
+            overall_status,
+            updated_at
+        )
+        VALUES(%s,%s,%s,%s,%s,CURRENT_TIMESTAMP)
+        ON CONFLICT(du_id)
+        DO UPDATE SET
+            project_id=COALESCE(EXCLUDED.project_id, telecom_sites.project_id),
+            current_stage=EXCLUDED.current_stage,
+            overall_progress=EXCLUDED.overall_progress,
+            overall_status=CASE
+                WHEN EXCLUDED.overall_status='Completed' THEN 'Completed'
+                WHEN telecom_sites.overall_status IS NULL THEN 'Active'
+                WHEN telecom_sites.overall_status='' THEN 'Active'
+                WHEN telecom_sites.overall_status='Not Started' THEN 'Active'
+                ELSE telecom_sites.overall_status
+            END,
+            updated_at=CURRENT_TIMESTAMP
+        """,
+        (
+            log_data["duid"],
+            log_data["project_id"],
+            log_data["current_stage"],
+            log_data["progress_after"],
+            overall_status,
+        ),
+    )
+
+
+def get_daily_attendance_people(cursor, duid, daily_log_id=None):
+
+    if daily_log_id:
+        cursor.execute(
+            """
+            SELECT DISTINCT ON (e.id)
+                   e.id,
+                   e.first_name,
+                   e.last_name,
+                   e.position,
+                   e.telecom_role,
+                   e.nbi,
+                   e.wah_file,
+                   e.first_aid_file,
+                   e.nbi_expiry_date,
+                   e.wah_expiry_date,
+                   e.first_aid_expiry_date,
+                   sa.role AS assignment_role,
+                   da.attendance_status,
+                   da.time_in,
+                   da.time_out,
+                   da.role_at_site,
+                   da.safety_status_snapshot,
+                   da.remarks
+            FROM employees e
+            LEFT JOIN site_assignments sa
+              ON sa.employee_id = e.id
+             AND sa.du_id = %s
+             AND sa.assignment_status='ACTIVE'
+            LEFT JOIN daily_attendance da
+              ON da.employee_id = e.id
+             AND da.daily_log_id = %s
+            WHERE sa.id IS NOT NULL
+               OR da.id IS NOT NULL
+            ORDER BY e.id, da.id NULLS LAST, sa.id DESC
+            """,
+            (duid, daily_log_id),
+        )
+    else:
+        cursor.execute(
+            """
+            SELECT e.id,
+                   e.first_name,
+                   e.last_name,
+                   e.position,
+                   e.telecom_role,
+                   e.nbi,
+                   e.wah_file,
+                   e.first_aid_file,
+                   e.nbi_expiry_date,
+                   e.wah_expiry_date,
+                   e.first_aid_expiry_date,
+                   sa.role AS assignment_role,
+                   'Present' AS attendance_status,
+                   NULL::time AS time_in,
+                   NULL::time AS time_out,
+                   COALESCE(sa.role, e.telecom_role, e.position) AS role_at_site,
+                   NULL AS safety_status_snapshot,
+                   NULL AS remarks
+            FROM site_assignments sa
+            JOIN employees e ON sa.employee_id = e.id
+            WHERE sa.du_id=%s
+              AND sa.assignment_status='ACTIVE'
+            ORDER BY e.first_name, e.last_name, e.id
+            """,
+            (duid,),
+        )
+
+    people = rows_to_dicts(cursor)
+
+    for person in people:
+        person["full_name"] = full_employee_name(person)
+        person.update(safety_summary_from_employee(person))
+        person["role_at_site"] = (
+            person.get("role_at_site")
+            or person.get("assignment_role")
+            or person.get("telecom_role")
+            or person.get("position")
+            or ""
+        )
+        person["attendance_status"] = (
+            person.get("attendance_status") or "Present"
+        )
+
+    return people
+
+
+def sync_daily_attendance(cursor, daily_log_id, duid):
+
+    employee_ids = request.form.getlist("attendance_employee_id")
+
+    for raw_employee_id in employee_ids:
+        employee_id = clean_text(raw_employee_id)
+
+        if not employee_id:
+            continue
+
+        cursor.execute(
+            """
+            SELECT id,
+                   first_name,
+                   last_name,
+                   position,
+                   telecom_role,
+                   nbi,
+                   wah_file,
+                   first_aid_file,
+                   nbi_expiry_date,
+                   wah_expiry_date,
+                   first_aid_expiry_date
+            FROM employees
+            WHERE id=%s
+            """,
+            (employee_id,),
+        )
+        employee = row_to_dict(cursor)
+
+        if not employee:
+            raise ValueError("Invalid attendance employee")
+
+        attendance_status = normalize_choice(
+            request.form.get(f"attendance_status_{employee_id}"),
+            DAILY_ATTENDANCE_STATUSES,
+            "Present",
+        )
+
+        if not attendance_status:
+            raise ValueError("Invalid attendance status")
+
+        time_in = validate_time_field(
+            request.form.get(f"time_in_{employee_id}"),
+            f"Time in for {full_employee_name(employee)}",
+        )
+        time_out = validate_time_field(
+            request.form.get(f"time_out_{employee_id}"),
+            f"Time out for {full_employee_name(employee)}",
+        )
+
+        if time_in and time_out and time_out < time_in:
+            raise ValueError("Time out cannot be before time in")
+
+        cursor.execute(
+            """
+            SELECT role
+            FROM site_assignments
+            WHERE employee_id=%s
+              AND du_id=%s
+              AND assignment_status='ACTIVE'
+            ORDER BY id DESC
+            LIMIT 1
+            """,
+            (employee_id, duid),
+        )
+        assignment = row_to_dict(cursor) or {}
+        summary = safety_summary_from_employee(employee)
+        role_at_site = clean_text(request.form.get(f"role_at_site_{employee_id}")) or (
+            assignment.get("role")
+            or employee.get("telecom_role")
+            or employee.get("position")
+            or ""
+        )
+        remarks = clean_text(request.form.get(f"attendance_remarks_{employee_id}"))
+
+        cursor.execute(
+            """
+            INSERT INTO daily_attendance(
+                daily_log_id,
+                employee_id,
+                attendance_status,
+                time_in,
+                time_out,
+                role_at_site,
+                safety_status_snapshot,
+                remarks,
+                updated_at
+            )
+            VALUES(%s,%s,%s,%s,%s,%s,%s,%s,CURRENT_TIMESTAMP)
+            ON CONFLICT(daily_log_id, employee_id)
+            DO UPDATE SET
+                attendance_status=EXCLUDED.attendance_status,
+                time_in=EXCLUDED.time_in,
+                time_out=EXCLUDED.time_out,
+                role_at_site=EXCLUDED.role_at_site,
+                safety_status_snapshot=EXCLUDED.safety_status_snapshot,
+                remarks=EXCLUDED.remarks,
+                updated_at=CURRENT_TIMESTAMP
+            """,
+            (
+                daily_log_id,
+                employee_id,
+                attendance_status,
+                time_in,
+                time_out,
+                role_at_site,
+                summary["overall_safety_status"],
+                remarks,
+            ),
+        )
+
+
+def save_daily_log_files(cursor, daily_log_id, project_key, duid, report_date):
+
+    uploads = request.files.getlist("daily_files")
+    captions = request.form.getlist("file_captions")
+    file_type = clean_text(request.form.get("daily_file_type")) or "PHOTO"
+
+    for index, upload in enumerate(uploads):
+        if not upload or upload.filename == "":
+            continue
+
+        original_file_type = file_type
+        if file_type == "PHOTO" and not allowed_file(upload.filename, ALLOWED_IMAGE_EXTENSIONS):
+            original_file_type = "DOCUMENT"
+
+        rel_path, _, original_filename = save_daily_log_upload(
+            upload, project_key, duid, report_date, original_file_type
+        )
+        caption = clean_text(captions[index]) if index < len(captions) else ""
+
+        cursor.execute(
+            """
+            INSERT INTO daily_log_files(
+                daily_log_id,
+                file_type,
+                file_path,
+                original_filename,
+                caption
+            )
+            VALUES(%s,%s,%s,%s,%s)
+            """,
+            (
+                daily_log_id,
+                original_file_type,
+                rel_path,
+                original_filename,
+                caption,
+            ),
+        )
+
+
+def ensure_daily_workbook_sheets(wb):
+
+    if "DAILY LOGS" not in wb.sheetnames:
+        ws = wb.create_sheet("DAILY LOGS")
+        ws.append(
+            [
+                "LOG ID",
+                "DATE",
+                "DUID",
+                "STAGE",
+                "PROGRESS BEFORE",
+                "PROGRESS AFTER",
+                "WORK COMPLETED",
+                "BLOCKER CATEGORY",
+                "BLOCKERS",
+                "NEXT DAY PLAN",
+                "SUBMITTED BY",
+                "UPDATED AT",
+            ]
+        )
+
+    if "ATTENDANCE" not in wb.sheetnames:
+        ws = wb.create_sheet("ATTENDANCE")
+        ws.append(
+            [
+                "LOG ID",
+                "DATE",
+                "DUID",
+                "EMPLOYEE ID",
+                "EMPLOYEE NAME",
+                "ROLE",
+                "ATTENDANCE STATUS",
+                "TIME IN",
+                "TIME OUT",
+                "SAFETY STATUS",
+                "REMARKS",
+            ]
+        )
+
+
+def sync_daily_log_to_project_workbook(cursor, daily_log_id):
+
+    cursor.execute(
+        """
+        SELECT dsl.id,
+               dsl.project_id,
+               dsl.duid,
+               dsl.report_date,
+               dsl.current_stage,
+               dsl.progress_before,
+               dsl.progress_after,
+               dsl.work_completed,
+               dsl.blocker_category,
+               dsl.blockers,
+               dsl.next_day_plan,
+               dsl.submitted_by,
+               dsl.updated_at,
+               p.project_code
+        FROM daily_site_logs dsl
+        LEFT JOIN projects p ON dsl.project_id = p.id
+        WHERE dsl.id=%s
+        """,
+        (daily_log_id,),
+    )
+    log = row_to_dict(cursor)
+
+    if not log or not log.get("project_code"):
+        return
+
+    try:
+        excel_path = project_excel_path(log["project_code"])
+    except ValueError:
+        return
+
+    if not os.path.exists(excel_path):
+        return
+
+    backup_file(excel_path, safe_abs_path("backups", "excel"))
+    wb = load_workbook(excel_path)
+    ensure_daily_workbook_sheets(wb)
+
+    ws = wb["DAILY LOGS"]
+    row = None
+
+    for current_row in range(2, ws.max_row + 1):
+        if ws.cell(row=current_row, column=1).value == daily_log_id:
+            row = current_row
+            break
+
+    if row is None:
+        row = ws.max_row + 1
+
+    values = [
+        log["id"],
+        log["report_date"],
+        log["duid"],
+        log["current_stage"],
+        log["progress_before"],
+        log["progress_after"],
+        log["work_completed"],
+        log["blocker_category"],
+        log["blockers"],
+        log["next_day_plan"],
+        log["submitted_by"],
+        log["updated_at"],
+    ]
+
+    for col, value in enumerate(values, start=1):
+        ws.cell(row=row, column=col).value = value
+
+    attendance_ws = wb["ATTENDANCE"]
+    rows_to_delete = []
+
+    for current_row in range(2, attendance_ws.max_row + 1):
+        if attendance_ws.cell(row=current_row, column=1).value == daily_log_id:
+            rows_to_delete.append(current_row)
+
+    for current_row in reversed(rows_to_delete):
+        attendance_ws.delete_rows(current_row, 1)
+
+    cursor.execute(
+        """
+        SELECT da.employee_id,
+               da.attendance_status,
+               da.time_in,
+               da.time_out,
+               da.role_at_site,
+               da.safety_status_snapshot,
+               da.remarks,
+               e.first_name,
+               e.last_name
+        FROM daily_attendance da
+        LEFT JOIN employees e ON da.employee_id = e.id
+        WHERE da.daily_log_id=%s
+        ORDER BY e.first_name, e.last_name, da.employee_id
+        """,
+        (daily_log_id,),
+    )
+    attendance_rows = rows_to_dicts(cursor)
+
+    for attendance in attendance_rows:
+        attendance_ws.append(
+            [
+                log["id"],
+                log["report_date"],
+                log["duid"],
+                attendance["employee_id"],
+                full_employee_name(attendance),
+                attendance.get("role_at_site"),
+                attendance.get("attendance_status"),
+                str(attendance.get("time_in") or ""),
+                str(attendance.get("time_out") or ""),
+                attendance.get("safety_status_snapshot"),
+                attendance.get("remarks"),
+            ]
+        )
+
+    wb.save(excel_path)
+
+
+def build_daily_log_filter_conditions(filters):
+
+    conditions = ["TRUE"]
+    params = []
+    blocker_filter = clean_text(filters.get("has_blocker"))
+
+    if filters.get("report_date"):
+        report_date = validate_date_field(filters["report_date"], "Report date")
+        conditions.append("dsl.report_date=%s")
+        params.append(report_date)
+
+    if filters.get("duid"):
+        conditions.append("dsl.duid ILIKE %s")
+        params.append("%" + clean_text(filters["duid"]) + "%")
+
+    if filters.get("site"):
+        conditions.append(
+            """
+            COALESCE(g.site_name, g.sitename, g.globe_du_name, pr.planning_du_name, '')
+                ILIKE %s
+            """
+        )
+        params.append("%" + clean_text(filters["site"]) + "%")
+
+    if filters.get("stage"):
+        stage = normalize_choice(filters["stage"], SITE_STAGES, "")
+
+        if not stage:
+            raise ValueError("Invalid site stage")
+
+        conditions.append("dsl.current_stage=%s")
+        params.append(stage)
+
+    if filters.get("project_id"):
+        conditions.append("dsl.project_id=%s")
+        params.append(clean_text(filters["project_id"]))
+
+    if filters.get("towerco"):
+        conditions.append("g.towerco=%s")
+        params.append(clean_text(filters["towerco"]))
+
+    if blocker_filter:
+        blocker_condition = """
+            (
+                COALESCE(TRIM(dsl.blockers), '') <> ''
+                OR COALESCE(TRIM(dsl.blocker_category), '') <> ''
+            )
+        """
+
+        if blocker_filter == "yes":
+            conditions.append(blocker_condition)
+        elif blocker_filter == "no":
+            conditions.append("NOT " + blocker_condition)
+        else:
+            raise ValueError("Invalid blocker filter")
+
+    if filters.get("submitted_by"):
+        conditions.append("dsl.submitted_by ILIKE %s")
+        params.append("%" + clean_text(filters["submitted_by"]) + "%")
+
+    return conditions, params
+
+
 def collect_site_form_data(cursor, existing_du_id=None):
 
     du_id = validate_duid_value(existing_du_id or request.form.get("du_id"))
@@ -1910,6 +2572,57 @@ def dashboard():
     )
     open_incidents = cursor.fetchone()[0]
 
+    cursor.execute(
+        """
+        SELECT COUNT(*)
+        FROM daily_site_logs
+        WHERE report_date=CURRENT_DATE
+        """
+    )
+    reports_today = cursor.fetchone()[0]
+
+    cursor.execute(
+        """
+        SELECT COUNT(DISTINCT duid)
+        FROM daily_site_logs
+        WHERE report_date=CURRENT_DATE
+        """
+    )
+    active_sites_today = cursor.fetchone()[0]
+
+    cursor.execute(
+        """
+        SELECT COUNT(*)
+        FROM daily_attendance da
+        JOIN daily_site_logs dsl ON da.daily_log_id = dsl.id
+        WHERE dsl.report_date=CURRENT_DATE
+          AND da.attendance_status IN ('Present','Late')
+        """
+    )
+    personnel_present_today = cursor.fetchone()[0]
+
+    cursor.execute(
+        """
+        SELECT COUNT(DISTINCT duid)
+        FROM daily_site_logs
+        WHERE report_date=CURRENT_DATE
+          AND (
+              COALESCE(TRIM(blockers), '') <> ''
+              OR COALESCE(TRIM(blocker_category), '') <> ''
+          )
+        """
+    )
+    sites_with_blockers = cursor.fetchone()[0]
+
+    cursor.execute(
+        """
+        SELECT COUNT(DISTINCT duid)
+        FROM daily_site_logs
+        WHERE updated_at::date=CURRENT_DATE
+        """
+    )
+    sites_updated_today = cursor.fetchone()[0]
+
     task_conditions = ["TRUE"]
     task_params = []
 
@@ -2019,6 +2732,39 @@ def dashboard():
     recent_incidents = rows_to_dicts(cursor)
 
     cursor.execute(
+        f"""
+        {SITE_REFERENCE_CTE}
+        SELECT dsl.id,
+               dsl.duid,
+               dsl.report_date,
+               dsl.current_stage,
+               dsl.progress_after,
+               dsl.work_completed,
+               dsl.blocker_category,
+               dsl.blockers,
+               dsl.submitted_by,
+               p.project_name,
+               COALESCE(g.site_name, g.sitename, g.globe_du_name, pr.planning_du_name) AS display_site_name,
+               COALESCE(att.present_count, 0) AS present_count,
+               COALESCE(att.total_count, 0) AS attendance_count
+        FROM daily_site_logs dsl
+        LEFT JOIN globe_sites g ON g.du_id = dsl.duid
+        LEFT JOIN planning_sites pr ON pr.du_id = dsl.duid
+        LEFT JOIN projects p ON dsl.project_id = p.id
+        LEFT JOIN (
+            SELECT daily_log_id,
+                   COUNT(*) AS total_count,
+                   COUNT(*) FILTER (WHERE attendance_status IN ('Present','Late')) AS present_count
+            FROM daily_attendance
+            GROUP BY daily_log_id
+        ) att ON att.daily_log_id = dsl.id
+        ORDER BY dsl.report_date DESC, dsl.created_at DESC, dsl.id DESC
+        LIMIT 10
+        """
+    )
+    recent_daily_activity = rows_to_dicts(cursor)
+
+    cursor.execute(
         """
         SELECT DISTINCT du_id
         FROM (
@@ -2072,6 +2818,12 @@ def dashboard():
         open_telecom_tasks=open_telecom_tasks,
         active_permits=active_permits,
         open_incidents=open_incidents,
+        reports_today=reports_today,
+        active_sites_today=active_sites_today,
+        personnel_present_today=personnel_present_today,
+        sites_with_blockers=sites_with_blockers,
+        sites_updated_today=sites_updated_today,
+        recent_daily_activity=recent_daily_activity,
         duids=duids,
         employees=employees,
         filters=filters,
@@ -3205,6 +3957,27 @@ def employee_dossier(employee_id):
     )
     assignments = rows_to_dicts(cursor)
 
+    cursor.execute(
+        """
+        SELECT dsl.id AS daily_log_id,
+               dsl.duid,
+               dsl.report_date,
+               dsl.current_stage,
+               da.attendance_status,
+               da.time_in,
+               da.time_out,
+               da.role_at_site,
+               da.safety_status_snapshot
+        FROM daily_attendance da
+        JOIN daily_site_logs dsl ON da.daily_log_id = dsl.id
+        WHERE da.employee_id=%s
+        ORDER BY dsl.report_date DESC, dsl.created_at DESC, dsl.id DESC
+        LIMIT 10
+        """,
+        (employee_id,),
+    )
+    recent_attendance = rows_to_dicts(cursor)
+
     cursor.close()
     conn.close()
 
@@ -3225,6 +3998,7 @@ def employee_dossier(employee_id):
         current_documents=current_documents,
         document_history=document_history,
         assignments=assignments,
+        recent_attendance=recent_attendance,
         legacy_files=legacy_files,
         document_types=DOCUMENT_TYPES,
     )
@@ -3663,7 +4437,8 @@ def sites():
                COALESCE(sa_count.assigned_workers, 0) AS assigned_workers,
                COALESCE(tt_count.open_tasks, 0) AS open_tasks,
                COALESCE(ptw_count.active_permits, 0) AS active_permits,
-               COALESCE(ir_count.open_incidents, 0) AS open_incidents
+               COALESCE(ir_count.open_incidents, 0) AS open_incidents,
+               COALESCE(daily_count.daily_reports, 0) AS daily_reports
         {SITE_FROM_JOINS}
         LEFT JOIN (
             SELECT du_id, COUNT(DISTINCT employee_id) AS assigned_workers
@@ -3690,6 +4465,11 @@ def sites():
             WHERE status NOT IN ('CLOSED','RESOLVED','CANCELLED')
             GROUP BY du_id
         ) ir_count ON ir_count.du_id = d.du_id
+        LEFT JOIN (
+            SELECT duid AS du_id, COUNT(*) AS daily_reports
+            FROM daily_site_logs
+            GROUP BY duid
+        ) daily_count ON daily_count.du_id = d.du_id
         WHERE {' AND '.join(conditions)}
         ORDER BY d.du_id
         LIMIT 300
@@ -3882,6 +4662,35 @@ def site_detail(du_id):
     )
     recent_incidents = rows_to_dicts(cursor)
 
+    cursor.execute(
+        """
+        SELECT dsl.id,
+               dsl.report_date,
+               dsl.current_stage,
+               dsl.progress_before,
+               dsl.progress_after,
+               dsl.work_completed,
+               dsl.blocker_category,
+               dsl.blockers,
+               dsl.submitted_by,
+               COALESCE(att.total_count, 0) AS attendance_count,
+               COALESCE(att.present_count, 0) AS present_count
+        FROM daily_site_logs dsl
+        LEFT JOIN (
+            SELECT daily_log_id,
+                   COUNT(*) AS total_count,
+                   COUNT(*) FILTER (WHERE attendance_status IN ('Present','Late')) AS present_count
+            FROM daily_attendance
+            GROUP BY daily_log_id
+        ) att ON att.daily_log_id = dsl.id
+        WHERE dsl.duid=%s
+        ORDER BY dsl.report_date DESC, dsl.created_at DESC, dsl.id DESC
+        LIMIT 10
+        """,
+        (du_id,),
+    )
+    recent_daily_logs = rows_to_dicts(cursor)
+
     cursor.close()
     conn.close()
 
@@ -3892,6 +4701,7 @@ def site_detail(du_id):
         tasks=tasks,
         recent_permits=recent_permits,
         recent_incidents=recent_incidents,
+        recent_daily_logs=recent_daily_logs,
         projects=get_projects_for_select(),
         employees=get_employees_for_select(),
         task_types=TELECOM_TASK_TYPES,
@@ -3945,6 +4755,597 @@ def edit_site(du_id):
         pat_statuses=PAT_STATUSES,
         selected_duid=du_id,
     )
+
+
+#############################################
+# DAILY SITE OPERATIONS
+#############################################
+
+
+@app.route("/daily_operations")
+@login_required
+def daily_operations():
+
+    filters = {
+        "report_date": clean_text(request.args.get("report_date")),
+        "duid": clean_text(request.args.get("duid")),
+        "site": clean_text(request.args.get("site")),
+        "stage": clean_text(request.args.get("stage")),
+        "project_id": clean_text(request.args.get("project_id")),
+        "towerco": clean_text(request.args.get("towerco")),
+        "has_blocker": clean_text(request.args.get("has_blocker")),
+        "submitted_by": clean_text(request.args.get("submitted_by")),
+    }
+
+    try:
+        conditions, params = build_daily_log_filter_conditions(filters)
+    except ValueError as exc:
+        return str(exc)
+
+    conn = connect_db()
+    cursor = conn.cursor()
+    cursor.execute(
+        f"""
+        {SITE_REFERENCE_CTE}
+        SELECT dsl.id,
+               dsl.project_id,
+               dsl.duid,
+               dsl.report_date,
+               dsl.current_stage,
+               dsl.progress_before,
+               dsl.progress_after,
+               dsl.work_completed,
+               dsl.blocker_category,
+               dsl.blockers,
+               dsl.next_day_plan,
+               dsl.submitted_by,
+               dsl.created_at,
+               dsl.updated_at,
+               p.project_name,
+               p.project_code,
+               COALESCE(g.site_name, g.sitename, g.globe_du_name, pr.planning_du_name) AS display_site_name,
+               g.towerco,
+               COALESCE(g.province, pr.mdb_province, pr.territory) AS region_province,
+               COALESCE(att.total_count, 0) AS attendance_count,
+               COALESCE(att.present_count, 0) AS present_count,
+               COALESCE(files.file_count, 0) AS file_count
+        FROM daily_site_logs dsl
+        LEFT JOIN globe_sites g ON g.du_id = dsl.duid
+        LEFT JOIN planning_sites pr ON pr.du_id = dsl.duid
+        LEFT JOIN projects p ON dsl.project_id = p.id
+        LEFT JOIN (
+            SELECT daily_log_id,
+                   COUNT(*) AS total_count,
+                   COUNT(*) FILTER (WHERE attendance_status IN ('Present','Late')) AS present_count
+            FROM daily_attendance
+            GROUP BY daily_log_id
+        ) att ON att.daily_log_id = dsl.id
+        LEFT JOIN (
+            SELECT daily_log_id, COUNT(*) AS file_count
+            FROM daily_log_files
+            GROUP BY daily_log_id
+        ) files ON files.daily_log_id = dsl.id
+        WHERE {' AND '.join(conditions)}
+        ORDER BY dsl.report_date DESC, dsl.created_at DESC, dsl.id DESC
+        LIMIT 300
+        """,
+        params,
+    )
+    logs = rows_to_dicts(cursor)
+    cursor.close()
+    conn.close()
+
+    return render_template(
+        "daily_operations.html",
+        logs=logs,
+        filters=filters,
+        projects=get_projects_for_select(),
+        duids=get_duids_for_select(),
+        towercos=get_towercos_for_select(),
+        stages=SITE_STAGES,
+    )
+
+
+@app.route("/daily_operations/export")
+@login_required
+def daily_operations_export():
+
+    filters = {
+        "report_date": clean_text(request.args.get("report_date")),
+        "duid": clean_text(request.args.get("duid")),
+        "site": clean_text(request.args.get("site")),
+        "stage": clean_text(request.args.get("stage")),
+        "project_id": clean_text(request.args.get("project_id")),
+        "towerco": clean_text(request.args.get("towerco")),
+        "has_blocker": clean_text(request.args.get("has_blocker")),
+        "submitted_by": clean_text(request.args.get("submitted_by")),
+    }
+
+    try:
+        conditions, params = build_daily_log_filter_conditions(filters)
+    except ValueError as exc:
+        return str(exc)
+
+    conn = connect_db()
+    cursor = conn.cursor()
+    cursor.execute(
+        f"""
+        {SITE_REFERENCE_CTE}
+        SELECT dsl.report_date,
+               dsl.duid,
+               COALESCE(g.site_name, g.sitename, g.globe_du_name, pr.planning_du_name) AS display_site_name,
+               dsl.current_stage,
+               dsl.progress_before,
+               dsl.progress_after,
+               dsl.work_completed,
+               dsl.blocker_category,
+               dsl.blockers,
+               dsl.next_day_plan,
+               dsl.submitted_by,
+               COALESCE(att.total_count, 0) AS attendance_count,
+               COALESCE(att.present_count, 0) AS present_count
+        FROM daily_site_logs dsl
+        LEFT JOIN globe_sites g ON g.du_id = dsl.duid
+        LEFT JOIN planning_sites pr ON pr.du_id = dsl.duid
+        LEFT JOIN (
+            SELECT daily_log_id,
+                   COUNT(*) AS total_count,
+                   COUNT(*) FILTER (WHERE attendance_status IN ('Present','Late')) AS present_count
+            FROM daily_attendance
+            GROUP BY daily_log_id
+        ) att ON att.daily_log_id = dsl.id
+        WHERE {' AND '.join(conditions)}
+        ORDER BY dsl.report_date DESC, dsl.created_at DESC, dsl.id DESC
+        LIMIT 1000
+        """,
+        params,
+    )
+    logs = rows_to_dicts(cursor)
+    cursor.close()
+    conn.close()
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "DAILY OPERATIONS"
+    ws.append(
+        [
+            "DATE",
+            "DUID",
+            "SITE NAME",
+            "STAGE",
+            "PROGRESS BEFORE",
+            "PROGRESS AFTER",
+            "WORK COMPLETED",
+            "BLOCKER CATEGORY",
+            "BLOCKERS",
+            "NEXT DAY PLAN",
+            "SUBMITTED BY",
+            "ATTENDANCE COUNT",
+            "PRESENT/LATE COUNT",
+        ]
+    )
+
+    for log in logs:
+        ws.append(
+            [
+                log.get("report_date"),
+                log.get("duid"),
+                log.get("display_site_name"),
+                log.get("current_stage"),
+                log.get("progress_before"),
+                log.get("progress_after"),
+                log.get("work_completed"),
+                log.get("blocker_category"),
+                log.get("blockers"),
+                log.get("next_day_plan"),
+                log.get("submitted_by"),
+                log.get("attendance_count"),
+                log.get("present_count"),
+            ]
+        )
+
+    output = BytesIO()
+    wb.save(output)
+    output.seek(0)
+
+    return send_file(
+        output,
+        as_attachment=True,
+        download_name="daily_operations.xlsx",
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+
+
+@app.route("/sites/<path:du_id>/daily_logs/new", methods=["GET", "POST"])
+@admin_required
+def new_daily_log(du_id):
+
+    du_id = validate_duid_value(du_id)
+    conn = connect_db()
+    cursor = conn.cursor()
+    site = get_site_by_duid(cursor, du_id)
+
+    if not site:
+        cursor.close()
+        conn.close()
+        return "Site not found"
+
+    if request.method == "POST":
+        try:
+            log_data = collect_daily_log_form_data(cursor, du_id)
+        except ValueError as exc:
+            cursor.close()
+            conn.close()
+            return str(exc)
+
+        cursor.execute(
+            """
+            SELECT id
+            FROM daily_site_logs
+            WHERE duid=%s
+              AND report_date=%s
+            """,
+            (du_id, log_data["report_date"]),
+        )
+
+        if cursor.fetchone():
+            cursor.close()
+            conn.close()
+            return "Daily report already exists for this DUID and date"
+
+        try:
+            cursor.execute(
+                """
+                INSERT INTO daily_site_logs(
+                    project_id,
+                    duid,
+                    report_date,
+                    current_stage,
+                    progress_before,
+                    progress_after,
+                    work_completed,
+                    blocker_category,
+                    blockers,
+                    next_day_plan,
+                    general_notes,
+                    weather_notes,
+                    submitted_by,
+                    updated_at
+                )
+                VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,CURRENT_TIMESTAMP)
+                RETURNING id
+                """,
+                (
+                    log_data["project_id"],
+                    log_data["duid"],
+                    log_data["report_date"],
+                    log_data["current_stage"],
+                    log_data["progress_before"],
+                    log_data["progress_after"],
+                    log_data["work_completed"],
+                    log_data["blocker_category"],
+                    log_data["blockers"],
+                    log_data["next_day_plan"],
+                    log_data["general_notes"],
+                    log_data["weather_notes"],
+                    log_data["submitted_by"],
+                ),
+            )
+            daily_log_id = cursor.fetchone()[0]
+            sync_daily_attendance(cursor, daily_log_id, du_id)
+            project_key = get_project_code_for_daily_path(cursor, log_data["project_id"])
+            save_daily_log_files(
+                cursor,
+                daily_log_id,
+                project_key,
+                du_id,
+                log_data["report_date"],
+            )
+            apply_daily_site_progress(cursor, log_data)
+            sync_daily_log_to_project_workbook(cursor, daily_log_id)
+            conn.commit()
+        except (ValueError, psycopg2.Error) as exc:
+            conn.rollback()
+            cursor.close()
+            conn.close()
+            return str(exc)
+
+        cursor.close()
+        conn.close()
+        return redirect(url_for("daily_log_detail", log_id=daily_log_id))
+
+    default_log = {
+        "project_id": site.get("project_id"),
+        "report_date": date.today(),
+        "current_stage": site.get("current_stage") or "Planning",
+        "progress_before": site.get("overall_progress") or 0,
+        "progress_after": site.get("overall_progress") or 0,
+    }
+    attendance_people = get_daily_attendance_people(cursor, du_id)
+    cursor.close()
+    conn.close()
+
+    return render_template(
+        "daily_log_form.html",
+        mode="new",
+        site=site,
+        log=default_log,
+        attendance_people=attendance_people,
+        existing_files=[],
+        projects=get_projects_for_select(),
+        stages=SITE_STAGES,
+        attendance_statuses=DAILY_ATTENDANCE_STATUSES,
+        blocker_categories=DAILY_BLOCKER_CATEGORIES,
+    )
+
+
+@app.route("/daily_logs/<int:log_id>")
+@login_required
+def daily_log_detail(log_id):
+
+    conn = connect_db()
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        SELECT dsl.id,
+               dsl.project_id,
+               dsl.duid,
+               dsl.report_date,
+               dsl.current_stage,
+               dsl.progress_before,
+               dsl.progress_after,
+               dsl.work_completed,
+               dsl.blocker_category,
+               dsl.blockers,
+               dsl.next_day_plan,
+               dsl.general_notes,
+               dsl.weather_notes,
+               dsl.submitted_by,
+               dsl.created_at,
+               dsl.updated_at,
+               p.project_name,
+               p.project_code
+        FROM daily_site_logs dsl
+        LEFT JOIN projects p ON dsl.project_id = p.id
+        WHERE dsl.id=%s
+        """,
+        (log_id,),
+    )
+    log = row_to_dict(cursor)
+
+    if not log:
+        cursor.close()
+        conn.close()
+        return "Daily report not found"
+
+    site = get_site_by_duid(cursor, log["duid"])
+
+    cursor.execute(
+        """
+        SELECT da.id,
+               da.employee_id,
+               da.attendance_status,
+               da.time_in,
+               da.time_out,
+               da.role_at_site,
+               da.safety_status_snapshot,
+               da.remarks,
+               e.first_name,
+               e.last_name,
+               e.position,
+               e.telecom_role
+        FROM daily_attendance da
+        LEFT JOIN employees e ON da.employee_id = e.id
+        WHERE da.daily_log_id=%s
+        ORDER BY e.first_name, e.last_name, da.employee_id
+        """,
+        (log_id,),
+    )
+    attendance = rows_to_dicts(cursor)
+
+    for row in attendance:
+        row["full_name"] = full_employee_name(row)
+
+    cursor.execute(
+        """
+        SELECT id,
+               file_type,
+               file_path,
+               original_filename,
+               caption,
+               uploaded_at
+        FROM daily_log_files
+        WHERE daily_log_id=%s
+        ORDER BY uploaded_at DESC, id DESC
+        """,
+        (log_id,),
+    )
+    files = rows_to_dicts(cursor)
+
+    for file_row in files:
+        file_row["display_name"] = (
+            file_row.get("original_filename")
+            or stored_file_display_name(file_row.get("file_path"))
+        )
+
+    cursor.close()
+    conn.close()
+
+    return render_template(
+        "daily_log_detail.html",
+        log=log,
+        site=site,
+        attendance=attendance,
+        files=files,
+    )
+
+
+@app.route("/daily_logs/<int:log_id>/edit", methods=["GET", "POST"])
+@admin_required
+def edit_daily_log(log_id):
+
+    conn = connect_db()
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        SELECT *
+        FROM daily_site_logs
+        WHERE id=%s
+        """,
+        (log_id,),
+    )
+    log = row_to_dict(cursor)
+
+    if not log:
+        cursor.close()
+        conn.close()
+        return "Daily report not found"
+
+    site = get_site_by_duid(cursor, log["duid"])
+
+    if request.method == "POST":
+        try:
+            log_data = collect_daily_log_form_data(cursor, log["duid"], log)
+        except ValueError as exc:
+            cursor.close()
+            conn.close()
+            return str(exc)
+
+        cursor.execute(
+            """
+            SELECT id
+            FROM daily_site_logs
+            WHERE duid=%s
+              AND report_date=%s
+              AND id<>%s
+            """,
+            (log["duid"], log_data["report_date"], log_id),
+        )
+
+        if cursor.fetchone():
+            cursor.close()
+            conn.close()
+            return "Daily report already exists for this DUID and date"
+
+        try:
+            cursor.execute(
+                """
+                UPDATE daily_site_logs
+                SET project_id=%s,
+                    report_date=%s,
+                    current_stage=%s,
+                    progress_before=%s,
+                    progress_after=%s,
+                    work_completed=%s,
+                    blocker_category=%s,
+                    blockers=%s,
+                    next_day_plan=%s,
+                    general_notes=%s,
+                    weather_notes=%s,
+                    submitted_by=%s,
+                    updated_at=CURRENT_TIMESTAMP
+                WHERE id=%s
+                """,
+                (
+                    log_data["project_id"],
+                    log_data["report_date"],
+                    log_data["current_stage"],
+                    log_data["progress_before"],
+                    log_data["progress_after"],
+                    log_data["work_completed"],
+                    log_data["blocker_category"],
+                    log_data["blockers"],
+                    log_data["next_day_plan"],
+                    log_data["general_notes"],
+                    log_data["weather_notes"],
+                    log_data["submitted_by"],
+                    log_id,
+                ),
+            )
+            sync_daily_attendance(cursor, log_id, log["duid"])
+            project_key = get_project_code_for_daily_path(cursor, log_data["project_id"])
+            save_daily_log_files(
+                cursor,
+                log_id,
+                project_key,
+                log["duid"],
+                log_data["report_date"],
+            )
+            apply_daily_site_progress(cursor, log_data)
+            sync_daily_log_to_project_workbook(cursor, log_id)
+            conn.commit()
+        except (ValueError, psycopg2.Error) as exc:
+            conn.rollback()
+            cursor.close()
+            conn.close()
+            return str(exc)
+
+        cursor.close()
+        conn.close()
+        return redirect(url_for("daily_log_detail", log_id=log_id))
+
+    attendance_people = get_daily_attendance_people(cursor, log["duid"], log_id)
+    cursor.execute(
+        """
+        SELECT id,
+               file_type,
+               file_path,
+               original_filename,
+               caption,
+               uploaded_at
+        FROM daily_log_files
+        WHERE daily_log_id=%s
+        ORDER BY uploaded_at DESC, id DESC
+        """,
+        (log_id,),
+    )
+    existing_files = rows_to_dicts(cursor)
+
+    for file_row in existing_files:
+        file_row["display_name"] = (
+            file_row.get("original_filename")
+            or stored_file_display_name(file_row.get("file_path"))
+        )
+
+    cursor.close()
+    conn.close()
+
+    return render_template(
+        "daily_log_form.html",
+        mode="edit",
+        site=site,
+        log=log,
+        attendance_people=attendance_people,
+        existing_files=existing_files,
+        projects=get_projects_for_select(),
+        stages=SITE_STAGES,
+        attendance_statuses=DAILY_ATTENDANCE_STATUSES,
+        blocker_categories=DAILY_BLOCKER_CATEGORIES,
+    )
+
+
+@app.route("/daily_log_files/<int:file_id>")
+@login_required
+def daily_log_file(file_id):
+
+    conn = connect_db()
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        SELECT file_path
+        FROM daily_log_files
+        WHERE id=%s
+        """,
+        (file_id,),
+    )
+    file_record = row_to_dict(cursor)
+    cursor.close()
+    conn.close()
+
+    if not file_record or not file_record.get("file_path"):
+        return "File not found"
+
+    return send_stored_file(file_record["file_path"])
 
 
 #############################################
@@ -5111,6 +6512,9 @@ def reset_system():
 
     reset_tables = [
         "incident_attachments",
+        "daily_log_files",
+        "daily_attendance",
+        "daily_site_logs",
         "toolbox_attendance",
         "incident_reports",
         "toolbox_talks",

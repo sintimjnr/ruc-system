@@ -15,6 +15,7 @@
       <a href="/search">Personnel</a>
       <a href="/safety">Safety Compliance</a>
       <a href="/sites">Telecom Sites</a>
+      <a href="/daily_operations">Daily Operations</a>
       <a href="/id_generator">ID Generator</a>
       <a href="/logout">Logout</a>
     </div>
@@ -184,6 +185,38 @@
             <td><span class="status {{ assignment.assignment_status|lower|replace(' ', '-') }}">{{ assignment.assignment_status }}</span></td>
             <td>{{ assignment.start_date or '-' }}</td>
             <td>{{ assignment.end_date or '-' }}</td>
+          </tr>
+        {% endfor %}
+      </table>
+
+      <h2>Recent Site Attendance</h2>
+      <table>
+        <tr>
+          <th>Date</th>
+          <th>DUID</th>
+          <th>Stage</th>
+          <th>Status</th>
+          <th>Time In</th>
+          <th>Time Out</th>
+          <th>Role</th>
+          <th>Safety Snapshot</th>
+          <th>Report</th>
+        </tr>
+        {% for attendance in recent_attendance %}
+          <tr>
+            <td>{{ attendance.report_date }}</td>
+            <td><a href="{{ url_for('site_detail', du_id=attendance.duid) }}">{{ attendance.duid }}</a></td>
+            <td><span class="status {{ attendance.current_stage|lower|replace(' ', '-') }}">{{ attendance.current_stage }}</span></td>
+            <td><span class="status {{ attendance.attendance_status|lower|replace(' ', '-') }}">{{ attendance.attendance_status }}</span></td>
+            <td>{{ attendance.time_in or '-' }}</td>
+            <td>{{ attendance.time_out or '-' }}</td>
+            <td>{{ attendance.role_at_site or '-' }}</td>
+            <td><span class="status {{ attendance.safety_status_snapshot|lower|replace(' ', '-') }}">{{ attendance.safety_status_snapshot }}</span></td>
+            <td><a class="btn-small" href="{{ url_for('daily_log_detail', log_id=attendance.daily_log_id) }}">View</a></td>
+          </tr>
+        {% else %}
+          <tr>
+            <td colspan="9">No daily attendance records yet.</td>
           </tr>
         {% endfor %}
       </table>

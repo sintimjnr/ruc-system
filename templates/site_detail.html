@@ -15,6 +15,7 @@
       <a href="/sites">Telecom Sites</a>
       <a href="/site_assignments">Assignments</a>
       <a href="/telecom_tasks">Tasks</a>
+      <a href="/daily_operations">Daily Operations</a>
       <a href="/permits">Permits</a>
       <a href="/incidents">Incidents</a>
       {% if session.get('role') == 'admin' %}
@@ -107,6 +108,13 @@
         </div>
       {% endif %}
 
+      <div class="toolbar">
+        {% if session.get('role') == 'admin' %}
+          <a class="btn" href="{{ url_for('new_daily_log', du_id=site.du_id) }}">Add Daily Report</a>
+        {% endif %}
+        <a class="btn" href="{{ url_for('daily_operations', duid=site.du_id) }}">View Daily History</a>
+      </div>
+
       <h2>Assigned Personnel</h2>
       {% if session.get('role') == 'admin' %}
         <div class="form-box wide compact-box">
@@ -163,6 +171,42 @@
             <td>{{ assignment.start_date or '-' }}</td>
             <td>{{ assignment.end_date or '-' }}</td>
             <td><span class="status {{ assignment.overall_safety_status|lower|replace(' ', '-') }}">{{ assignment.overall_safety_status }}</span></td>
+          </tr>
+        {% endfor %}
+      </table>
+
+      <h2>Daily Site Activity</h2>
+      <table>
+        <tr>
+          <th>Date</th>
+          <th>Stage</th>
+          <th>Progress</th>
+          <th>Attendance</th>
+          <th>Work Summary</th>
+          <th>Blockers</th>
+          <th>Submitted By</th>
+          <th>Action</th>
+        </tr>
+        {% for log in recent_daily_logs %}
+          <tr>
+            <td>{{ log.report_date }}</td>
+            <td><span class="status {{ log.current_stage|lower|replace(' ', '-') }}">{{ log.current_stage }}</span></td>
+            <td>{{ log.progress_before }}% to {{ log.progress_after }}%</td>
+            <td>{{ log.present_count }}/{{ log.attendance_count }}</td>
+            <td>{{ log.work_completed or '-' }}</td>
+            <td>
+              {% if log.blocker_category or log.blockers %}
+                <span class="status blocked">{{ log.blocker_category or 'Reported' }}</span>
+              {% else %}
+                -
+              {% endif %}
+            </td>
+            <td>{{ log.submitted_by or '-' }}</td>
+            <td><a class="btn-small" href="{{ url_for('daily_log_detail', log_id=log.id) }}">View Report</a></td>
+          </tr>
+        {% else %}
+          <tr>
+            <td colspan="8">No daily site reports yet.</td>
           </tr>
         {% endfor %}
       </table>

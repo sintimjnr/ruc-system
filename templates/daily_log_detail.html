@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Daily Report {{ log.id }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
+  </head>
+  <body>
+    <div class="topbar">
+      <img class="logo" src="{{ url_for('static', filename='images/ruc_logo.png') }}" />
+      Daily Site Report
+    </div>
+
+    <div class="menu">
+      <a href="/dashboard">Dashboard</a>
+      <a href="/daily_operations">Daily Operations</a>
+      <a href="{{ url_for('site_detail', du_id=log.duid) }}">Site Detail</a>
+      <a href="/sites">Sites</a>
+      {% if session.get('role') == 'admin' %}
+        <a href="{{ url_for('edit_daily_log', log_id=log.id) }}">Edit Report</a>
+      {% endif %}
+      <a href="/logout">Logout</a>
+    </div>
+
+    <div class="container">
+      <div class="site-heading">
+        <div>
+          <h1>{{ log.duid }}</h1>
+          <p>{{ site.display_site_name if site else 'Daily Site Report' }}</p>
+        </div>
+        <div class="site-badges">
+          <span class="status {{ log.current_stage|lower|replace(' ', '-') }}">{{ log.current_stage }}</span>
+          <span class="status active">{{ log.progress_after }}%</span>
+          {% if log.blocker_category or log.blockers %}
+            <span class="status blocked">Blocker</span>
+          {% endif %}
+        </div>
+      </div>
+
+      <div class="detail-grid">
+        <section class="info-panel">
+          <h2>Site</h2>
+          <dl class="detail-list">
+            <dt>DUID</dt>
+            <dd>{{ log.duid }}</dd>
+            <dt>Site Name</dt>
+            <dd>{{ site.display_site_name if site else '-' }}</dd>
+            <dt>TowerCo</dt>
+            <dd>{{ site.towerco if site else '-' }}</dd>
+            <dt>Region / Province</dt>
+            <dd>{{ site.region_province if site else '-' }}</dd>
+            <dt>Project</dt>
+            <dd>{{ log.project_name or log.project_code or '-' }}</dd>
+          </dl>
+        </section>
+
+        <section class="info-panel">
+          <h2>Report</h2>
+          <dl class="detail-list">
+            <dt>Date</dt>
+            <dd>{{ log.report_date }}</dd>
+            <dt>Stage</dt>
+            <dd>{{ log.current_stage }}</dd>
+            <dt>Progress Before</dt>
+            <dd>{{ log.progress_before }}%</dd>
+            <dt>Progress After</dt>
+            <dd>{{ log.progress_after }}%</dd>
+            <dt>Submitted By</dt>
+            <dd>{{ log.submitted_by or '-' }}</dd>
+            <dt>Created</dt>
+            <dd>{{ log.created_at or '-' }}</dd>
+            <dt>Updated</dt>
+            <dd>{{ log.updated_at or '-' }}</dd>
+          </dl>
+        </section>
+      </div>
+
+      <div class="detail-grid">
+        <section class="info-panel">
+          <h2>Work Completed</h2>
+          <p>{{ log.work_completed or '-' }}</p>
+        </section>
+        <section class="info-panel">
+          <h2>Blockers</h2>
+          <p><strong>{{ log.blocker_category or 'No category' }}</strong></p>
+          <p>{{ log.blockers or '-' }}</p>
+        </section>
+        <section class="info-panel">
+          <h2>Next Day Plan</h2>
+          <p>{{ log.next_day_plan or '-' }}</p>
+        </section>
+        <section class="info-panel">
+          <h2>Notes</h2>
+          <p>{{ log.general_notes or '-' }}</p>
+          <p class="muted">{{ log.weather_notes or '' }}</p>
+        </section>
+      </div>
+
+      <h2>Attendance</h2>
+      <table>
+        <tr>
+          <th>Worker</th>
+          <th>Role</th>
+          <th>Status</th>
+          <th>Time In</th>
+          <th>Time Out</th>
+          <th>Safety Snapshot</th>
+          <th>Remarks</th>
+        </tr>
+        {% for person in attendance %}
+          <tr>
+            <td>
+              {% if person.employee_id %}
+                <a href="{{ url_for('employee_dossier', employee_id=person.employee_id) }}">{{ person.full_name }}</a>
+              {% else %}
+                {{ person.full_name or '-' }}
+              {% endif %}
+            </td>
+            <td>{{ person.role_at_site or person.telecom_role or person.position or '-' }}</td>
+            <td><span class="status {{ person.attendance_status|lower|replace(' ', '-') }}">{{ person.attendance_status }}</span></td>
+            <td>{{ person.time_in or '-' }}</td>
+            <td>{{ person.time_out or '-' }}</td>
+            <td><span class="status {{ person.safety_status_snapshot|lower|replace(' ', '-') }}">{{ person.safety_status_snapshot }}</span></td>
+            <td>{{ person.remarks or '-' }}</td>
+          </tr>
+        {% else %}
+          <tr>
+            <td colspan="7">No attendance recorded.</td>
+          </tr>
+        {% endfor %}
+      </table>
+
+      <h2>Evidence</h2>
+      <div class="evidence-grid">
+        {% for file in files %}
+          <div class="evidence-item">
+            {% if file.file_type == 'PHOTO' %}
+              <a href="{{ url_for('daily_log_file', file_id=file.id) }}" target="_blank">
+                <img src="{{ url_for('daily_log_file', file_id=file.id) }}" alt="{{ file.display_name }}" />
+              </a>
+            {% else %}
+              <a class="btn-small" href="{{ url_for('daily_log_file', file_id=file.id) }}" target="_blank">{{ file.display_name }}</a>
+            {% endif %}
+            <p>{{ file.caption or file.display_name }}</p>
+            <span class="muted">{{ file.uploaded_at or '' }}</span>
+          </div>
+        {% else %}
+          <p>No evidence uploaded.</p>
+        {% endfor %}
+      </div>
+    </div>
+  </body>
+</html>
