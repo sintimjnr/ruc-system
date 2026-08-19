@@ -12,7 +12,8 @@
 
     <div class="menu">
       <a href="/dashboard">Dashboard</a>
-      <a href="/search">Search</a>
+      <a href="/search">Personnel</a>
+      <a href="/safety">Safety Compliance</a>
       <a href="/sites">Sites</a>
       <a href="/telecom_tasks">Tasks</a>
       <a href="/permits">Permits</a>
@@ -21,34 +22,36 @@
     </div>
 
     <div class="container">
-      <div class="form-box wide">
-        <h2>Add Safety Document</h2>
-        <form method="POST" enctype="multipart/form-data" class="filter-grid">
-          <select name="employee_id" required>
-            <option value="">Employee</option>
-            {% for emp in employees %}
-              <option value="{{ emp.id }}">{{ emp.first_name }} {{ emp.last_name }}</option>
-            {% endfor %}
-          </select>
-          <select name="project_id">
-            <option value="">Use Employee Project</option>
-            {% for project in projects %}
-              <option value="{{ project.id }}">{{ project.project_name }} - {{ project.project_code }}</option>
-            {% endfor %}
-          </select>
-          <select name="document_type" required>
-            <option value="">Document Type</option>
-            {% for document_type in document_types %}
-              <option>{{ document_type }}</option>
-            {% endfor %}
-          </select>
-          <input name="reference_number" placeholder="Reference Number" />
-          <input type="date" name="issue_date" />
-          <input type="date" name="expiry_date" />
-          <input type="file" name="document_file" />
-          <button type="submit">Save Document</button>
-        </form>
-      </div>
+      {% if session.get('role') == 'admin' %}
+        <div class="form-box wide">
+          <h2>Add Safety Document</h2>
+          <form method="POST" enctype="multipart/form-data" class="filter-grid">
+            <select name="employee_id" required>
+              <option value="">Employee</option>
+              {% for emp in employees %}
+                <option value="{{ emp.id }}">{{ emp.first_name }} {{ emp.last_name }}</option>
+              {% endfor %}
+            </select>
+            <select name="project_id">
+              <option value="">Use Employee Project</option>
+              {% for project in projects %}
+                <option value="{{ project.id }}">{{ project.project_name }} - {{ project.project_code }}</option>
+              {% endfor %}
+            </select>
+            <select name="document_type" required>
+              <option value="">Document Type</option>
+              {% for document_type in document_types %}
+                <option>{{ document_type }}</option>
+              {% endfor %}
+            </select>
+            <input name="reference_number" placeholder="Reference Number" />
+            <input type="date" name="issue_date" />
+            <input type="date" name="expiry_date" />
+            <input type="file" name="document_file" accept=".pdf,.png,.jpg,.jpeg" />
+            <button type="submit">Save Document</button>
+          </form>
+        </div>
+      {% endif %}
 
       <div class="form-box wide">
         <h2>Document Filters</h2>
@@ -91,7 +94,9 @@
           <th>Issue Date</th>
           <th>Expiry Date</th>
           <th>Status</th>
+          <th>Current</th>
           <th>File</th>
+          <th>Dossier</th>
         </tr>
         {% for document in documents %}
           <tr>
@@ -102,13 +107,15 @@
             <td>{{ document.issue_date or '-' }}</td>
             <td>{{ document.expiry_date or '-' }}</td>
             <td><span class="status {{ document.current_status|lower|replace(' ', '-') }}">{{ document.current_status }}</span></td>
+            <td>{% if document.is_current %}Current{% else %}History{% endif %}</td>
             <td>
               {% if document.file_path %}
-                <a class="btn-small" href="/{{ document.file_path }}" target="_blank">Open</a>
+                <a class="btn-small" href="{{ url_for('safety_document_file', document_id=document.id) }}" target="_blank">{{ document.filename or 'Open' }}</a>
               {% else %}
                 -
               {% endif %}
             </td>
+            <td><a class="btn-small" href="{{ url_for('employee_dossier', employee_id=document.employee_id) }}">View</a></td>
           </tr>
         {% endfor %}
       </table>

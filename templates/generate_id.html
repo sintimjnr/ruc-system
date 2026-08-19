@@ -15,6 +15,7 @@
       <a href="/dashboard">Dashboard</a>
       <a href="/create_project">Create Project</a>
       <a href="/search">Search</a>
+      <a href="/safety">Safety Compliance</a>
       <a href="/id_generator">ID Generator</a>
       <a href="/logout">Logout</a>
     </div>
@@ -26,6 +27,7 @@
         <p>Role: {{ emp.telecom_role or emp.position }}</p>
         <p>DUID: {{ emp.assigned_du_id or '-' }}</p>
         <p><span class="status {{ emp.overall_safety_status|lower|replace(' ', '-') }}">{{ emp.safety_badge }}</span></p>
+        <p><a class="btn-small" href="{{ url_for('employee_dossier', employee_id=emp.id) }}">View Dossier</a></p>
 
         <form method="POST">
           <label>ID Number</label>

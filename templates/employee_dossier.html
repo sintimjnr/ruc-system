@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Personnel Dossier</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
+  </head>
+  <body>
+    <div class="topbar">
+      <img class="logo" src="{{ url_for('static', filename='images/ruc_logo.png') }}" />
+      Personnel Dossier
+    </div>
+
+    <div class="menu">
+      <a href="/dashboard">Dashboard</a>
+      <a href="/search">Personnel</a>
+      <a href="/safety">Safety Compliance</a>
+      <a href="/sites">Telecom Sites</a>
+      <a href="/id_generator">ID Generator</a>
+      <a href="/logout">Logout</a>
+    </div>
+
+    <div class="container">
+      <div class="site-heading">
+        <div>
+          <h1>{{ emp.full_name }}</h1>
+          <p>Employee ID {{ emp.id }}{% if emp.assigned_du_id %} | DUID {{ emp.assigned_du_id }}{% endif %}</p>
+        </div>
+        <div class="site-badges">
+          <span class="status {{ emp.overall_safety_status|lower|replace(' ', '-') }}">{{ emp.overall_safety_status }}</span>
+          <span class="status {{ emp.nbi_status|lower|replace(' ', '-') }}">NBI {{ emp.nbi_status }}</span>
+          <span class="status {{ emp.wah_status|lower|replace(' ', '-') }}">WAH {{ emp.wah_status }}</span>
+          <span class="status {{ emp.first_aid_status|lower|replace(' ', '-') }}">First Aid {{ emp.first_aid_status }}</span>
+        </div>
+      </div>
+
+      {% if emp.overall_safety_status in ['VALID','EXPIRING SOON'] %}
+        <div class="notice success">This worker is currently cleared for site work based on the required safety documents.</div>
+      {% else %}
+        <div class="notice danger">This worker is not safety cleared. Review missing or expired required documents before site deployment.</div>
+      {% endif %}
+
+      <div class="detail-grid">
+        <section class="info-panel">
+          <h2>Personal Information</h2>
+          {% if emp.photo %}
+            <img class="photo dossier-photo" src="{{ url_for('employee_file', employee_id=emp.id, file_kind='photo') }}" />
+          {% endif %}
+          <dl class="detail-list">
+            <dt>Employee ID</dt>
+            <dd>{{ emp.id }}</dd>
+            <dt>First Name</dt>
+            <dd>{{ emp.first_name or '-' }}</dd>
+            <dt>Last Name</dt>
+            <dd>{{ emp.last_name or '-' }}</dd>
+            <dt>Full Name</dt>
+            <dd>{{ emp.full_name or '-' }}</dd>
+            <dt>Email</dt>
+            <dd>{{ emp.email or '-' }}</dd>
+            <dt>Mobile</dt>
+            <dd>{{ emp.mobile or '-' }}</dd>
+            <dt>Position</dt>
+            <dd>{{ emp.position or '-' }}</dd>
+            <dt>Telecom Role</dt>
+            <dd>{{ emp.telecom_role or emp.position or '-' }}</dd>
+          </dl>
+        </section>
+
+        <section class="info-panel">
+          <h2>Project / Site Information</h2>
+          <dl class="detail-list">
+            <dt>Project</dt>
+            <dd>{{ emp.project_name or '-' }}{% if emp.project_code %} - {{ emp.project_code }}{% endif %}</dd>
+            <dt>Assigned DUID</dt>
+            <dd>
+              {% if emp.assigned_du_id %}
+                <a href="{{ url_for('site_detail', du_id=emp.assigned_du_id) }}">{{ emp.assigned_du_id }}</a>
+              {% else %}
+                -
+              {% endif %}
+            </dd>
+            <dt>Site Name</dt>
+            <dd>{{ site.display_site_name if site else '-' }}</dd>
+            <dt>TowerCo</dt>
+            <dd>{{ site.towerco if site else '-' }}</dd>
+            <dt>Region / Province</dt>
+            <dd>{{ site.region_province if site else '-' }}</dd>
+            <dt>Municipality</dt>
+            <dd>{{ site.municipality if site else '-' }}</dd>
+            <dt>Current Assignment</dt>
+            <dd>
+              {% if assignments %}
+                {{ assignments[0].assignment_status }}{% if assignments[0].start_date %} from {{ assignments[0].start_date }}{% endif %}
+              {% else %}
+                -
+              {% endif %}
+            </dd>
+            <dt>Dossier Folder</dt>
+            <dd>{{ emp.dossier_folder_path or '-' }}</dd>
+          </dl>
+        </section>
+      </div>
+
+      <h2>Current Safety Documents</h2>
+      <table>
+        <tr>
+          <th>Document</th>
+          <th>Reference</th>
+          <th>Issue Date</th>
+          <th>Expiry Date</th>
+          <th>Status</th>
+          <th>File</th>
+        </tr>
+        {% for document in current_documents %}
+          <tr>
+            <td>{{ document.label }}</td>
+            <td>{{ document.reference_number or '-' }}</td>
+            <td>{{ document.issue_date or '-' }}</td>
+            <td>{{ document.expiry_date or '-' }}</td>
+            <td><span class="status {{ document.current_status|lower|replace(' ', '-') }}">{{ document.current_status }}</span></td>
+            <td>
+              {% if document.file_path %}
+                {% if document.id %}
+                  <a class="btn-small" href="{{ url_for('safety_document_file', document_id=document.id) }}" target="_blank">{{ document.filename or 'Open' }}</a>
+                {% else %}
+                  <a class="btn-small" href="{{ url_for('employee_file', employee_id=emp.id, file_kind=document.file_kind) }}" target="_blank">{{ document.filename or 'Open' }}</a>
+                {% endif %}
+              {% else %}
+                -
+              {% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+      </table>
+
+      <h2>Document History</h2>
+      <table>
+        <tr>
+          <th>Document</th>
+          <th>Reference</th>
+          <th>Issue Date</th>
+          <th>Expiry Date</th>
+          <th>Status</th>
+          <th>Uploaded</th>
+          <th>File</th>
+        </tr>
+        {% for document in document_history %}
+          <tr>
+            <td>{{ document.label }}</td>
+            <td>{{ document.reference_number or '-' }}</td>
+            <td>{{ document.issue_date or '-' }}</td>
+            <td>{{ document.expiry_date or '-' }}</td>
+            <td><span class="status {{ document.current_status|lower|replace(' ', '-') }}">{{ document.current_status }}</span></td>
+            <td>{{ document.created_at or '-' }}</td>
+            <td>
+              {% if document.file_path and document.id %}
+                <a class="btn-small" href="{{ url_for('safety_document_file', document_id=document.id) }}" target="_blank">{{ document.filename or 'Open' }}</a>
+              {% else %}
+                -
+              {% endif %}
+            </td>
+          </tr>
+        {% else %}
+          <tr>
+            <td colspan="7">No older safety document records.</td>
+          </tr>
+        {% endfor %}
+      </table>
+
+      <h2>Assignment History</h2>
+      <table>
+        <tr>
+          <th>DUID</th>
+          <th>Project</th>
+          <th>Role</th>
+          <th>Status</th>
+          <th>Start</th>
+          <th>End</th>
+        </tr>
+        {% for assignment in assignments %}
+          <tr>
+            <td><a href="{{ url_for('site_detail', du_id=assignment.du_id) }}">{{ assignment.du_id }}</a></td>
+            <td>{{ assignment.project_name or '-' }}</td>
+            <td>{{ assignment.role or '-' }}</td>
+            <td><span class="status {{ assignment.assignment_status|lower|replace(' ', '-') }}">{{ assignment.assignment_status }}</span></td>
+            <td>{{ assignment.start_date or '-' }}</td>
+            <td>{{ assignment.end_date or '-' }}</td>
+          </tr>
+        {% endfor %}
+      </table>
+
+      <h2>Legacy RUC Files</h2>
+      <table>
+        <tr>
+          <th>File</th>
+          <th>Status</th>
+          <th>Action</th>
+        </tr>
+        {% for file in legacy_files %}
+          <tr>
+            <td>{{ file.label }}</td>
+            <td>{% if file.path %}Available{% else %}Missing{% endif %}</td>
+            <td>
+              {% if file.path %}
+                <a class="btn-small" href="{{ url_for('employee_file', employee_id=emp.id, file_kind=file.kind) }}" target="_blank">Open</a>
+              {% else %}
+                -
+              {% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+      </table>
+
+      <div class="toolbar">
+        <a class="btn" href="/edit_employee/{{ emp.id }}">Edit Employee</a>
+        {% if emp.project_code %}
+          <a class="btn" href="/generate_id/{{ emp.project_code }}/{{ emp.id }}">Generate ID</a>
+        {% endif %}
+      </div>
+    </div>
+  </body>
+</html>

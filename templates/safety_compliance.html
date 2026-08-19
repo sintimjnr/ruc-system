@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Safety Compliance</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
+  </head>
+  <body>
+    <div class="topbar">
+      <img class="logo" src="{{ url_for('static', filename='images/ruc_logo.png') }}" />
+      Safety Compliance
+    </div>
+
+    <div class="menu">
+      <a href="/dashboard">Dashboard</a>
+      <a href="/search">Personnel</a>
+      <a href="/safety_documents">Safety Documents</a>
+      <a href="/sites">Telecom Sites</a>
+      <a href="/logout">Logout</a>
+    </div>
+
+    <div class="container">
+      <div class="form-box wide">
+        <h2>Compliance Filters</h2>
+        <form method="GET" class="filter-grid">
+          <select name="status">
+            <option value="">All Statuses</option>
+            {% for status in statuses %}
+              <option value="{{ status }}" {% if filters.status == status %}selected{% endif %}>{{ status }}</option>
+            {% endfor %}
+          </select>
+          <select name="project_id">
+            <option value="">All Projects</option>
+            {% for project in projects %}
+              <option value="{{ project.id }}" {% if filters.project_id == project.id|string %}selected{% endif %}>{{ project.project_name }} - {{ project.project_code }}</option>
+            {% endfor %}
+          </select>
+          <select name="du_id">
+            <option value="">All DUIDs</option>
+            {% for duid in duids %}
+              <option value="{{ duid }}" {% if filters.du_id == duid %}selected{% endif %}>{{ duid }}</option>
+            {% endfor %}
+          </select>
+          <button type="submit">Filter</button>
+        </form>
+      </div>
+
+      <h2>Personnel Safety Status</h2>
+      <table>
+        <tr>
+          <th>Employee</th>
+          <th>Role</th>
+          <th>DUID</th>
+          <th>Project</th>
+          <th>NBI</th>
+          <th>WAH</th>
+          <th>First Aid</th>
+          <th>Overall</th>
+          <th>Action</th>
+        </tr>
+        {% for emp in employees %}
+          <tr>
+            <td>{{ emp.full_name }}</td>
+            <td>{{ emp.telecom_role or emp.position or '-' }}</td>
+            <td>
+              {% if emp.assigned_du_id %}
+                <a href="{{ url_for('site_detail', du_id=emp.assigned_du_id) }}">{{ emp.assigned_du_id }}</a>
+              {% else %}
+                -
+              {% endif %}
+            </td>
+            <td>{{ emp.project_name or emp.project_code or '-' }}</td>
+            <td><span class="status {{ emp.nbi_status|lower|replace(' ', '-') }}">{{ emp.nbi_status }}</span></td>
+            <td><span class="status {{ emp.wah_status|lower|replace(' ', '-') }}">{{ emp.wah_status }}</span></td>
+            <td><span class="status {{ emp.first_aid_status|lower|replace(' ', '-') }}">{{ emp.first_aid_status }}</span></td>
+            <td><span class="status {{ emp.overall_safety_status|lower|replace(' ', '-') }}">{{ emp.overall_safety_status }}</span></td>
+            <td><a class="btn-small" href="{{ url_for('employee_dossier', employee_id=emp.id) }}">View Dossier</a></td>
+          </tr>
+        {% endfor %}
+      </table>
+    </div>
+  </body>
+</html>

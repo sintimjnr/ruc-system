@@ -150,7 +150,13 @@
         </tr>
         {% for assignment in assignments %}
           <tr>
-            <td>{{ assignment.first_name or '' }} {{ assignment.last_name or '' }}</td>
+            <td>
+              {% if assignment.employee_id %}
+                <a href="{{ url_for('employee_dossier', employee_id=assignment.employee_id) }}">{{ assignment.first_name or '' }} {{ assignment.last_name or '' }}</a>
+              {% else %}
+                {{ assignment.first_name or '' }} {{ assignment.last_name or '' }}
+              {% endif %}
+            </td>
             <td>{{ assignment.role or assignment.telecom_role or assignment.position or '-' }}</td>
             <td>{{ assignment.project_name or '-' }}</td>
             <td><span class="status {{ assignment.assignment_status|lower|replace(' ', '-') }}">{{ assignment.assignment_status }}</span></td>

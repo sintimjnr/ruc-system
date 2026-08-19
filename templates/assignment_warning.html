@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Assignment Safety Warning</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
+  </head>
+  <body>
+    <div class="topbar">
+      <img class="logo" src="{{ url_for('static', filename='images/ruc_logo.png') }}" />
+      Assignment Safety Warning
+    </div>
+
+    <div class="menu">
+      <a href="/dashboard">Dashboard</a>
+      <a href="/site_assignments">Assignments</a>
+      <a href="/safety">Safety Compliance</a>
+      <a href="/logout">Logout</a>
+    </div>
+
+    <div class="container">
+      <div class="notice danger">
+        This worker is not safety cleared. You may continue, but the assignment should be reviewed before field deployment.
+      </div>
+
+      <div class="detail-grid">
+        <section class="info-panel">
+          <h2>Worker</h2>
+          <dl class="detail-list">
+            <dt>Name</dt>
+            <dd>{{ employee.full_name }}</dd>
+            <dt>Employee ID</dt>
+            <dd>{{ employee.id }}</dd>
+            <dt>Role</dt>
+            <dd>{{ employee.telecom_role or employee.position or '-' }}</dd>
+            <dt>Overall</dt>
+            <dd><span class="status {{ employee.overall_safety_status|lower|replace(' ', '-') }}">{{ employee.overall_safety_status }}</span></dd>
+            <dt>NBI</dt>
+            <dd><span class="status {{ employee.nbi_status|lower|replace(' ', '-') }}">{{ employee.nbi_status }}</span></dd>
+            <dt>WAH</dt>
+            <dd><span class="status {{ employee.wah_status|lower|replace(' ', '-') }}">{{ employee.wah_status }}</span></dd>
+            <dt>First Aid</dt>
+            <dd><span class="status {{ employee.first_aid_status|lower|replace(' ', '-') }}">{{ employee.first_aid_status }}</span></dd>
+          </dl>
+        </section>
+
+        <section class="info-panel">
+          <h2>Target Site</h2>
+          <dl class="detail-list">
+            <dt>DUID</dt>
+            <dd>{{ form_values.du_id }}</dd>
+            <dt>Site</dt>
+            <dd>{{ site.display_site_name if site else '-' }}</dd>
+            <dt>TowerCo</dt>
+            <dd>{{ site.towerco if site else '-' }}</dd>
+          </dl>
+
+          <form method="POST" action="/site_assignments">
+            {% for key, value in form_values.items() %}
+              <input type="hidden" name="{{ key }}" value="{{ value }}" />
+            {% endfor %}
+            <input type="hidden" name="confirm_safety_warning" value="yes" />
+            <button type="submit">Confirm Assignment</button>
+          </form>
+          <br />
+          <a class="btn" href="{{ form_values.return_to or '/site_assignments' }}">Cancel</a>
+        </section>
+      </div>
+    </div>
+  </body>
+</html>

@@ -14,6 +14,7 @@
     <div class="menu">
       <a href="/dashboard">Dashboard</a>
       <a href="/search">Search</a>
+      <a href="/safety">Safety Compliance</a>
       <a href="/id_generator">ID Generator</a>
       <a href="/logout">Logout</a>
     </div>
@@ -71,7 +72,10 @@
             <input type="date" name="nbi_expiry_date" value="{{ emp.nbi_expiry_date or '' }}" />
           </div>
           <label>Replace NBI File</label>
-          <input type="file" name="nbi" />
+          {% if emp.nbi %}
+            <p><a class="btn-small" href="{{ url_for('employee_file', employee_id=emp.id, file_kind='nbi') }}" target="_blank">Open Current NBI</a></p>
+          {% endif %}
+          <input type="file" name="nbi" accept=".pdf,.png,.jpg,.jpeg" />
 
           <h3>WAH</h3>
           <div class="form-grid">
@@ -80,7 +84,10 @@
             <input type="date" name="wah_expiry_date" value="{{ emp.wah_expiry_date or '' }}" />
           </div>
           <label>Replace WAH File</label>
-          <input type="file" name="wah_file" />
+          {% if emp.wah_file %}
+            <p><a class="btn-small" href="{{ url_for('employee_file', employee_id=emp.id, file_kind='wah') }}" target="_blank">Open Current WAH</a></p>
+          {% endif %}
+          <input type="file" name="wah_file" accept=".pdf,.png,.jpg,.jpeg" />
 
           <h3>First Aid</h3>
           <div class="form-grid">
@@ -89,16 +96,20 @@
             <input type="date" name="first_aid_expiry_date" value="{{ emp.first_aid_expiry_date or '' }}" />
           </div>
           <label>Replace First Aid File</label>
-          <input type="file" name="first_aid_file" />
+          {% if emp.first_aid_file %}
+            <p><a class="btn-small" href="{{ url_for('employee_file', employee_id=emp.id, file_kind='first_aid') }}" target="_blank">Open Current First Aid</a></p>
+          {% endif %}
+          <input type="file" name="first_aid_file" accept=".pdf,.png,.jpg,.jpeg" />
 
           <h3>Existing Uploads</h3>
           <div class="form-grid">
-            <label>Replace Employee Photo<input type="file" name="photo" /></label>
-            <label>Replace Safety Certificate<input type="file" name="certificate" /></label>
-            <label>Replace Signature<input type="file" name="signature" /></label>
+            <label>Replace Employee Photo<input type="file" name="photo" accept=".png,.jpg,.jpeg" /></label>
+            <label>Replace Safety Certificate<input type="file" name="certificate" accept=".pdf,.png,.jpg,.jpeg" /></label>
+            <label>Replace Signature<input type="file" name="signature" accept=".png,.jpg,.jpeg" /></label>
           </div>
 
           <p class="muted">Dossier: {{ emp.dossier_folder_path or '-' }}</p>
+          <p><a class="btn-small" href="{{ url_for('employee_dossier', employee_id=emp.id) }}">View Personnel Dossier</a></p>
 
           <button type="submit">Update Employee</button>
         </form>

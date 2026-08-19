@@ -15,6 +15,7 @@
       <a href="/dashboard">Dashboard</a>
       <a href="/create_project">Create Project</a>
       <a href="/search">Search</a>
+      <a href="/safety">Safety Compliance</a>
       <a href="/sites">Sites</a>
       <a href="/safety_documents">Safety Documents</a>
       <a href="/site_assignments">Assignments</a>
@@ -147,6 +148,32 @@
         </section>
 
         <section>
+          <h2>Attention Required</h2>
+          <table>
+            <tr>
+              <th>Employee</th>
+              <th>DUID</th>
+              <th>NBI</th>
+              <th>WAH</th>
+              <th>First Aid</th>
+              <th>Overall</th>
+              <th>Action</th>
+            </tr>
+            {% for emp in attention_employees %}
+              <tr>
+                <td><a href="{{ url_for('employee_dossier', employee_id=emp.id) }}">{{ emp.full_name }}</a></td>
+                <td>{{ emp.assigned_du_id or '-' }}</td>
+                <td><span class="status {{ emp.nbi_status|lower|replace(' ', '-') }}">{{ emp.nbi_status }}</span></td>
+                <td><span class="status {{ emp.wah_status|lower|replace(' ', '-') }}">{{ emp.wah_status }}</span></td>
+                <td><span class="status {{ emp.first_aid_status|lower|replace(' ', '-') }}">{{ emp.first_aid_status }}</span></td>
+                <td><span class="status {{ emp.overall_safety_status|lower|replace(' ', '-') }}">{{ emp.overall_safety_status }}</span></td>
+                <td><a class="btn-small" href="{{ url_for('employee_dossier', employee_id=emp.id) }}">View Dossier</a></td>
+              </tr>
+            {% endfor %}
+          </table>
+        </section>
+
+        <section>
           <h2>Safety Snapshot</h2>
           <table>
             <tr>
@@ -160,7 +187,7 @@
             </tr>
             {% for emp in filtered_safety_employees %}
               <tr>
-                <td>{{ emp.first_name }} {{ emp.last_name }}</td>
+                <td><a href="{{ url_for('employee_dossier', employee_id=emp.id) }}">{{ emp.first_name }} {{ emp.last_name }}</a></td>
                 <td>{{ emp.assigned_du_id or '-' }}</td>
                 <td>{{ emp.telecom_role or emp.position }}</td>
                 <td><span class="status {{ emp.nbi_status|lower|replace(' ', '-') }}">{{ emp.nbi_status }}</span></td>

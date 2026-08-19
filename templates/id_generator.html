@@ -15,6 +15,7 @@
       <a href="/dashboard">Dashboard</a>
       <a href="/create_project">Create Project</a>
       <a href="/search">Search</a>
+      <a href="/safety">Safety Compliance</a>
       <a href="/sites">Sites</a>
       <a href="/id_generator">ID Generator</a>
       <a href="/logout">Logout</a>
@@ -26,13 +27,18 @@
       <div class="grid">
         {% for emp in employees %}
           <div class="employee-box">
-            <img class="photo" src="/uploads/photos/{{ emp.photo }}" />
+            {% if emp.photo %}
+              <img class="photo" src="{{ url_for('employee_file', employee_id=emp.id, file_kind='photo') }}" />
+            {% endif %}
             <h3>{{ emp.first_name }} {{ emp.last_name }}</h3>
             <p>{{ emp.telecom_role or emp.position }}</p>
             <p>DUID: {{ emp.assigned_du_id or '-' }}</p>
             <span class="status {{ emp.overall_safety_status|lower|replace(' ', '-') }}">{{ emp.overall_safety_status }}</span>
             <br /><br />
-            <a class="btn" href="/generate_id/{{ emp.project_id }}/{{ emp.id }}">Generate ID</a>
+            <a class="btn-small" href="{{ url_for('employee_dossier', employee_id=emp.id) }}">View Dossier</a>
+            {% if emp.project_code %}
+              <a class="btn" href="/generate_id/{{ emp.project_code }}/{{ emp.id }}">Generate ID</a>
+            {% endif %}
           </div>
         {% endfor %}
       </div>

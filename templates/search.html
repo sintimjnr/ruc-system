@@ -15,6 +15,7 @@
       <a href="/dashboard">Dashboard</a>
       <a href="/create_project">Create Project</a>
       <a href="/search">Search</a>
+      <a href="/safety">Safety Compliance</a>
       <a href="/sites">Sites</a>
       <a href="/safety_documents">Safety Documents</a>
       <a href="/telecom_tasks">Tasks</a>
@@ -108,8 +109,9 @@
             <td><span class="status {{ emp.overall_safety_status|lower|replace(' ', '-') }}">{{ emp.overall_safety_status }}</span></td>
             <td>
               <a class="btn-small" href="/edit_employee/{{ emp.id }}">Edit</a>
-              {% if emp.project_id %}
-                <a class="btn-small" href="/generate_id/{{ emp.project_id }}/{{ emp.id }}">Generate ID</a>
+              <a class="btn-small" href="{{ url_for('employee_dossier', employee_id=emp.id) }}">View Dossier</a>
+              {% if emp.project_code %}
+                <a class="btn-small" href="/generate_id/{{ emp.project_code }}/{{ emp.id }}">Generate ID</a>
               {% endif %}
             </td>
           </tr>

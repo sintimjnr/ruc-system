@@ -164,15 +164,10 @@ ALLOWED_UPLOAD_EXTENSIONS = {
     "png",
     "jpg",
     "jpeg",
-    "gif",
-    "webp",
     "pdf",
-    "doc",
-    "docx",
-    "xls",
-    "xlsx",
 }
-ALLOWED_IMAGE_EXTENSIONS = {"png", "jpg", "jpeg", "gif", "webp"}
+ALLOWED_IMAGE_EXTENSIONS = {"png", "jpg", "jpeg"}
+ALLOWED_DOCUMENT_EXTENSIONS = {"pdf", "png", "jpg", "jpeg"}
 UPLOAD_CATEGORIES = {
     "photo",
     "nbi",
@@ -183,6 +178,26 @@ UPLOAD_CATEGORIES = {
     "permits",
     "incidents",
     "other",
+}
+LEGACY_UPLOAD_CATEGORIES = {
+    "photos": "photo",
+    "nbi": "nbi",
+    "certificates": "certificates",
+    "signatures": "signatures",
+    "secid": "secid",
+    "wah": "wah",
+}
+CATEGORY_UPLOAD_EXTENSIONS = {
+    "photo": ALLOWED_IMAGE_EXTENSIONS,
+    "signatures": ALLOWED_IMAGE_EXTENSIONS,
+    "nbi": ALLOWED_DOCUMENT_EXTENSIONS,
+    "wah": ALLOWED_DOCUMENT_EXTENSIONS,
+    "first_aid": ALLOWED_DOCUMENT_EXTENSIONS,
+    "certificates": ALLOWED_DOCUMENT_EXTENSIONS,
+    "secid": ALLOWED_DOCUMENT_EXTENSIONS,
+    "permits": ALLOWED_DOCUMENT_EXTENSIONS,
+    "incidents": ALLOWED_DOCUMENT_EXTENSIONS,
+    "other": ALLOWED_DOCUMENT_EXTENSIONS,
 }
 
 TELECOM_TASK_TYPES = [
@@ -224,6 +239,7 @@ SITE_STAGES = [
 SITE_STATUSES = ["Not Started", "Active", "On Hold", "Blocked", "Completed"]
 ACCESS_STATUSES = ["VALID", "EXPIRING SOON", "EXPIRED", "MISSING"]
 PAT_STATUSES = ["MISSING", "PENDING", "IN PROGRESS", "PASSED", "FAILED", "WAIVED"]
+EXPIRING_SOON_DAYS = 30
 
 
 @app.route("/static/<path:filename>", endpoint="static")
@@ -288,6 +304,12 @@ def allowed_file(filename, allowed_extensions=ALLOWED_UPLOAD_EXTENSIONS):
     )
 
 
+def allowed_extensions_for_category(category):
+
+    category = LEGACY_UPLOAD_CATEGORIES.get(category, category)
+    return CATEGORY_UPLOAD_EXTENSIONS.get(category, ALLOWED_DOCUMENT_EXTENSIONS)
+
+
 def is_image_file(path_or_name):
 
     return allowed_file(path_or_name, ALLOWED_IMAGE_EXTENSIONS)
@@ -298,7 +320,7 @@ def save_legacy_upload(file_storage, folder):
     if not file_storage or file_storage.filename == "":
         return "", ""
 
-    if not allowed_file(file_storage.filename):
+    if not allowed_file(file_storage.filename, allowed_extensions_for_category(folder)):
         raise ValueError("Unsupported file type")
 
     folder_path = safe_abs_path("uploads", folder)
@@ -319,7 +341,7 @@ def save_project_upload(file_storage, project_id, employee_id, category):
     if category not in UPLOAD_CATEGORIES:
         raise ValueError("Invalid upload category")
 
-    if not allowed_file(file_storage.filename):
+    if not allowed_file(file_storage.filename, allowed_extensions_for_category(category)):
         raise ValueError("Unsupported file type")
 
     safe_project = str(project_id or "general")
@@ -344,6 +366,9 @@ def copy_to_project_upload(source_path, project_id, employee_id, category):
 
     if category not in UPLOAD_CATEGORIES:
         raise ValueError("Invalid upload category")
+
+    if not allowed_file(os.path.basename(source_path), allowed_extensions_for_category(category)):
+        raise ValueError("Unsupported file type")
 
     folder_path = safe_abs_path(
         "static",
@@ -480,10 +505,59 @@ def calculate_safety_status(expiry_date):
     if expiry < today:
         return "EXPIRED"
 
-    if expiry <= today + timedelta(days=30):
+    if expiry <= today + timedelta(days=EXPIRING_SOON_DAYS):
         return "EXPIRING SOON"
 
     return "VALID"
+
+
+def document_present(*values):
+
+    return any(clean_text(value) for value in values)
+
+
+def calculate_document_status(expiry_date, has_document=True):
+
+    if not has_document:
+        return "MISSING"
+
+    return calculate_safety_status(expiry_date)
+
+
+def build_safety_summary_from_statuses(nbi_status, wah_status, first_aid_status):
+
+    statuses = {
+        "nbi_status": nbi_status,
+        "wah_status": wah_status,
+        "first_aid_status": first_aid_status,
+    }
+
+    if any(status == "MISSING" for status in statuses.values()):
+        statuses["overall_safety_status"] = "MISSING"
+    elif any(status == "EXPIRED" for status in statuses.values()):
+        statuses["overall_safety_status"] = "EXPIRED"
+    elif any(status == "EXPIRING SOON" for status in statuses.values()):
+        statuses["overall_safety_status"] = "EXPIRING SOON"
+    else:
+        statuses["overall_safety_status"] = "VALID"
+
+    statuses["safety_badge"] = (
+        "SAFETY CLEARED"
+        if statuses["overall_safety_status"] in ("VALID", "EXPIRING SOON")
+        else "SAFETY ACTION NEEDED"
+    )
+
+    return statuses
+
+
+def safety_summary_from_document_records(documents):
+
+    by_type = {document["document_type"]: document for document in documents}
+    return build_safety_summary_from_statuses(
+        by_type["NBI"]["current_status"],
+        by_type["WAH"]["current_status"],
+        by_type["FIRST_AID"]["current_status"],
+    )
 
 
 def calculate_access_validity(expiry_date, manual_status="", tracker_status=""):
@@ -506,28 +580,45 @@ def calculate_access_validity(expiry_date, manual_status="", tracker_status=""):
 
 def safety_summary_from_employee(emp):
 
-    statuses = {
-        "nbi_status": calculate_safety_status(emp.get("nbi_expiry_date")),
-        "wah_status": calculate_safety_status(emp.get("wah_expiry_date")),
-        "first_aid_status": calculate_safety_status(emp.get("first_aid_expiry_date")),
-    }
-
-    if any(status == "EXPIRED" for status in statuses.values()):
-        statuses["overall_safety_status"] = "EXPIRED"
-    elif any(status == "MISSING" for status in statuses.values()):
-        statuses["overall_safety_status"] = "MISSING"
-    elif any(status == "EXPIRING SOON" for status in statuses.values()):
-        statuses["overall_safety_status"] = "EXPIRING SOON"
-    else:
-        statuses["overall_safety_status"] = "VALID"
-
-    statuses["safety_badge"] = (
-        "SAFETY CLEARED"
-        if statuses["overall_safety_status"] in ("VALID", "EXPIRING SOON")
-        else "SAFETY ACTION NEEDED"
+    nbi_has_file_info = any(key in emp for key in ("nbi", "nbi_file", "nbi_file_path"))
+    wah_has_file_info = any(key in emp for key in ("wah_file", "wah_file_path"))
+    first_aid_has_file_info = any(
+        key in emp for key in ("first_aid_file", "first_aid_file_path")
     )
 
-    return statuses
+    nbi_present = (
+        document_present(emp.get("nbi"), emp.get("nbi_file"), emp.get("nbi_file_path"))
+        if nbi_has_file_info
+        else True
+    )
+    wah_present = (
+        document_present(emp.get("wah_file"), emp.get("wah_file_path"))
+        if wah_has_file_info
+        else True
+    )
+    first_aid_present = (
+        document_present(emp.get("first_aid_file"), emp.get("first_aid_file_path"))
+        if first_aid_has_file_info
+        else True
+    )
+
+    statuses = {
+        "nbi_status": calculate_document_status(
+            emp.get("nbi_expiry_date"), nbi_present
+        ),
+        "wah_status": calculate_document_status(
+            emp.get("wah_expiry_date"), wah_present
+        ),
+        "first_aid_status": calculate_document_status(
+            emp.get("first_aid_expiry_date"), first_aid_present
+        ),
+    }
+
+    return build_safety_summary_from_statuses(
+        statuses["nbi_status"],
+        statuses["wah_status"],
+        statuses["first_aid_status"],
+    )
 
 
 def rows_to_dicts(cursor):
@@ -694,6 +785,250 @@ def get_employees_for_select():
     cursor.close()
     conn.close()
     return employees
+
+
+def full_employee_name(emp):
+
+    return clean_text(
+        clean_text(emp.get("first_name")) + " " + clean_text(emp.get("last_name"))
+    )
+
+
+def stored_file_display_name(path_or_name):
+
+    filename = os.path.basename(clean_text(path_or_name).replace("\\", "/"))
+
+    if "_" in filename:
+        possible_uuid, original = filename.split("_", 1)
+        try:
+            uuid.UUID(possible_uuid)
+            return original
+        except ValueError:
+            pass
+
+    return filename
+
+
+def send_stored_file(rel_path):
+
+    rel_path = clean_text(rel_path).replace("\\", "/").lstrip("/")
+    rel_path = os.path.normpath(rel_path).replace("\\", "/")
+
+    if not rel_path:
+        return "File not found"
+
+    if rel_path == "." or rel_path.startswith("../") or "/../" in rel_path:
+        return "Invalid file path"
+
+    if rel_path.startswith("static/uploads/"):
+        folder, filename = os.path.split(rel_path)
+        return send_from_directory(safe_abs_path(folder), filename)
+
+    if rel_path.startswith("uploads/"):
+        parts = rel_path.split("/", 2)
+
+        if len(parts) != 3:
+            return "Invalid file path"
+
+        _, folder, filename = parts
+
+        if folder not in LEGACY_UPLOAD_CATEGORIES:
+            return "Invalid upload folder"
+
+        return send_from_directory(safe_abs_path("uploads", folder), filename)
+
+    return "Invalid file path"
+
+
+def employee_file_rel_path(emp, file_kind):
+
+    if file_kind == "photo" and emp.get("photo"):
+        return "uploads/photos/" + emp["photo"]
+
+    if file_kind == "nbi" and emp.get("nbi"):
+        return "uploads/nbi/" + emp["nbi"]
+
+    if file_kind == "certificate" and emp.get("certificate"):
+        return "uploads/certificates/" + emp["certificate"]
+
+    if file_kind == "signature" and emp.get("signature"):
+        return "uploads/signatures/" + emp["signature"]
+
+    if file_kind == "wah" and emp.get("wah_file"):
+        return emp["wah_file"]
+
+    if file_kind == "first_aid" and emp.get("first_aid_file"):
+        return emp["first_aid_file"]
+
+    return ""
+
+
+def get_employee_detail(cursor, employee_id):
+
+    cursor.execute(
+        """
+        SELECT e.id,
+               e.project_id,
+               e.first_name,
+               e.last_name,
+               e.position,
+               e.email,
+               e.mobile,
+               e.phone_type,
+               e.ftap_imei,
+               e.ftap_email,
+               e.philtower_imei,
+               e.philtower_email,
+               e.photo,
+               e.nbi,
+               e.certificate,
+               e.signature,
+               e.telecom_role,
+               e.assigned_du_id,
+               e.nbi_reference,
+               e.nbi_issue_date,
+               e.nbi_expiry_date,
+               e.wah_reference,
+               e.wah_issue_date,
+               e.wah_expiry_date,
+               e.wah_file,
+               e.first_aid_reference,
+               e.first_aid_issue_date,
+               e.first_aid_expiry_date,
+               e.first_aid_file,
+               e.dossier_folder_path,
+               e.updated_at,
+               p.project_code,
+               p.project_name,
+               p.region,
+               p.company
+        FROM employees e
+        LEFT JOIN projects p ON e.project_id = p.id
+        WHERE e.id=%s
+        """,
+        (employee_id,),
+    )
+    emp = row_to_dict(cursor)
+
+    if emp:
+        emp.update(safety_summary_from_employee(emp))
+        emp["full_name"] = full_employee_name(emp)
+
+    return emp
+
+
+def build_document_record(document_type, employee, document=None):
+
+    mapping = {
+        "NBI": {
+            "label": "NBI Clearance",
+            "reference": "nbi_reference",
+            "issue": "nbi_issue_date",
+            "expiry": "nbi_expiry_date",
+            "file_kind": "nbi",
+            "file_field": "nbi",
+        },
+        "WAH": {
+            "label": "Work At Heights",
+            "reference": "wah_reference",
+            "issue": "wah_issue_date",
+            "expiry": "wah_expiry_date",
+            "file_kind": "wah",
+            "file_field": "wah_file",
+        },
+        "FIRST_AID": {
+            "label": "First Aid",
+            "reference": "first_aid_reference",
+            "issue": "first_aid_issue_date",
+            "expiry": "first_aid_expiry_date",
+            "file_kind": "first_aid",
+            "file_field": "first_aid_file",
+        },
+    }
+    info = mapping[document_type]
+
+    if document:
+        file_path = document.get("file_path") or ""
+        status = calculate_document_status(document.get("expiry_date"), bool(file_path))
+        return {
+            "id": document.get("id"),
+            "document_type": document_type,
+            "label": info["label"],
+            "reference_number": document.get("reference_number") or "",
+            "issue_date": document.get("issue_date"),
+            "expiry_date": document.get("expiry_date"),
+            "file_path": file_path,
+            "file_kind": info["file_kind"],
+            "filename": document.get("original_filename")
+            or stored_file_display_name(file_path),
+            "current_status": status,
+            "is_current": document.get("is_current"),
+            "created_at": document.get("created_at"),
+            "updated_at": document.get("updated_at"),
+        }
+
+    file_path = employee_file_rel_path(employee, info["file_kind"])
+    return {
+        "id": None,
+        "document_type": document_type,
+        "label": info["label"],
+        "reference_number": employee.get(info["reference"]) or "",
+        "issue_date": employee.get(info["issue"]),
+        "expiry_date": employee.get(info["expiry"]),
+        "file_path": file_path,
+        "file_kind": info["file_kind"],
+        "filename": stored_file_display_name(file_path),
+        "current_status": calculate_document_status(
+            employee.get(info["expiry"]), bool(file_path)
+        ),
+        "is_current": None,
+        "created_at": None,
+        "updated_at": None,
+    }
+
+
+def get_employee_safety_documents(cursor, employee):
+
+    cursor.execute(
+        """
+        SELECT id,
+               document_type,
+               reference_number,
+               issue_date,
+               expiry_date,
+               file_path,
+               is_current,
+               original_filename,
+               created_at,
+               updated_at
+        FROM safety_documents
+        WHERE employee_id=%s
+          AND document_type = ANY(%s)
+        ORDER BY is_current DESC, expiry_date DESC NULLS LAST, created_at DESC, id DESC
+        """,
+        (employee["id"], DOCUMENT_TYPES),
+    )
+    documents = rows_to_dicts(cursor)
+    current_by_type = {}
+    history = []
+
+    for document in documents:
+        document_type = document["document_type"]
+        built = build_document_record(document_type, employee, document)
+
+        if document.get("is_current") and document_type not in current_by_type:
+            current_by_type[document_type] = built
+        else:
+            history.append(built)
+
+    current_documents = []
+    for document_type in DOCUMENT_TYPES:
+        current_documents.append(
+            current_by_type.get(document_type)
+            or build_document_record(document_type, employee)
+        )
+
+    return current_documents, history
 
 
 SITE_REFERENCE_CTE = """
@@ -1122,9 +1457,99 @@ def sync_safety_document(
     issue_date,
     expiry_date,
     file_path,
+    original_filename="",
+    is_replacement=False,
 ):
 
+    if document_type not in DOCUMENT_TYPES:
+        raise ValueError("Invalid document type")
+
     status = None
+    has_document_data = any(
+        [
+            clean_text(reference_number),
+            clean_text(issue_date),
+            clean_text(expiry_date),
+            clean_text(file_path),
+        ]
+    )
+
+    cursor.execute(
+        """
+        SELECT id
+        FROM safety_documents
+        WHERE employee_id=%s
+          AND document_type=%s
+          AND is_current=TRUE
+        ORDER BY created_at DESC, id DESC
+        LIMIT 1
+        """,
+        (employee_id, document_type),
+    )
+    current_document = row_to_dict(cursor)
+
+    if not current_document and not file_path:
+        cursor.execute(
+            """
+            SELECT nbi, wah_file, first_aid_file
+            FROM employees
+            WHERE id=%s
+            """,
+            (employee_id,),
+        )
+        employee_files = row_to_dict(cursor) or {}
+
+        if document_type == "NBI" and employee_files.get("nbi"):
+            file_path = "uploads/nbi/" + employee_files["nbi"]
+        elif document_type == "WAH" and employee_files.get("wah_file"):
+            file_path = employee_files["wah_file"]
+        elif document_type == "FIRST_AID" and employee_files.get("first_aid_file"):
+            file_path = employee_files["first_aid_file"]
+
+        if file_path and not original_filename:
+            original_filename = stored_file_display_name(file_path)
+
+    if current_document and file_path and is_replacement:
+        cursor.execute(
+            """
+            UPDATE safety_documents
+            SET is_current=FALSE,
+                updated_at=CURRENT_TIMESTAMP
+            WHERE employee_id=%s
+              AND document_type=%s
+              AND is_current=TRUE
+            """,
+            (employee_id, document_type),
+        )
+    elif current_document:
+        cursor.execute(
+            """
+            UPDATE safety_documents
+            SET project_id=%s,
+                reference_number=%s,
+                issue_date=%s,
+                expiry_date=%s,
+                file_path=COALESCE(NULLIF(%s, ''), file_path),
+                original_filename=COALESCE(NULLIF(%s, ''), original_filename),
+                status=%s,
+                updated_at=CURRENT_TIMESTAMP
+            WHERE id=%s
+            """,
+            (
+                project_id,
+                reference_number,
+                issue_date,
+                expiry_date,
+                file_path if is_replacement else "",
+                original_filename,
+                status,
+                current_document["id"],
+            ),
+        )
+        return
+
+    if not has_document_data:
+        return
 
     cursor.execute(
         """
@@ -1136,17 +1561,12 @@ def sync_safety_document(
             issue_date,
             expiry_date,
             file_path,
-            status
+            status,
+            is_current,
+            original_filename,
+            updated_at
         )
-        VALUES(%s,%s,%s,%s,%s,%s,%s,%s)
-        ON CONFLICT(employee_id, document_type)
-        DO UPDATE SET
-            project_id=EXCLUDED.project_id,
-            reference_number=EXCLUDED.reference_number,
-            issue_date=EXCLUDED.issue_date,
-            expiry_date=EXCLUDED.expiry_date,
-            file_path=COALESCE(NULLIF(EXCLUDED.file_path, ''), safety_documents.file_path),
-            status=EXCLUDED.status
+        VALUES(%s,%s,%s,%s,%s,%s,%s,%s,TRUE,%s,CURRENT_TIMESTAMP)
         """,
         (
             employee_id,
@@ -1157,6 +1577,7 @@ def sync_safety_document(
             expiry_date,
             file_path,
             status,
+            original_filename,
         ),
     )
 
@@ -1395,6 +1816,9 @@ def dashboard():
                position,
                telecom_role,
                assigned_du_id,
+               nbi,
+               wah_file,
+               first_aid_file,
                nbi_expiry_date,
                wah_expiry_date,
                first_aid_expiry_date
@@ -1411,6 +1835,7 @@ def dashboard():
 
     for emp in employees:
         emp.update(safety_summary_from_employee(emp))
+        emp["full_name"] = full_employee_name(emp)
 
         if emp["overall_safety_status"] in ("VALID", "EXPIRING SOON"):
             safety_compliant_workers += 1
@@ -1422,6 +1847,19 @@ def dashboard():
                 expired_certificates += 1
             elif emp[key] == "MISSING":
                 missing_certificates += 1
+
+    attention_rank = {"MISSING": 0, "EXPIRED": 1, "EXPIRING SOON": 2, "VALID": 3}
+    attention_employees = [
+        emp for emp in employees if emp["overall_safety_status"] != "VALID"
+    ]
+    attention_employees.sort(
+        key=lambda emp: (
+            attention_rank.get(emp["overall_safety_status"], 9),
+            emp.get("nbi_expiry_date") or date.max,
+            emp.get("wah_expiry_date") or date.max,
+            emp.get("first_aid_expiry_date") or date.max,
+        )
+    )
 
     filtered_safety_employees = employees
 
@@ -1583,7 +2021,13 @@ def dashboard():
     cursor.execute(
         """
         SELECT DISTINCT du_id
-        FROM globe_nlz
+        FROM (
+            SELECT du_id FROM globe_nlz
+            UNION
+            SELECT du_id FROM planning_reference
+            UNION
+            SELECT du_id FROM telecom_sites
+        ) all_duids
         WHERE du_id IS NOT NULL
           AND TRIM(du_id) <> ''
         ORDER BY du_id
@@ -1635,6 +2079,7 @@ def dashboard():
         recent_permits=recent_permits,
         recent_incidents=recent_incidents,
         filtered_safety_employees=filtered_safety_employees[:10],
+        attention_employees=attention_employees[:10],
     )
 
 
@@ -1704,6 +2149,9 @@ def search():
                e.email,
                e.mobile,
                e.photo,
+               e.nbi,
+               e.wah_file,
+               e.first_aid_file,
                e.nbi_expiry_date,
                e.wah_expiry_date,
                e.first_aid_expiry_date,
@@ -1754,7 +2202,13 @@ def search():
     cursor.execute(
         """
         SELECT DISTINCT du_id
-        FROM globe_nlz
+        FROM (
+            SELECT du_id FROM globe_nlz
+            UNION
+            SELECT du_id FROM planning_reference
+            UNION
+            SELECT du_id FROM telecom_sites
+        ) all_duids
         WHERE du_id IS NOT NULL
           AND TRIM(du_id) <> ''
         ORDER BY du_id
@@ -1856,14 +2310,24 @@ def edit_employee(emp_id):
         assigned_du_id = clean_text(request.form.get("assigned_du_id"))
 
         nbi_reference = clean_text(request.form.get("nbi_reference"))
-        nbi_issue_date = clean_date(request.form.get("nbi_issue_date"))
-        nbi_expiry_date = clean_date(request.form.get("nbi_expiry_date"))
+        try:
+            nbi_issue_date = validate_date_field(request.form.get("nbi_issue_date"), "NBI issue date")
+            nbi_expiry_date = validate_date_field(request.form.get("nbi_expiry_date"), "NBI expiry date")
+            wah_issue_date = validate_date_field(request.form.get("wah_issue_date"), "WAH issue date")
+            wah_expiry_date = validate_date_field(request.form.get("wah_expiry_date"), "WAH expiry date")
+            first_aid_issue_date = validate_date_field(
+                request.form.get("first_aid_issue_date"), "First Aid issue date"
+            )
+            first_aid_expiry_date = validate_date_field(
+                request.form.get("first_aid_expiry_date"), "First Aid expiry date"
+            )
+        except ValueError as exc:
+            cursor.close()
+            conn.close()
+            return str(exc)
+
         wah_reference = clean_text(request.form.get("wah_reference"))
-        wah_issue_date = clean_date(request.form.get("wah_issue_date"))
-        wah_expiry_date = clean_date(request.form.get("wah_expiry_date"))
         first_aid_reference = clean_text(request.form.get("first_aid_reference"))
-        first_aid_issue_date = clean_date(request.form.get("first_aid_issue_date"))
-        first_aid_expiry_date = clean_date(request.form.get("first_aid_expiry_date"))
 
         if not duid_exists(cursor, assigned_du_id):
             cursor.close()
@@ -1876,6 +2340,9 @@ def edit_employee(emp_id):
         signature_filename = emp.get("signature") or ""
         wah_file_path = emp.get("wah_file") or ""
         first_aid_file_path = emp.get("first_aid_file") or ""
+        nbi_original_filename = ""
+        wah_original_filename = ""
+        first_aid_original_filename = ""
 
         try:
             photo_file = request.files.get("photo")
@@ -1890,6 +2357,7 @@ def edit_employee(emp_id):
                 copy_to_project_upload(photo_path, emp["project_id"], emp_id, "photo")
 
             if nbi_file and nbi_file.filename:
+                nbi_original_filename = secure_filename(nbi_file.filename)
                 nbi_filename, _ = save_legacy_upload(nbi_file, "nbi")
                 nbi_file.seek(0)
                 nbi_file_path, _ = save_project_upload(
@@ -1915,11 +2383,13 @@ def edit_employee(emp_id):
                 )
 
             if wah_file and wah_file.filename:
+                wah_original_filename = secure_filename(wah_file.filename)
                 wah_file_path, _ = save_project_upload(
                     wah_file, emp["project_id"], emp_id, "wah"
                 )
 
             if first_aid_file and first_aid_file.filename:
+                first_aid_original_filename = secure_filename(first_aid_file.filename)
                 first_aid_file_path, _ = save_project_upload(
                     first_aid_file, emp["project_id"], emp_id, "first_aid"
                 )
@@ -2011,6 +2481,8 @@ def edit_employee(emp_id):
             nbi_issue_date,
             nbi_expiry_date,
             nbi_file_path,
+            nbi_original_filename,
+            is_replacement=bool(nbi_original_filename),
         )
         sync_safety_document(
             cursor,
@@ -2021,6 +2493,8 @@ def edit_employee(emp_id):
             wah_issue_date,
             wah_expiry_date,
             wah_file_path,
+            wah_original_filename,
+            is_replacement=bool(wah_original_filename),
         )
         sync_safety_document(
             cursor,
@@ -2031,6 +2505,8 @@ def edit_employee(emp_id):
             first_aid_issue_date,
             first_aid_expiry_date,
             first_aid_file_path,
+            first_aid_original_filename,
+            is_replacement=bool(first_aid_original_filename),
         )
         sync_site_assignment(
             cursor, emp["project_id"], emp_id, assigned_du_id, telecom_role
@@ -2230,16 +2706,26 @@ def form(code):
         assigned_du_id = clean_text(request.form.get("assigned_du_id"))
 
         sec_number = clean_text(request.form.get("sec_number"))
-        sec_expiry = clean_date(request.form.get("sec_expiry"))
         nbi_reference = clean_text(request.form.get("nbi_reference"))
-        nbi_issue_date = clean_date(request.form.get("nbi_issue_date"))
-        nbi_expiry_date = clean_date(request.form.get("nbi_expiry_date"))
         wah_reference = clean_text(request.form.get("wah_reference"))
-        wah_issue_date = clean_date(request.form.get("wah_issue_date"))
-        wah_expiry_date = clean_date(request.form.get("wah_expiry_date"))
         first_aid_reference = clean_text(request.form.get("first_aid_reference"))
-        first_aid_issue_date = clean_date(request.form.get("first_aid_issue_date"))
-        first_aid_expiry_date = clean_date(request.form.get("first_aid_expiry_date"))
+
+        try:
+            sec_expiry = validate_date_field(request.form.get("sec_expiry"), "SEC expiry")
+            nbi_issue_date = validate_date_field(request.form.get("nbi_issue_date"), "NBI issue date")
+            nbi_expiry_date = validate_date_field(request.form.get("nbi_expiry_date"), "NBI expiry date")
+            wah_issue_date = validate_date_field(request.form.get("wah_issue_date"), "WAH issue date")
+            wah_expiry_date = validate_date_field(request.form.get("wah_expiry_date"), "WAH expiry date")
+            first_aid_issue_date = validate_date_field(
+                request.form.get("first_aid_issue_date"), "First Aid issue date"
+            )
+            first_aid_expiry_date = validate_date_field(
+                request.form.get("first_aid_expiry_date"), "First Aid expiry date"
+            )
+        except ValueError as exc:
+            cursor.close()
+            conn.close()
+            return str(exc)
 
         full_name = first_name + " " + last_name
 
@@ -2252,14 +2738,32 @@ def form(code):
         # FILES
         #################################
 
-        photo = request.files["photo"]
-        nbi = request.files["nbi"]
-        certificate = request.files["certificate"]
-        signature = request.files["signature"]
+        photo = request.files.get("photo")
+        nbi = request.files.get("nbi")
+        certificate = request.files.get("certificate")
+        signature = request.files.get("signature")
 
         sec_id = request.files.get("sec_id")
         wah_cert = request.files.get("wah_cert")
         first_aid_file = request.files.get("first_aid_file")
+
+        required_uploads = [photo, nbi, certificate, signature]
+
+        if any(not upload or upload.filename == "" for upload in required_uploads):
+            cursor.close()
+            conn.close()
+            return "Photo, NBI, certificate, and signature files are required"
+        nbi_original_filename = secure_filename(nbi.filename) if nbi and nbi.filename else ""
+        wah_original_filename = (
+            secure_filename(wah_cert.filename)
+            if wah_cert and wah_cert.filename
+            else ""
+        )
+        first_aid_original_filename = (
+            secure_filename(first_aid_file.filename)
+            if first_aid_file and first_aid_file.filename
+            else ""
+        )
 
         #################################
         # SAVE FILES
@@ -2407,6 +2911,7 @@ def form(code):
             nbi_issue_date,
             nbi_expiry_date,
             nbi_file_path,
+            nbi_original_filename,
         )
         sync_safety_document(
             cursor,
@@ -2417,6 +2922,7 @@ def form(code):
             wah_issue_date,
             wah_expiry_date,
             wah_file_path,
+            wah_original_filename,
         )
         sync_safety_document(
             cursor,
@@ -2427,6 +2933,7 @@ def form(code):
             first_aid_issue_date,
             first_aid_expiry_date,
             first_aid_file_path,
+            first_aid_original_filename,
         )
         sync_site_assignment(cursor, project["id"], employee_id, assigned_du_id, telecom_role)
 
@@ -2614,19 +3121,24 @@ def id_generator():
 
     cursor.execute(
         """
-        SELECT id,
-               first_name,
-               last_name,
-               position,
-               photo,
-               project_id,
-               telecom_role,
-               assigned_du_id,
-               nbi_expiry_date,
-               wah_expiry_date,
-               first_aid_expiry_date
-        FROM employees
-        ORDER BY first_name, last_name, id
+        SELECT e.id,
+               e.first_name,
+               e.last_name,
+               e.position,
+               e.photo,
+               e.project_id,
+               p.project_code,
+               e.telecom_role,
+               e.assigned_du_id,
+               e.nbi,
+               e.wah_file,
+               e.first_aid_file,
+               e.nbi_expiry_date,
+               e.wah_expiry_date,
+               e.first_aid_expiry_date
+        FROM employees e
+        LEFT JOIN projects p ON e.project_id = p.id
+        ORDER BY e.first_name, e.last_name, e.id
         """
     )
 
@@ -2651,6 +3163,195 @@ def uploaded_file(folder, filename):
     return send_from_directory(safe_abs_path("uploads", folder), filename)
 
 
+@app.route("/employees/<int:employee_id>")
+@login_required
+def employee_dossier(employee_id):
+
+    conn = connect_db()
+    cursor = conn.cursor()
+    employee = get_employee_detail(cursor, employee_id)
+
+    if not employee:
+        cursor.close()
+        conn.close()
+        return "Employee not found"
+
+    site = None
+    if employee.get("assigned_du_id"):
+        site = get_site_by_duid(cursor, employee["assigned_du_id"])
+
+    current_documents, document_history = get_employee_safety_documents(cursor, employee)
+    employee.update(safety_summary_from_document_records(current_documents))
+
+    cursor.execute(
+        """
+        SELECT sa.id,
+               sa.du_id,
+               sa.role,
+               sa.assignment_status,
+               sa.start_date,
+               sa.end_date,
+               p.project_name,
+               p.project_code
+        FROM site_assignments sa
+        LEFT JOIN projects p ON sa.project_id = p.id
+        WHERE sa.employee_id=%s
+        ORDER BY
+            CASE WHEN sa.assignment_status='ACTIVE' THEN 0 ELSE 1 END,
+            sa.start_date DESC NULLS LAST,
+            sa.id DESC
+        """,
+        (employee_id,),
+    )
+    assignments = rows_to_dicts(cursor)
+
+    cursor.close()
+    conn.close()
+
+    legacy_files = [
+        {"label": "Employee Photo", "kind": "photo", "path": employee_file_rel_path(employee, "photo")},
+        {
+            "label": "General Safety Certificate",
+            "kind": "certificate",
+            "path": employee_file_rel_path(employee, "certificate"),
+        },
+        {"label": "Signature", "kind": "signature", "path": employee_file_rel_path(employee, "signature")},
+    ]
+
+    return render_template(
+        "employee_dossier.html",
+        emp=employee,
+        site=site,
+        current_documents=current_documents,
+        document_history=document_history,
+        assignments=assignments,
+        legacy_files=legacy_files,
+        document_types=DOCUMENT_TYPES,
+    )
+
+
+@app.route("/employees/<int:employee_id>/files/<file_kind>")
+@login_required
+def employee_file(employee_id, file_kind):
+
+    if file_kind not in {"photo", "nbi", "certificate", "signature", "wah", "first_aid"}:
+        return "Invalid file type"
+
+    conn = connect_db()
+    cursor = conn.cursor()
+    employee = get_employee_detail(cursor, employee_id)
+    cursor.close()
+    conn.close()
+
+    if not employee:
+        return "Employee not found"
+
+    rel_path = employee_file_rel_path(employee, file_kind)
+
+    if not rel_path:
+        return "File not found"
+
+    return send_stored_file(rel_path)
+
+
+@app.route("/safety_documents/<int:document_id>/file")
+@login_required
+def safety_document_file(document_id):
+
+    conn = connect_db()
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        SELECT file_path
+        FROM safety_documents
+        WHERE id=%s
+        """,
+        (document_id,),
+    )
+    document = row_to_dict(cursor)
+    cursor.close()
+    conn.close()
+
+    if not document or not document.get("file_path"):
+        return "File not found"
+
+    return send_stored_file(document["file_path"])
+
+
+@app.route("/safety")
+@login_required
+def safety_compliance():
+
+    conn = connect_db()
+    cursor = conn.cursor()
+
+    filters = {
+        "project_id": clean_text(request.args.get("project_id")),
+        "du_id": clean_text(request.args.get("du_id")),
+        "status": clean_text(request.args.get("status")),
+    }
+    conditions = ["TRUE"]
+    params = []
+
+    if filters["project_id"]:
+        conditions.append("e.project_id=%s")
+        params.append(filters["project_id"])
+
+    if filters["du_id"]:
+        conditions.append("e.assigned_du_id=%s")
+        params.append(filters["du_id"])
+
+    cursor.execute(
+        f"""
+        SELECT e.id,
+               e.project_id,
+               e.first_name,
+               e.last_name,
+               e.position,
+               e.telecom_role,
+               e.assigned_du_id,
+               e.photo,
+               e.nbi,
+               e.wah_file,
+               e.first_aid_file,
+               e.nbi_expiry_date,
+               e.wah_expiry_date,
+               e.first_aid_expiry_date,
+               p.project_name,
+               p.project_code
+        FROM employees e
+        LEFT JOIN projects p ON e.project_id = p.id
+        WHERE {' AND '.join(conditions)}
+        ORDER BY e.first_name, e.last_name, e.id
+        """,
+        params,
+    )
+    employees = rows_to_dicts(cursor)
+
+    for employee in employees:
+        employee.update(safety_summary_from_employee(employee))
+        employee["full_name"] = full_employee_name(employee)
+
+    if filters["status"]:
+        employees = [
+            employee
+            for employee in employees
+            if employee["overall_safety_status"] == filters["status"]
+        ]
+
+    cursor.close()
+    conn.close()
+
+    return render_template(
+        "safety_compliance.html",
+        employees=employees,
+        projects=get_projects_for_select(),
+        duids=get_duids_for_select(),
+        filters=filters,
+        statuses=["VALID", "EXPIRING SOON", "EXPIRED", "MISSING"],
+    )
+
+
 #############################################
 # SAFETY DOCUMENTS
 #############################################
@@ -2664,13 +3365,24 @@ def safety_documents():
     cursor = conn.cursor()
 
     if request.method == "POST":
+        if session.get("role") != "admin":
+            cursor.close()
+            conn.close()
+            return "Access Denied"
+
         employee_id = clean_text(request.form.get("employee_id"))
         project_id = clean_text(request.form.get("project_id"))
         document_type = clean_text(request.form.get("document_type"))
         reference_number = clean_text(request.form.get("reference_number"))
-        issue_date = clean_date(request.form.get("issue_date"))
-        expiry_date = clean_date(request.form.get("expiry_date"))
         upload = request.files.get("document_file")
+
+        try:
+            issue_date = validate_date_field(request.form.get("issue_date"), "Issue date")
+            expiry_date = validate_date_field(request.form.get("expiry_date"), "Expiry date")
+        except ValueError as exc:
+            cursor.close()
+            conn.close()
+            return str(exc)
 
         if document_type not in DOCUMENT_TYPES:
             cursor.close()
@@ -2699,9 +3411,15 @@ def safety_documents():
             category = "first_aid"
 
         file_path = ""
+        original_filename = secure_filename(upload.filename) if upload and upload.filename else ""
+        legacy_nbi_filename = ""
 
         try:
             if upload and upload.filename != "":
+                if document_type == "NBI":
+                    legacy_nbi_filename, _ = save_legacy_upload(upload, "nbi")
+                    upload.seek(0)
+
                 file_path, _ = save_project_upload(
                     upload, project_id, employee_id, category
                 )
@@ -2719,6 +3437,8 @@ def safety_documents():
             issue_date,
             expiry_date,
             file_path,
+            original_filename,
+            is_replacement=bool(file_path),
         )
 
         if document_type == "NBI":
@@ -2727,10 +3447,17 @@ def safety_documents():
                 UPDATE employees
                 SET nbi_reference=%s,
                     nbi_issue_date=%s,
-                    nbi_expiry_date=%s
+                    nbi_expiry_date=%s,
+                    nbi=COALESCE(NULLIF(%s, ''), nbi)
                 WHERE id=%s
                 """,
-                (reference_number, issue_date, expiry_date, employee_id),
+                (
+                    reference_number,
+                    issue_date,
+                    expiry_date,
+                    legacy_nbi_filename,
+                    employee_id,
+                ),
             )
         elif document_type == "WAH":
             cursor.execute(
@@ -2756,6 +3483,18 @@ def safety_documents():
                 """,
                 (reference_number, issue_date, expiry_date, file_path, employee_id),
             )
+
+        updated_employee = get_employee_detail(cursor, employee_id)
+
+        if updated_employee and updated_employee.get("project_code"):
+            excel_path = project_excel_path(updated_employee["project_code"])
+
+            if os.path.exists(excel_path):
+                wb = load_workbook(excel_path)
+                write_access_info_row(wb, updated_employee, updated_employee)
+                wb.save(excel_path)
+
+            update_master_tracker_safety(updated_employee)
 
         conn.commit()
         cursor.close()
@@ -2791,7 +3530,10 @@ def safety_documents():
                sd.issue_date,
                sd.expiry_date,
                sd.file_path,
+               sd.is_current,
+               sd.original_filename,
                sd.created_at,
+               sd.updated_at,
                e.first_name,
                e.last_name,
                p.project_name,
@@ -2800,7 +3542,10 @@ def safety_documents():
         LEFT JOIN employees e ON sd.employee_id = e.id
         LEFT JOIN projects p ON sd.project_id = p.id
         WHERE {' AND '.join(conditions)}
-        ORDER BY sd.expiry_date NULLS FIRST, sd.created_at DESC, sd.id DESC
+        ORDER BY sd.is_current DESC,
+                 sd.expiry_date NULLS FIRST,
+                 sd.created_at DESC,
+                 sd.id DESC
         LIMIT 200
         """,
         params,
@@ -2808,7 +3553,13 @@ def safety_documents():
     documents = rows_to_dicts(cursor)
 
     for document in documents:
-        document["current_status"] = calculate_safety_status(document.get("expiry_date"))
+        document["current_status"] = calculate_document_status(
+            document.get("expiry_date"),
+            bool(document.get("file_path")),
+        )
+        document["filename"] = document.get("original_filename") or stored_file_display_name(
+            document.get("file_path")
+        )
 
     if filters["status"]:
         documents = [
@@ -3050,6 +3801,9 @@ def site_detail(du_id):
                e.last_name,
                e.position,
                e.telecom_role,
+               e.nbi,
+               e.wah_file,
+               e.first_aid_file,
                e.nbi_expiry_date,
                e.wah_expiry_date,
                e.first_aid_expiry_date
@@ -3224,8 +3978,14 @@ def site_assignments():
 
         role = clean_text(request.form.get("role"))
         assignment_status = clean_text(request.form.get("assignment_status")) or "ACTIVE"
-        start_date = clean_date(request.form.get("start_date"))
-        end_date = clean_date(request.form.get("end_date"))
+
+        try:
+            start_date = validate_date_field(request.form.get("start_date"), "Start date")
+            end_date = validate_date_field(request.form.get("end_date"), "End date")
+        except ValueError as exc:
+            cursor.close()
+            conn.close()
+            return str(exc)
 
         if assignment_status not in ("ACTIVE", "INACTIVE", "COMPLETED"):
             cursor.close()
@@ -3236,6 +3996,46 @@ def site_assignments():
             cursor.close()
             conn.close()
             return "Invalid DUID"
+
+        if not employee_id:
+            cursor.close()
+            conn.close()
+            return "Employee is required"
+
+        employee = get_employee_detail(cursor, employee_id)
+
+        if not employee:
+            cursor.close()
+            conn.close()
+            return "Employee not found"
+
+        if (
+            employee["overall_safety_status"] in ("MISSING", "EXPIRED")
+            and request.form.get("confirm_safety_warning") != "yes"
+        ):
+            site = get_site_by_duid(cursor, du_id)
+            form_values = dict(request.form)
+            cursor.close()
+            conn.close()
+            return render_template(
+                "assignment_warning.html",
+                employee=employee,
+                site=site,
+                form_values=form_values,
+            )
+
+        if assignment_status == "ACTIVE":
+            cursor.execute(
+                """
+                UPDATE site_assignments
+                SET assignment_status='INACTIVE',
+                    end_date=COALESCE(end_date, CURRENT_DATE)
+                WHERE employee_id=%s
+                  AND project_id IS NOT DISTINCT FROM %s
+                  AND assignment_status='ACTIVE'
+                """,
+                (employee_id, project_id or None),
+            )
 
         cursor.execute(
             """
@@ -3261,7 +4061,7 @@ def site_assignments():
             ),
         )
 
-        if employee_id:
+        if employee_id and assignment_status == "ACTIVE":
             cursor.execute(
                 """
                 UPDATE employees
@@ -4005,6 +4805,9 @@ def generate_id(code, employee_id):
                e.telecom_role,
                e.assigned_du_id,
                e.photo,
+               e.nbi,
+               e.wah_file,
+               e.first_aid_file,
                e.nbi_expiry_date,
                e.wah_expiry_date,
                e.first_aid_expiry_date,

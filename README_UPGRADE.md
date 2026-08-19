@@ -31,6 +31,15 @@ $env:PGPASSWORD="3598"
 
 This creates the `telecom_sites` operational table without modifying `globe_nlz`, `planning_reference`, or the master tracker workbook.
 
+For Phase 3 Personnel & Safety Dossier Management, run:
+
+```powershell
+$env:PGPASSWORD="3598"
+& "C:\Program Files\PostgreSQL\13\bin\psql.exe" -h localhost -U postgres -d ruc_system -f "D:\RUC_SYSTEM\db_phase3_personnel_safety.sql"
+```
+
+This keeps the existing `safety_documents` table, adds current/history metadata, and preserves uploaded safety document records.
+
 ## 3. Configure Local Secrets
 
 The app still falls back to the original local development values, but production-like local use should set:
@@ -95,6 +104,10 @@ After logging in as an admin:
 15. Generate an ID card and confirm employee ID, telecom role, DUID, and safety badge appear.
 16. Print the ID preview.
 17. Download the Master Tracker and upload a valid updated tracker.
+18. Open Search or Safety Compliance and click View Dossier for an employee.
+19. Confirm the dossier shows current NBI, WAH, First Aid, assignment, and legacy RUC files.
+20. Replace a safety document from Edit Employee and confirm the old safety document appears as history.
+21. Try assigning a missing/expired worker to a DUID and confirm the safety warning appears before final confirmation.
 
 ## Notes
 
