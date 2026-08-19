@@ -385,6 +385,21 @@ button {
     margin: 0;
 }
 
+.split-actions {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 10px;
+}
+
+.split-actions button {
+    margin: 0;
+}
+
+label input[type="checkbox"] {
+    width: auto;
+    margin-right: 8px;
+}
+
 .muted {
     color: #555;
 }
@@ -443,15 +458,38 @@ button {
 
 .status.on-hold,
 .status.blocked,
-.status.failed {
+.status.failed,
+.status.critical,
+.status.not-ready,
+.status.rejected {
     background: #fff3c4;
     color: #775500;
 }
 
 .status.completed,
-.status.closed {
+.status.closed,
+.status.verified,
+.status.rectified,
+.status.ready,
+.status.accepted,
+.status.passed-with-punchlist {
     background: #d9f2e3;
     color: #17633a;
+}
+
+.status.high {
+    background: #f8d3d3;
+    color: #8b0000;
+}
+
+.status.medium {
+    background: #fff3c4;
+    color: #775500;
+}
+
+.status.low {
+    background: #e9edf5;
+    color: #0a2a66;
 }
 
 .status.cancelled {

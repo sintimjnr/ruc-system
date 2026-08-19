@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Punchlist {{ item.item_number or item.id }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
+  </head>
+  <body>
+    <div class="topbar">
+      <img class="logo" src="{{ url_for('static', filename='images/ruc_logo.png') }}" />
+      Punchlist Item
+    </div>
+
+    <div class="menu">
+      <a href="/dashboard">Dashboard</a>
+      <a href="/punchlist">Punchlist</a>
+      <a href="{{ url_for('site_detail', du_id=item.duid) }}">Site Detail</a>
+      <a href="/pat">PAT</a>
+      {% if session.get('role') == 'admin' %}
+        <a href="{{ url_for('edit_punchlist_item', item_id=item.id) }}">Edit Item</a>
+      {% endif %}
+      <a href="/logout">Logout</a>
+    </div>
+
+    <div class="container">
+      <div class="site-heading">
+        <div>
+          <h1>{{ item.item_number or item.id }} - {{ item.title }}</h1>
+          <p>{{ item.duid }}{% if site %} / {{ site.display_site_name or site.du_name or 'Unnamed Site' }}{% endif %}</p>
+        </div>
+        <div class="site-badges">
+          <span class="status {{ item.priority|lower }}">{{ item.priority }}</span>
+          <span class="status {{ item.status|lower|replace(' ', '-') }}">{{ item.status }}</span>
+        </div>
+      </div>
+
+      <div class="detail-grid">
+        <section class="info-panel">
+          <h2>Issue</h2>
+          <dl class="detail-list">
+            <dt>DUID</dt>
+            <dd>{{ item.duid }}</dd>
+            <dt>Project</dt>
+            <dd>{{ item.project_name or item.project_code or '-' }}</dd>
+            <dt>Category</dt>
+            <dd>{{ item.category or '-' }}</dd>
+            <dt>Assigned</dt>
+            <dd>{{ item.assigned_name or '-' }}</dd>
+            <dt>Raised By</dt>
+            <dd>{{ item.raised_by or '-' }}</dd>
+            <dt>Raised Date</dt>
+            <dd>{{ item.raised_date or '-' }}</dd>
+            <dt>Target Date</dt>
+            <dd>{{ item.target_date or '-' }}</dd>
+          </dl>
+        </section>
+
+        <section class="info-panel">
+          <h2>Status</h2>
+          <dl class="detail-list">
+            <dt>Status</dt>
+            <dd>{{ item.status }}</dd>
+            <dt>Rectified Date</dt>
+            <dd>{{ item.rectified_date or '-' }}</dd>
+            <dt>Verified Date</dt>
+            <dd>{{ item.verified_date or '-' }}</dd>
+            <dt>Verified By</dt>
+            <dd>{{ item.verified_by or '-' }}</dd>
+            <dt>Updated</dt>
+            <dd>{{ item.updated_at or '-' }}</dd>
+          </dl>
+        </section>
+      </div>
+
+      <div class="detail-grid">
+        <section class="info-panel">
+          <h2>Description</h2>
+          <p>{{ item.description or '-' }}</p>
+        </section>
+        <section class="info-panel">
+          <h2>Closure / Verification Notes</h2>
+          <p>{{ item.closure_notes or '-' }}</p>
+        </section>
+      </div>
+
+      <h2>Evidence</h2>
+      <div class="evidence-grid">
+        {% for file in files %}
+          <div class="evidence-item">
+            {% set lower_path = file.file_path|lower %}
+            {% if lower_path.endswith('.png') or lower_path.endswith('.jpg') or lower_path.endswith('.jpeg') %}
+              <a href="{{ url_for('punchlist_file', file_id=file.id) }}" target="_blank">
+                <img src="{{ url_for('punchlist_file', file_id=file.id) }}" alt="{{ file.display_name }}" />
+              </a>
+            {% else %}
+              <a class="btn-small" href="{{ url_for('punchlist_file', file_id=file.id) }}" target="_blank">{{ file.display_name }}</a>
+            {% endif %}
+            <p>{{ file.caption or file.display_name }}</p>
+            <span class="muted">{{ file.file_type }} / {{ file.uploaded_at or '' }}</span>
+          </div>
+        {% else %}
+          <p>No evidence uploaded.</p>
+        {% endfor %}
+      </div>
+    </div>
+  </body>
+</html>

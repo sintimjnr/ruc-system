@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>{% if mode == 'edit' %}Edit{% else %}New{% endif %} PAT Record</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
+  </head>
+  <body>
+    <div class="topbar">
+      <img class="logo" src="{{ url_for('static', filename='images/ruc_logo.png') }}" />
+      {% if mode == 'edit' %}Edit{% else %}New{% endif %} PAT Record
+    </div>
+
+    <div class="menu">
+      <a href="/dashboard">Dashboard</a>
+      <a href="/pat">PAT</a>
+      <a href="/punchlist">Punchlist</a>
+      <a href="{{ url_for('site_detail', du_id=site.du_id) }}">Site Detail</a>
+      <a href="/logout">Logout</a>
+    </div>
+
+    <div class="container">
+      <div class="site-heading">
+        <div>
+          <h1>{{ site.du_id }}</h1>
+          <p>{{ site.display_site_name or site.du_name or 'Unnamed Site' }}</p>
+        </div>
+        <div class="site-badges">
+          <span class="status {{ record.result|lower|replace(' ', '-') if record.result else 'pending' }}">{{ record.result or 'PENDING' }}</span>
+        </div>
+      </div>
+
+      {% with messages = get_flashed_messages() %}
+        {% if messages %}
+          {% for message in messages %}
+            <div class="notice">{{ message }}</div>
+          {% endfor %}
+        {% endif %}
+      {% endwith %}
+
+      <form method="POST" enctype="multipart/form-data">
+        <div class="form-box wide">
+          <h2>PAT Details</h2>
+          <div class="filter-grid">
+            <div class="form-field">
+              <label for="project_id">Project</label>
+              <select id="project_id" name="project_id">
+                <option value="">No Project</option>
+                {% for project in projects %}
+                  <option value="{{ project.id }}" {% if record.project_id == project.id %}selected{% endif %}>{{ project.project_name }} - {{ project.project_code }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="form-field">
+              <label for="pat_reference">PAT Reference</label>
+              <input id="pat_reference" name="pat_reference" value="{{ record.pat_reference or '' }}" />
+            </div>
+            <div class="form-field">
+              <label for="pat_date">PAT Date</label>
+              <input id="pat_date" type="date" name="pat_date" value="{{ record.pat_date or '' }}" required />
+            </div>
+            <div class="form-field">
+              <label for="inspector_name">Inspector</label>
+              <input id="inspector_name" name="inspector_name" value="{{ record.inspector_name or '' }}" />
+            </div>
+            <div class="form-field">
+              <label for="vendor_name">Vendor</label>
+              <input id="vendor_name" name="vendor_name" value="{{ record.vendor_name or '' }}" />
+            </div>
+            <div class="form-field">
+              <label for="towerco_customer">TowerCo/Customer</label>
+              <input id="towerco_customer" name="towerco_customer" value="{{ record.towerco_customer or '' }}" />
+            </div>
+            <div class="form-field">
+              <label for="result">Result</label>
+              <select id="result" name="result">
+                {% for result in results %}
+                  <option value="{{ result }}" {% if record.result == result %}selected{% endif %}>{{ result }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="form-field wide-field">
+              <label for="remarks">Remarks</label>
+              <textarea id="remarks" name="remarks">{{ record.remarks or '' }}</textarea>
+            </div>
+            <div class="form-field">
+              <label for="pat_document">Signed PAT Document</label>
+              <input id="pat_document" type="file" name="pat_document" accept=".pdf,.png,.jpg,.jpeg" />
+            </div>
+          </div>
+        </div>
+
+        {% if record.document_path %}
+          <div class="notice compact-notice">
+            Existing document:
+            <a class="btn-small" href="{{ url_for('pat_document_file', pat_id=record.id) }}" target="_blank">{{ record.document_filename or 'PAT document' }}</a>
+          </div>
+        {% endif %}
+
+        <div class="toolbar">
+          <button type="submit">{% if mode == 'edit' %}Save PAT Record{% else %}Create PAT Record{% endif %}</button>
+        </div>
+      </form>
+    </div>
+  </body>
+</html>

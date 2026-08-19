@@ -16,6 +16,8 @@
       <a href="/site_assignments">Assignments</a>
       <a href="/telecom_tasks">Tasks</a>
       <a href="/daily_operations">Daily Operations</a>
+      <a href="/punchlist">Punchlist</a>
+      <a href="/pat">PAT</a>
       <a href="/permits">Permits</a>
       <a href="/incidents">Incidents</a>
       {% if session.get('role') == 'admin' %}
@@ -35,8 +37,17 @@
           <span class="status {{ site.overall_status|lower|replace(' ', '-') }}">{{ site.overall_status }}</span>
           <span class="status {{ site.access_validity|lower|replace(' ', '-') }}">Access {{ site.access_validity }}</span>
           <span class="status {{ site.pat_status|lower|replace(' ', '-') }}">PAT {{ site.pat_status }}</span>
+          <span class="status {{ acceptance_info.display_status|lower|replace(' ', '-') }}">Acceptance {{ acceptance_info.display_status }}</span>
         </div>
       </div>
+
+      {% with messages = get_flashed_messages() %}
+        {% if messages %}
+          {% for message in messages %}
+            <div class="notice">{{ message }}</div>
+          {% endfor %}
+        {% endif %}
+      {% endwith %}
 
       <div class="detail-grid">
         <section class="info-panel">
@@ -117,6 +128,158 @@
           {% endif %}
         {% endif %}
         <a class="btn" href="{{ url_for('daily_operations', duid=site.du_id) }}">View Daily History</a>
+      </div>
+
+      <div class="dashboard-panels two-column">
+        <section class="info-panel">
+          <h2>Punchlist</h2>
+          <dl class="detail-list">
+            <dt>Total</dt>
+            <dd>{{ punchlist_summary.total }}</dd>
+            <dt>Open</dt>
+            <dd>{{ punchlist_summary.open_count }}</dd>
+            <dt>In Progress</dt>
+            <dd>{{ punchlist_summary.in_progress_count }}</dd>
+            <dt>Rectified</dt>
+            <dd>{{ punchlist_summary.rectified_count }}</dd>
+            <dt>Verified</dt>
+            <dd>{{ punchlist_summary.verified_count }}</dd>
+            <dt>Closed</dt>
+            <dd>{{ punchlist_summary.closed_count }}</dd>
+            <dt>Critical Open</dt>
+            <dd>{{ punchlist_summary.critical_open }}</dd>
+          </dl>
+          <div class="toolbar">
+            <a class="btn" href="{{ url_for('punchlist', duid=site.du_id) }}">View Punchlist</a>
+            {% if session.get('role') == 'admin' %}
+              <a class="btn" href="{{ url_for('new_punchlist_item', du_id=site.du_id) }}">Add Punchlist Item</a>
+            {% endif %}
+          </div>
+          <table>
+            <tr>
+              <th>Item</th>
+              <th>Title</th>
+              <th>Priority</th>
+              <th>Status</th>
+              <th>Assigned</th>
+              <th>Action</th>
+            </tr>
+            {% for item in recent_punchlist_items %}
+              <tr>
+                <td>{{ item.item_number or item.id }}</td>
+                <td>{{ item.title }}</td>
+                <td><span class="status {{ item.priority|lower }}">{{ item.priority }}</span></td>
+                <td><span class="status {{ item.status|lower|replace(' ', '-') }}">{{ item.status }}</span></td>
+                <td>{{ item.assigned_name or '-' }}</td>
+                <td><a class="btn-small" href="{{ url_for('punchlist_detail', item_id=item.id) }}">View</a></td>
+              </tr>
+            {% else %}
+              <tr>
+                <td colspan="6">No punchlist items yet.</td>
+              </tr>
+            {% endfor %}
+          </table>
+        </section>
+
+        <section class="info-panel">
+          <h2>PAT</h2>
+          <dl class="detail-list">
+            <dt>PAT Status</dt>
+            <dd>
+              {% if latest_pat %}
+                <span class="status {{ latest_pat.result|lower|replace(' ', '-') }}">{{ latest_pat.result }}</span>
+              {% else %}
+                <span class="status pending">PENDING</span>
+              {% endif %}
+            </dd>
+            <dt>Latest PAT Date</dt>
+            <dd>{{ latest_pat.pat_date if latest_pat else '-' }}</dd>
+            <dt>PAT Reference</dt>
+            <dd>{{ latest_pat.pat_reference if latest_pat else '-' }}</dd>
+            <dt>PAT Result</dt>
+            <dd>{{ latest_pat.result if latest_pat else 'PENDING' }}</dd>
+          </dl>
+          <div class="toolbar">
+            <a class="btn" href="{{ url_for('pat_history', duid=site.du_id) }}">View PAT History</a>
+            {% if session.get('role') == 'admin' %}
+              <a class="btn" href="{{ url_for('new_pat_record', du_id=site.du_id) }}">Create PAT Record</a>
+            {% endif %}
+          </div>
+          <table>
+            <tr>
+              <th>Date</th>
+              <th>Reference</th>
+              <th>Inspector</th>
+              <th>Result</th>
+              <th>Action</th>
+            </tr>
+            {% for pat in recent_pat_records %}
+              <tr>
+                <td>{{ pat.pat_date }}</td>
+                <td>{{ pat.pat_reference or '-' }}</td>
+                <td>{{ pat.inspector_name or '-' }}</td>
+                <td><span class="status {{ pat.result|lower|replace(' ', '-') }}">{{ pat.result }}</span></td>
+                <td>
+                  {% if session.get('role') == 'admin' %}
+                    <a class="btn-small" href="{{ url_for('edit_pat_record', pat_id=pat.id) }}">Edit</a>
+                  {% else %}
+                    -
+                  {% endif %}
+                </td>
+              </tr>
+            {% else %}
+              <tr>
+                <td colspan="5">No PAT records yet.</td>
+              </tr>
+            {% endfor %}
+          </table>
+        </section>
+
+        <section class="info-panel">
+          <h2>Acceptance</h2>
+          <dl class="detail-list">
+            <dt>Status</dt>
+            <dd><span class="status {{ acceptance_info.display_status|lower|replace(' ', '-') }}">{{ acceptance_info.display_status }}</span></dd>
+            <dt>Readiness</dt>
+            <dd>{{ acceptance_info.readiness.calculated_status }}</dd>
+            <dt>Accepted By</dt>
+            <dd>{{ acceptance_info.record.accepted_by or '-' }}</dd>
+            <dt>Accepted At</dt>
+            <dd>{{ acceptance_info.record.accepted_at or '-' }}</dd>
+            <dt>Reference</dt>
+            <dd>{{ acceptance_info.record.acceptance_reference or '-' }}</dd>
+          </dl>
+          {% if acceptance_info.readiness.reasons %}
+            <div class="notice danger compact-notice">
+              {% for reason in acceptance_info.readiness.reasons %}
+                <div>{{ reason }}</div>
+              {% endfor %}
+            </div>
+          {% endif %}
+          {% if acceptance_info.readiness.warnings %}
+            <div class="notice compact-notice">
+              {% for warning in acceptance_info.readiness.warnings %}
+                <div>{{ warning }}</div>
+              {% endfor %}
+            </div>
+          {% endif %}
+          {% if session.get('role') == 'admin' %}
+            <form method="POST" action="{{ url_for('site_acceptance_action', du_id=site.du_id) }}">
+              <input type="hidden" name="project_id" value="{{ site.project_id or '' }}" />
+              <input name="acceptance_reference" value="{{ acceptance_info.record.acceptance_reference or '' }}" placeholder="Acceptance Reference" />
+              <textarea name="remarks" placeholder="Acceptance Remarks">{{ acceptance_info.record.remarks or '' }}</textarea>
+              <label>
+                <input type="checkbox" name="override_used" {% if acceptance_info.record.override_used %}checked{% endif %} />
+                Admin override
+              </label>
+              <textarea name="override_reason" placeholder="Override Reason">{{ acceptance_info.record.override_reason or '' }}</textarea>
+              <div class="toolbar split-actions">
+                <button type="submit" name="action" value="accept">Accept Site</button>
+                <button class="danger" type="submit" name="action" value="reject">Reject</button>
+              </div>
+            </form>
+          {% endif %}
+        </section>
       </div>
 
       <h2>Assigned Personnel</h2>

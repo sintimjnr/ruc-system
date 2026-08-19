@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>{% if mode == 'edit' %}Edit{% else %}New{% endif %} Punchlist Item</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
+  </head>
+  <body>
+    <div class="topbar">
+      <img class="logo" src="{{ url_for('static', filename='images/ruc_logo.png') }}" />
+      {% if mode == 'edit' %}Edit{% else %}New{% endif %} Punchlist Item
+    </div>
+
+    <div class="menu">
+      <a href="/dashboard">Dashboard</a>
+      <a href="/punchlist">Punchlist</a>
+      <a href="{{ url_for('site_detail', du_id=site.du_id) }}">Site Detail</a>
+      <a href="/pat">PAT</a>
+      <a href="/logout">Logout</a>
+    </div>
+
+    <div class="container">
+      <div class="site-heading">
+        <div>
+          <h1>{{ site.du_id }}</h1>
+          <p>{{ site.display_site_name or site.du_name or 'Unnamed Site' }}</p>
+        </div>
+        <div class="site-badges">
+          <span class="status {{ item.priority|lower if item.priority else 'medium' }}">{{ item.priority or 'MEDIUM' }}</span>
+          <span class="status {{ item.status|lower|replace(' ', '-') if item.status else 'open' }}">{{ item.status or 'OPEN' }}</span>
+        </div>
+      </div>
+
+      {% with messages = get_flashed_messages() %}
+        {% if messages %}
+          {% for message in messages %}
+            <div class="notice">{{ message }}</div>
+          {% endfor %}
+        {% endif %}
+      {% endwith %}
+
+      <form method="POST" enctype="multipart/form-data">
+        <div class="form-box wide">
+          <h2>Punchlist Item</h2>
+          <div class="filter-grid">
+            <div class="form-field">
+              <label for="project_id">Project</label>
+              <select id="project_id" name="project_id">
+                <option value="">No Project</option>
+                {% for project in projects %}
+                  <option value="{{ project.id }}" {% if item.project_id == project.id %}selected{% endif %}>{{ project.project_name }} - {{ project.project_code }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="form-field">
+              <label for="item_number">Item Number</label>
+              <input id="item_number" name="item_number" value="{{ item.item_number or '' }}" />
+            </div>
+            <div class="form-field">
+              <label for="category">Category</label>
+              <input id="category" name="category" value="{{ item.category or '' }}" />
+            </div>
+            <div class="form-field wide-field">
+              <label for="title">Title</label>
+              <input id="title" name="title" value="{{ item.title or '' }}" required />
+            </div>
+            <div class="form-field wide-field">
+              <label for="description">Description</label>
+              <textarea id="description" name="description">{{ item.description or '' }}</textarea>
+            </div>
+            <div class="form-field">
+              <label for="priority">Priority</label>
+              <select id="priority" name="priority">
+                {% for priority in priorities %}
+                  <option value="{{ priority }}" {% if item.priority == priority %}selected{% endif %}>{{ priority }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="form-field">
+              <label for="status">Status</label>
+              <select id="status" name="status">
+                {% for status in statuses %}
+                  <option value="{{ status }}" {% if item.status == status %}selected{% endif %}>{{ status }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="form-field">
+              <label for="assigned_employee_id">Responsible Employee</label>
+              <select id="assigned_employee_id" name="assigned_employee_id">
+                <option value="">Unassigned</option>
+                {% for person in people %}
+                  <option value="{{ person.id }}" {% if item.assigned_employee_id == person.id %}selected{% endif %}>{{ person.full_name }} - {{ person.telecom_role or person.position }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="form-field">
+              <label for="raised_by">Raised By</label>
+              <input id="raised_by" name="raised_by" value="{{ item.raised_by or session.get('admin', '') }}" />
+            </div>
+            <div class="form-field">
+              <label for="raised_date">Raised Date</label>
+              <input id="raised_date" type="date" name="raised_date" value="{{ item.raised_date or '' }}" />
+            </div>
+            <div class="form-field">
+              <label for="target_date">Target Date</label>
+              <input id="target_date" type="date" name="target_date" value="{{ item.target_date or '' }}" />
+            </div>
+            <div class="form-field wide-field">
+              <label for="closure_notes">Closure / Verification Notes</label>
+              <textarea id="closure_notes" name="closure_notes">{{ item.closure_notes or '' }}</textarea>
+            </div>
+          </div>
+        </div>
+
+        <div class="form-box wide">
+          <h2>Evidence</h2>
+          <div class="filter-grid">
+            <div class="form-field">
+              <label for="punchlist_file_type">Evidence Type</label>
+              <select id="punchlist_file_type" name="punchlist_file_type">
+                {% for file_type in file_types %}
+                  <option value="{{ file_type }}">{{ file_type }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="form-field">
+              <label for="punchlist_files">Upload Evidence</label>
+              <input id="punchlist_files" type="file" name="punchlist_files" multiple accept=".png,.jpg,.jpeg,.pdf" />
+            </div>
+            <div class="form-field">
+              <label for="punchlist_file_captions">Caption</label>
+              <input id="punchlist_file_captions" name="punchlist_file_captions" />
+            </div>
+          </div>
+        </div>
+
+        {% if files %}
+          <h2>Existing Evidence</h2>
+          <table>
+            <tr>
+              <th>Type</th>
+              <th>File</th>
+              <th>Caption</th>
+              <th>Uploaded By</th>
+              <th>Uploaded</th>
+            </tr>
+            {% for file in files %}
+              <tr>
+                <td>{{ file.file_type }}</td>
+                <td><a class="btn-small" href="{{ url_for('punchlist_file', file_id=file.id) }}" target="_blank">{{ file.display_name }}</a></td>
+                <td>{{ file.caption or '-' }}</td>
+                <td>{{ file.uploaded_by or '-' }}</td>
+                <td>{{ file.uploaded_at or '-' }}</td>
+              </tr>
+            {% endfor %}
+          </table>
+        {% endif %}
+
+        <div class="toolbar">
+          <button type="submit">{% if mode == 'edit' %}Save Punchlist Item{% else %}Create Punchlist Item{% endif %}</button>
+        </div>
+      </form>
+    </div>
+  </body>
+</html>

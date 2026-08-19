@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>PAT History</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
+  </head>
+  <body>
+    <div class="topbar">
+      <img class="logo" src="{{ url_for('static', filename='images/ruc_logo.png') }}" />
+      PAT History
+    </div>
+
+    <div class="menu">
+      <a href="/dashboard">Dashboard</a>
+      <a href="/sites">Sites</a>
+      <a href="/punchlist">Punchlist</a>
+      <a href="/daily_operations">Daily Operations</a>
+      <a href="/logout">Logout</a>
+    </div>
+
+    <div class="container">
+      {% with messages = get_flashed_messages() %}
+        {% if messages %}
+          {% for message in messages %}
+            <div class="notice">{{ message }}</div>
+          {% endfor %}
+        {% endif %}
+      {% endwith %}
+
+      <div class="form-box wide">
+        <h2>PAT Filters</h2>
+        <form method="GET" class="filter-grid">
+          <select name="duid">
+            <option value="">All DUIDs</option>
+            {% for duid in duids %}
+              <option value="{{ duid }}" {% if filters.duid == duid %}selected{% endif %}>{{ duid }}</option>
+            {% endfor %}
+          </select>
+          <select name="project_id">
+            <option value="">All Projects</option>
+            {% for project in projects %}
+              <option value="{{ project.id }}" {% if filters.project_id == project.id|string %}selected{% endif %}>{{ project.project_name }} - {{ project.project_code }}</option>
+            {% endfor %}
+          </select>
+          <select name="result">
+            <option value="">Any Result</option>
+            {% for result in results %}
+              <option value="{{ result }}" {% if filters.result == result %}selected{% endif %}>{{ result }}</option>
+            {% endfor %}
+          </select>
+          <input type="date" name="pat_date" value="{{ filters.pat_date }}" />
+          <button type="submit">Filter PAT</button>
+        </form>
+      </div>
+
+      <div class="toolbar">
+        {% if session.get('role') == 'admin' and filters.duid %}
+          <a class="btn" href="{{ url_for('new_pat_record', du_id=filters.duid) }}">Create PAT Record</a>
+        {% endif %}
+      </div>
+
+      <h2>PAT Records</h2>
+      <table>
+        <tr>
+          <th>DUID</th>
+          <th>Site</th>
+          <th>Reference</th>
+          <th>Date</th>
+          <th>Inspector</th>
+          <th>Vendor</th>
+          <th>TowerCo/Customer</th>
+          <th>Result</th>
+          <th>Document</th>
+          <th>Action</th>
+        </tr>
+        {% for record in records %}
+          <tr>
+            <td><a href="{{ url_for('site_detail', du_id=record.duid) }}">{{ record.duid }}</a></td>
+            <td>{{ record.display_site_name or '-' }}</td>
+            <td>{{ record.pat_reference or '-' }}</td>
+            <td>{{ record.pat_date }}</td>
+            <td>{{ record.inspector_name or '-' }}</td>
+            <td>{{ record.vendor_name or '-' }}</td>
+            <td>{{ record.towerco_customer or '-' }}</td>
+            <td><span class="status {{ record.result|lower|replace(' ', '-') }}">{{ record.result }}</span></td>
+            <td>
+              {% if record.document_path %}
+                <a class="btn-small" href="{{ url_for('pat_document_file', pat_id=record.id) }}" target="_blank">{{ record.document_filename or 'Document' }}</a>
+              {% else %}
+                -
+              {% endif %}
+            </td>
+            <td>
+              {% if session.get('role') == 'admin' %}
+                <a class="btn-small" href="{{ url_for('edit_pat_record', pat_id=record.id) }}">Edit</a>
+              {% else %}
+                -
+              {% endif %}
+            </td>
+          </tr>
+        {% else %}
+          <tr>
+            <td colspan="10">No PAT records found.</td>
+          </tr>
+        {% endfor %}
+      </table>
+    </div>
+  </body>
+</html>

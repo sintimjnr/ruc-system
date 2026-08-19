@@ -243,7 +243,15 @@ SITE_STAGES = [
 ]
 SITE_STATUSES = ["Not Started", "Active", "On Hold", "Blocked", "Completed"]
 ACCESS_STATUSES = ["VALID", "EXPIRING SOON", "EXPIRED", "MISSING"]
-PAT_STATUSES = ["MISSING", "PENDING", "IN PROGRESS", "PASSED", "FAILED", "WAIVED"]
+PAT_STATUSES = [
+    "MISSING",
+    "PENDING",
+    "IN PROGRESS",
+    "PASSED",
+    "PASSED WITH PUNCHLIST",
+    "FAILED",
+    "WAIVED",
+]
 EXPIRING_SOON_DAYS = 30
 DAILY_ATTENDANCE_STATUSES = ["Present", "Absent", "Late", "Excused"]
 DAILY_BLOCKER_CATEGORIES = [
@@ -260,6 +268,12 @@ DAILY_BLOCKER_CATEGORIES = [
     "Other",
 ]
 DAILY_FILE_TYPES = ["PHOTO", "DOCUMENT"]
+PUNCHLIST_PRIORITIES = ["LOW", "MEDIUM", "HIGH", "CRITICAL"]
+PUNCHLIST_STATUSES = ["OPEN", "IN PROGRESS", "RECTIFIED", "VERIFIED", "CLOSED"]
+PUNCHLIST_FILE_TYPES = ["BEFORE", "AFTER", "GENERAL", "DOCUMENT"]
+PUNCHLIST_UNRESOLVED_STATUSES = ["OPEN", "IN PROGRESS", "RECTIFIED"]
+PAT_RESULTS = ["PENDING", "PASSED", "PASSED WITH PUNCHLIST", "FAILED"]
+ACCEPTANCE_STATUSES = ["NOT READY", "READY", "ACCEPTED", "REJECTED"]
 
 
 @app.route("/static/<path:filename>", endpoint="static")
@@ -1815,6 +1829,754 @@ def sync_daily_log_to_project_workbook(cursor, daily_log_id):
     wb.save(excel_path)
 
 
+def ensure_phase5_workbook_sheets(wb):
+
+    if "PUNCHLIST" not in wb.sheetnames:
+        ws = wb.create_sheet("PUNCHLIST")
+        ws.append(
+            [
+                "ITEM ID",
+                "DUID",
+                "ITEM NUMBER",
+                "CATEGORY",
+                "TITLE",
+                "PRIORITY",
+                "STATUS",
+                "ASSIGNED TO",
+                "RAISED DATE",
+                "TARGET DATE",
+                "RECTIFIED DATE",
+                "VERIFIED DATE",
+                "CLOSURE NOTES",
+                "UPDATED AT",
+            ]
+        )
+
+    if "PAT" not in wb.sheetnames:
+        ws = wb.create_sheet("PAT")
+        ws.append(
+            [
+                "PAT ID",
+                "DUID",
+                "PAT REFERENCE",
+                "PAT DATE",
+                "INSPECTOR",
+                "VENDOR",
+                "TOWERCO/CUSTOMER",
+                "RESULT",
+                "REMARKS",
+                "DOCUMENT",
+                "UPDATED AT",
+            ]
+        )
+
+
+def get_project_code_value(cursor, project_id):
+
+    if not project_id:
+        return ""
+
+    cursor.execute(
+        "SELECT project_code FROM projects WHERE id=%s",
+        (project_id,),
+    )
+    project = row_to_dict(cursor)
+
+    if not project:
+        return ""
+
+    return project.get("project_code") or ""
+
+
+def project_key_for_site_files(cursor, project_id):
+
+    project_code = get_project_code_value(cursor, project_id)
+    return project_code or project_id or "general"
+
+
+def save_site_scoped_upload(
+    file_storage,
+    project_key,
+    duid,
+    section,
+    allowed_extensions,
+    extra_folder="",
+):
+
+    if not file_storage or file_storage.filename == "":
+        return "", "", ""
+
+    if not allowed_file(file_storage.filename, allowed_extensions):
+        raise ValueError("Unsupported file type")
+
+    safe_project = secure_filename(str(project_key or "general")) or "general"
+    safe_duid = secure_filename(validate_duid_value(duid)) or "site"
+    safe_section = secure_filename(section) or "files"
+    folder_parts = ["static", "uploads", "projects", safe_project, "sites", safe_duid, safe_section]
+
+    if extra_folder:
+        folder_parts.append(secure_filename(str(extra_folder)) or "item")
+
+    folder_path = safe_abs_path(*folder_parts)
+    os.makedirs(folder_path, exist_ok=True)
+
+    original_filename = secure_filename(file_storage.filename)
+    filename = str(uuid.uuid4()) + "_" + original_filename
+    file_path = os.path.join(folder_path, filename)
+    file_storage.save(file_path)
+
+    rel_path = os.path.relpath(file_path, BASE_DIR).replace("\\", "/")
+    return rel_path, file_path, original_filename
+
+
+def get_punchlist_item(cursor, item_id):
+
+    cursor.execute(
+        """
+        SELECT pi.id,
+               pi.duid,
+               pi.telecom_site_id,
+               pi.project_id,
+               pi.item_number,
+               pi.category,
+               pi.title,
+               pi.description,
+               pi.priority,
+               pi.status,
+               pi.assigned_employee_id,
+               pi.raised_by,
+               pi.raised_date,
+               pi.target_date,
+               pi.rectified_date,
+               pi.verified_date,
+               pi.verified_by,
+               pi.closure_notes,
+               pi.created_at,
+               pi.updated_at,
+               p.project_name,
+               p.project_code,
+               e.first_name,
+               e.last_name
+        FROM punchlist_items pi
+        LEFT JOIN projects p ON pi.project_id = p.id
+        LEFT JOIN employees e ON pi.assigned_employee_id = e.id
+        WHERE pi.id=%s
+        """,
+        (item_id,),
+    )
+    item = row_to_dict(cursor)
+
+    if item:
+        item["assigned_name"] = full_employee_name(item)
+
+    return item
+
+
+def get_punchlist_people(cursor, duid, project_id=None):
+
+    cursor.execute(
+        """
+        SELECT DISTINCT ON (e.id)
+               e.id,
+               e.first_name,
+               e.last_name,
+               e.position,
+               e.telecom_role,
+               e.project_id
+        FROM employees e
+        LEFT JOIN site_assignments sa
+          ON sa.employee_id = e.id
+         AND sa.du_id = %s
+         AND sa.assignment_status='ACTIVE'
+        WHERE sa.id IS NOT NULL
+           OR e.assigned_du_id=%s
+           OR (%s IS NOT NULL AND e.project_id=%s)
+        ORDER BY e.id, sa.id DESC
+        """,
+        (duid, duid, project_id, project_id),
+    )
+    employees = rows_to_dicts(cursor)
+
+    for employee in employees:
+        employee["full_name"] = full_employee_name(employee)
+
+    return employees
+
+
+def collect_punchlist_form_data(cursor, duid, site, existing_item=None):
+
+    duid = validate_duid_value(duid)
+    project_id = clean_text(request.form.get("project_id")) or site.get("project_id")
+    item_number = clean_text(request.form.get("item_number"))
+    category = clean_text(request.form.get("category"))
+    title = clean_text(request.form.get("title"))
+    description = clean_text(request.form.get("description"))
+    priority = normalize_choice(
+        request.form.get("priority"), PUNCHLIST_PRIORITIES, "MEDIUM"
+    )
+    status = normalize_choice(
+        request.form.get("status"),
+        PUNCHLIST_STATUSES,
+        (existing_item or {}).get("status") or "OPEN",
+    )
+    assigned_employee_id = clean_text(request.form.get("assigned_employee_id"))
+    closure_notes = clean_text(request.form.get("closure_notes"))
+
+    if not title:
+        raise ValueError("Punchlist title is required")
+
+    if not priority:
+        raise ValueError("Invalid punchlist priority")
+
+    if not status:
+        raise ValueError("Invalid punchlist status")
+
+    if not existing_item and status not in ("OPEN", "IN PROGRESS"):
+        raise ValueError("New punchlist items must start as OPEN or IN PROGRESS")
+
+    if project_id:
+        cursor.execute("SELECT 1 FROM projects WHERE id=%s", (project_id,))
+
+        if not cursor.fetchone():
+            raise ValueError("Invalid project")
+
+    if assigned_employee_id:
+        cursor.execute("SELECT 1 FROM employees WHERE id=%s", (assigned_employee_id,))
+
+        if not cursor.fetchone():
+            raise ValueError("Invalid assigned employee")
+
+    raised_date = validate_date_field(request.form.get("raised_date"), "Raised date")
+    target_date = validate_date_field(request.form.get("target_date"), "Target date")
+
+    if raised_date and target_date:
+        raised_value = parse_date_value(raised_date)
+        target_value = parse_date_value(target_date)
+
+        if raised_value and target_value and target_value < raised_value:
+            raise ValueError("Target date cannot be before raised date")
+
+    if item_number:
+        cursor.execute(
+            """
+            SELECT id
+            FROM punchlist_items
+            WHERE duid=%s
+              AND item_number=%s
+              AND (%s IS NULL OR id<>%s)
+            LIMIT 1
+            """,
+            (
+                duid,
+                item_number,
+                (existing_item or {}).get("id"),
+                (existing_item or {}).get("id"),
+            ),
+        )
+
+        if cursor.fetchone():
+            raise ValueError("Punchlist item number already exists for this DUID")
+
+    return {
+        "duid": duid,
+        "telecom_site_id": site.get("operational_site_id"),
+        "project_id": project_id or None,
+        "item_number": item_number or None,
+        "category": category,
+        "title": title,
+        "description": description,
+        "priority": priority,
+        "status": status,
+        "assigned_employee_id": assigned_employee_id or None,
+        "raised_by": clean_text(request.form.get("raised_by")) or session.get("admin", ""),
+        "raised_date": raised_date or date.today(),
+        "target_date": target_date,
+        "closure_notes": closure_notes,
+    }
+
+
+def validate_punchlist_transition(current_status, new_status):
+
+    current_status = clean_text(current_status) or "OPEN"
+    new_status = clean_text(new_status) or current_status
+
+    if current_status == new_status:
+        return
+
+    current_index = PUNCHLIST_STATUSES.index(current_status)
+    new_index = PUNCHLIST_STATUSES.index(new_status)
+
+    if new_index == current_index + 1:
+        return
+
+    raise ValueError(
+        "Punchlist status must follow OPEN -> IN PROGRESS -> RECTIFIED -> VERIFIED -> CLOSED"
+    )
+
+
+def sync_punchlist_files(cursor, item, project_key):
+
+    uploads = request.files.getlist("punchlist_files")
+    captions = request.form.getlist("punchlist_file_captions")
+    file_type = normalize_choice(
+        request.form.get("punchlist_file_type"), PUNCHLIST_FILE_TYPES, "GENERAL"
+    )
+
+    if not file_type:
+        raise ValueError("Invalid punchlist file type")
+
+    allowed_extensions = (
+        ALLOWED_IMAGE_EXTENSIONS
+        if file_type in ("BEFORE", "AFTER")
+        else ALLOWED_DOCUMENT_EXTENSIONS
+    )
+
+    for upload in uploads:
+        if upload and upload.filename and not allowed_file(upload.filename, allowed_extensions):
+            raise ValueError("Unsupported punchlist evidence file type")
+
+    for index, upload in enumerate(uploads):
+        if not upload or upload.filename == "":
+            continue
+
+        rel_path, _, original_filename = save_site_scoped_upload(
+            upload,
+            project_key,
+            item["duid"],
+            "punchlist",
+            allowed_extensions,
+            str(item["id"]),
+        )
+        caption = clean_text(captions[index]) if index < len(captions) else ""
+
+        cursor.execute(
+            """
+            INSERT INTO punchlist_files(
+                punchlist_item_id,
+                file_type,
+                filename,
+                file_path,
+                caption,
+                uploaded_by
+            )
+            VALUES(%s,%s,%s,%s,%s,%s)
+            """,
+            (
+                item["id"],
+                file_type,
+                original_filename,
+                rel_path,
+                caption,
+                session.get("admin", ""),
+            ),
+        )
+
+
+def sync_punchlist_item_to_project_workbook(cursor, item_id):
+
+    item = get_punchlist_item(cursor, item_id)
+
+    if not item or not item.get("project_code"):
+        return
+
+    try:
+        excel_path = project_excel_path(item["project_code"])
+    except ValueError:
+        return
+
+    if not os.path.exists(excel_path):
+        return
+
+    backup_file(excel_path, safe_abs_path("backups", "excel"))
+    wb = load_workbook(excel_path)
+    ensure_phase5_workbook_sheets(wb)
+    ws = wb["PUNCHLIST"]
+    row = None
+
+    for current_row in range(2, ws.max_row + 1):
+        if ws.cell(row=current_row, column=1).value == item_id:
+            row = current_row
+            break
+
+    if row is None:
+        row = ws.max_row + 1
+
+    values = [
+        item["id"],
+        item["duid"],
+        item.get("item_number"),
+        item.get("category"),
+        item.get("title"),
+        item.get("priority"),
+        item.get("status"),
+        item.get("assigned_name"),
+        item.get("raised_date"),
+        item.get("target_date"),
+        item.get("rectified_date"),
+        item.get("verified_date"),
+        item.get("closure_notes"),
+        item.get("updated_at"),
+    ]
+
+    for col, value in enumerate(values, start=1):
+        ws.cell(row=row, column=col).value = value
+
+    wb.save(excel_path)
+
+
+def get_latest_pat_record(cursor, duid):
+
+    cursor.execute(
+        """
+        SELECT pr.id,
+               pr.duid,
+               pr.telecom_site_id,
+               pr.project_id,
+               pr.pat_reference,
+               pr.pat_date,
+               pr.inspector_name,
+               pr.vendor_name,
+               pr.towerco_customer,
+               pr.result,
+               pr.remarks,
+               pr.document_filename,
+               pr.document_path,
+               pr.created_by,
+               pr.created_at,
+               pr.updated_at,
+               p.project_name,
+               p.project_code
+        FROM pat_records pr
+        LEFT JOIN projects p ON pr.project_id = p.id
+        WHERE pr.duid=%s
+        ORDER BY pr.pat_date DESC, pr.created_at DESC, pr.id DESC
+        LIMIT 1
+        """,
+        (duid,),
+    )
+    return row_to_dict(cursor)
+
+
+def get_pat_record(cursor, pat_id):
+
+    cursor.execute(
+        """
+        SELECT pr.id,
+               pr.duid,
+               pr.telecom_site_id,
+               pr.project_id,
+               pr.pat_reference,
+               pr.pat_date,
+               pr.inspector_name,
+               pr.vendor_name,
+               pr.towerco_customer,
+               pr.result,
+               pr.remarks,
+               pr.document_filename,
+               pr.document_path,
+               pr.created_by,
+               pr.created_at,
+               pr.updated_at,
+               p.project_name,
+               p.project_code
+        FROM pat_records pr
+        LEFT JOIN projects p ON pr.project_id = p.id
+        WHERE pr.id=%s
+        """,
+        (pat_id,),
+    )
+    return row_to_dict(cursor)
+
+
+def collect_pat_form_data(cursor, duid, site, existing_record=None):
+
+    duid = validate_duid_value(duid)
+    project_id = clean_text(request.form.get("project_id")) or site.get("project_id")
+    pat_reference = clean_text(request.form.get("pat_reference"))
+    pat_date = validate_date_field(request.form.get("pat_date"), "PAT date")
+    result = normalize_choice(request.form.get("result"), PAT_RESULTS, "PENDING")
+
+    if not result:
+        raise ValueError("Invalid PAT result")
+
+    if not pat_date:
+        raise ValueError("PAT date is required")
+
+    if project_id:
+        cursor.execute("SELECT 1 FROM projects WHERE id=%s", (project_id,))
+
+        if not cursor.fetchone():
+            raise ValueError("Invalid project")
+
+    cursor.execute(
+        """
+        SELECT id
+        FROM pat_records
+        WHERE duid=%s
+          AND pat_date=%s
+          AND COALESCE(pat_reference, '') = COALESCE(%s, '')
+          AND (%s IS NULL OR id<>%s)
+        LIMIT 1
+        """,
+        (
+            duid,
+            pat_date,
+            pat_reference or None,
+            (existing_record or {}).get("id"),
+            (existing_record or {}).get("id"),
+        ),
+    )
+
+    if cursor.fetchone():
+        raise ValueError("PAT record already exists for this DUID, date, and reference")
+
+    return {
+        "duid": duid,
+        "telecom_site_id": site.get("operational_site_id"),
+        "project_id": project_id or None,
+        "pat_reference": pat_reference or None,
+        "pat_date": pat_date,
+        "inspector_name": clean_text(request.form.get("inspector_name")),
+        "vendor_name": clean_text(request.form.get("vendor_name")),
+        "towerco_customer": clean_text(request.form.get("towerco_customer")),
+        "result": result,
+        "remarks": clean_text(request.form.get("remarks")),
+        "created_by": session.get("admin", ""),
+    }
+
+
+def save_pat_document(cursor, pat_record, project_key):
+
+    upload = request.files.get("pat_document")
+
+    if not upload or upload.filename == "":
+        return pat_record.get("document_filename") or "", pat_record.get("document_path") or ""
+
+    if not allowed_file(upload.filename, ALLOWED_DOCUMENT_EXTENSIONS):
+        raise ValueError("Unsupported PAT document file type")
+
+    rel_path, _, original_filename = save_site_scoped_upload(
+        upload,
+        project_key,
+        pat_record["duid"],
+        "pat",
+        ALLOWED_DOCUMENT_EXTENSIONS,
+    )
+    return original_filename, rel_path
+
+
+def sync_pat_record_to_project_workbook(cursor, pat_id):
+
+    record = get_pat_record(cursor, pat_id)
+
+    if not record or not record.get("project_code"):
+        return
+
+    try:
+        excel_path = project_excel_path(record["project_code"])
+    except ValueError:
+        return
+
+    if not os.path.exists(excel_path):
+        return
+
+    backup_file(excel_path, safe_abs_path("backups", "excel"))
+    wb = load_workbook(excel_path)
+    ensure_phase5_workbook_sheets(wb)
+    ws = wb["PAT"]
+    row = None
+
+    for current_row in range(2, ws.max_row + 1):
+        if ws.cell(row=current_row, column=1).value == pat_id:
+            row = current_row
+            break
+
+    if row is None:
+        row = ws.max_row + 1
+
+    values = [
+        record["id"],
+        record["duid"],
+        record.get("pat_reference"),
+        record.get("pat_date"),
+        record.get("inspector_name"),
+        record.get("vendor_name"),
+        record.get("towerco_customer"),
+        record.get("result"),
+        record.get("remarks"),
+        record.get("document_filename") or stored_file_display_name(record.get("document_path")),
+        record.get("updated_at"),
+    ]
+
+    for col, value in enumerate(values, start=1):
+        ws.cell(row=row, column=col).value = value
+
+    wb.save(excel_path)
+
+
+def apply_latest_pat_to_site(cursor, duid):
+
+    latest_pat = get_latest_pat_record(cursor, duid)
+
+    if not latest_pat:
+        return
+
+    cursor.execute(
+        """
+        INSERT INTO telecom_sites(
+            du_id,
+            project_id,
+            pat_status,
+            updated_at
+        )
+        VALUES(%s,%s,%s,CURRENT_TIMESTAMP)
+        ON CONFLICT(du_id)
+        DO UPDATE SET
+            project_id=COALESCE(EXCLUDED.project_id, telecom_sites.project_id),
+            pat_status=EXCLUDED.pat_status,
+            current_stage=CASE
+                WHEN telecom_sites.current_stage='Completed' THEN telecom_sites.current_stage
+                WHEN EXCLUDED.pat_status IN ('PASSED','PASSED WITH PUNCHLIST') THEN 'PAT'
+                ELSE telecom_sites.current_stage
+            END,
+            updated_at=CURRENT_TIMESTAMP
+        """,
+        (
+            latest_pat["duid"],
+            latest_pat.get("project_id"),
+            latest_pat["result"],
+        ),
+    )
+
+
+def get_punchlist_summary(cursor, duid):
+
+    cursor.execute(
+        """
+        SELECT COUNT(*) AS total,
+               COUNT(*) FILTER (WHERE status='OPEN') AS open_count,
+               COUNT(*) FILTER (WHERE status='IN PROGRESS') AS in_progress_count,
+               COUNT(*) FILTER (WHERE status='RECTIFIED') AS rectified_count,
+               COUNT(*) FILTER (WHERE status='VERIFIED') AS verified_count,
+               COUNT(*) FILTER (WHERE status='CLOSED') AS closed_count,
+               COUNT(*) FILTER (
+                   WHERE priority='CRITICAL'
+                     AND status = ANY(%s)
+               ) AS critical_open,
+               COUNT(*) FILTER (
+                   WHERE priority IN ('CRITICAL','HIGH')
+                     AND status = ANY(%s)
+               ) AS critical_high_unresolved,
+               COUNT(*) FILTER (WHERE status = ANY(%s)) AS unresolved_count
+        FROM punchlist_items
+        WHERE duid=%s
+        """,
+        (
+            PUNCHLIST_UNRESOLVED_STATUSES,
+            PUNCHLIST_UNRESOLVED_STATUSES,
+            PUNCHLIST_UNRESOLVED_STATUSES,
+            duid,
+        ),
+    )
+    summary = row_to_dict(cursor) or {}
+
+    for key in (
+        "total",
+        "open_count",
+        "in_progress_count",
+        "rectified_count",
+        "verified_count",
+        "closed_count",
+        "critical_open",
+        "critical_high_unresolved",
+        "unresolved_count",
+    ):
+        summary[key] = summary.get(key) or 0
+
+    return summary
+
+
+def calculate_acceptance_readiness(latest_pat, punchlist_summary):
+
+    reasons = []
+    warnings = []
+    pat_result = latest_pat.get("result") if latest_pat else ""
+
+    if not latest_pat:
+        reasons.append("No PAT record has been created.")
+    elif pat_result == "PENDING":
+        reasons.append("PAT is pending.")
+    elif pat_result == "FAILED":
+        reasons.append("PAT has failed.")
+    elif pat_result not in ("PASSED", "PASSED WITH PUNCHLIST"):
+        reasons.append("PAT has not passed.")
+
+    if punchlist_summary["critical_high_unresolved"]:
+        reasons.append(
+            f"{punchlist_summary['critical_high_unresolved']} HIGH/CRITICAL punchlist item remains unresolved."
+        )
+
+    if punchlist_summary["unresolved_count"]:
+        if pat_result == "PASSED WITH PUNCHLIST" and not punchlist_summary["critical_high_unresolved"]:
+            warnings.append(
+                f"{punchlist_summary['unresolved_count']} non-critical punchlist item remains under PASSED WITH PUNCHLIST."
+            )
+        elif not punchlist_summary["critical_high_unresolved"]:
+            reasons.append(
+                f"{punchlist_summary['unresolved_count']} unresolved punchlist item remains."
+            )
+
+    calculated_status = "READY" if not reasons else "NOT READY"
+
+    return {
+        "calculated_status": calculated_status,
+        "reasons": reasons,
+        "warnings": warnings,
+        "pat_result": pat_result or "PENDING",
+    }
+
+
+def get_site_acceptance_info(cursor, duid):
+
+    latest_pat = get_latest_pat_record(cursor, duid)
+    punchlist_summary = get_punchlist_summary(cursor, duid)
+    readiness = calculate_acceptance_readiness(latest_pat, punchlist_summary)
+
+    cursor.execute(
+        """
+        SELECT id,
+               duid,
+               telecom_site_id,
+               project_id,
+               acceptance_status,
+               accepted_by,
+               accepted_at,
+               acceptance_reference,
+               remarks,
+               override_used,
+               override_reason,
+               created_at,
+               updated_at
+        FROM site_acceptance
+        WHERE duid=%s
+        """,
+        (duid,),
+    )
+    record = row_to_dict(cursor) or {}
+    display_status = readiness["calculated_status"]
+
+    if record.get("acceptance_status") in ("ACCEPTED", "REJECTED"):
+        display_status = record["acceptance_status"]
+
+    return {
+        "record": record,
+        "latest_pat": latest_pat,
+        "punchlist_summary": punchlist_summary,
+        "readiness": readiness,
+        "display_status": display_status,
+    }
+
+
 def build_daily_log_filter_conditions(filters):
 
     conditions = ["TRUE"]
@@ -2645,6 +3407,113 @@ def dashboard():
     )
     sites_updated_today = cursor.fetchone()[0]
 
+    cursor.execute(
+        """
+        SELECT COUNT(DISTINCT duid)
+        FROM punchlist_items
+        WHERE status <> 'CLOSED'
+        """
+    )
+    sites_with_open_punchlists = cursor.fetchone()[0]
+
+    cursor.execute(
+        """
+        SELECT COUNT(*)
+        FROM punchlist_items
+        WHERE priority='CRITICAL'
+          AND status = ANY(%s)
+        """,
+        (PUNCHLIST_UNRESOLVED_STATUSES,),
+    )
+    critical_punchlist_items = cursor.fetchone()[0]
+
+    cursor.execute(
+        f"""
+        {SITE_REFERENCE_CTE},
+        latest_pat AS (
+            SELECT DISTINCT ON (duid)
+                   duid,
+                   result
+            FROM pat_records
+            ORDER BY duid, pat_date DESC, created_at DESC, id DESC
+        )
+        SELECT COUNT(*)
+        FROM all_duids d
+        LEFT JOIN latest_pat lp ON lp.duid = d.du_id
+        WHERE COALESCE(lp.result, 'PENDING') = 'PENDING'
+        """
+    )
+    sites_awaiting_pat = cursor.fetchone()[0]
+
+    cursor.execute(
+        """
+        SELECT COUNT(*)
+        FROM (
+            SELECT DISTINCT ON (duid)
+                   duid,
+                   result
+            FROM pat_records
+            ORDER BY duid, pat_date DESC, created_at DESC, id DESC
+        ) latest_pat
+        WHERE result='FAILED'
+        """
+    )
+    pat_failed = cursor.fetchone()[0]
+
+    cursor.execute(
+        f"""
+        {SITE_REFERENCE_CTE},
+        latest_pat AS (
+            SELECT DISTINCT ON (duid)
+                   duid,
+                   result
+            FROM pat_records
+            ORDER BY duid, pat_date DESC, created_at DESC, id DESC
+        ),
+        punchlist_counts AS (
+            SELECT duid,
+                   COUNT(*) FILTER (WHERE status = ANY(%s)) AS unresolved_count,
+                   COUNT(*) FILTER (
+                       WHERE priority IN ('CRITICAL','HIGH')
+                         AND status = ANY(%s)
+                   ) AS blocking_count
+            FROM punchlist_items
+            GROUP BY duid
+        )
+        SELECT COUNT(*)
+        FROM all_duids d
+        JOIN latest_pat lp ON lp.duid = d.du_id
+        LEFT JOIN punchlist_counts pc ON pc.duid = d.du_id
+        LEFT JOIN site_acceptance sa ON sa.duid = d.du_id
+        WHERE lp.result IN ('PASSED','PASSED WITH PUNCHLIST')
+          AND COALESCE(pc.blocking_count, 0) = 0
+          AND (
+              COALESCE(pc.unresolved_count, 0) = 0
+              OR lp.result = 'PASSED WITH PUNCHLIST'
+          )
+          AND COALESCE(sa.acceptance_status, '') <> 'ACCEPTED'
+        """,
+        (PUNCHLIST_UNRESOLVED_STATUSES, PUNCHLIST_UNRESOLVED_STATUSES),
+    )
+    sites_ready_for_acceptance = cursor.fetchone()[0]
+
+    cursor.execute(
+        """
+        SELECT COUNT(DISTINCT duid)
+        FROM (
+            SELECT duid
+            FROM site_acceptance
+            WHERE acceptance_status='ACCEPTED'
+            UNION
+            SELECT du_id AS duid
+            FROM telecom_sites
+            WHERE overall_status='Completed'
+               OR current_stage='Completed'
+        ) accepted_sites
+        """
+    )
+    accepted_completed_sites = cursor.fetchone()[0]
+
     task_conditions = ["TRUE"]
     task_params = []
 
@@ -2845,6 +3714,12 @@ def dashboard():
         personnel_present_today=personnel_present_today,
         sites_with_blockers=sites_with_blockers,
         sites_updated_today=sites_updated_today,
+        sites_with_open_punchlists=sites_with_open_punchlists,
+        critical_punchlist_items=critical_punchlist_items,
+        sites_awaiting_pat=sites_awaiting_pat,
+        pat_failed=pat_failed,
+        sites_ready_for_acceptance=sites_ready_for_acceptance,
+        accepted_completed_sites=accepted_completed_sites,
         recent_daily_activity=recent_daily_activity,
         duids=duids,
         employees=employees,
@@ -3421,6 +4296,8 @@ def create_project():
                 ws.append(["NAME", "ID NUMBER", "EXPIRY", "IMAGE"])
             else:
                 ws.append(["NAME", "IMAGE"])
+
+        ensure_phase5_workbook_sheets(wb)
 
         file_path = project_excel_path(project_code)
         wb.save(file_path)
@@ -4460,7 +5337,11 @@ def sites():
                COALESCE(tt_count.open_tasks, 0) AS open_tasks,
                COALESCE(ptw_count.active_permits, 0) AS active_permits,
                COALESCE(ir_count.open_incidents, 0) AS open_incidents,
-               COALESCE(daily_count.daily_reports, 0) AS daily_reports
+               COALESCE(daily_count.daily_reports, 0) AS daily_reports,
+               COALESCE(pl_count.open_punchlists, 0) AS open_punchlists,
+               COALESCE(pl_count.critical_open, 0) AS critical_punchlists,
+               COALESCE(latest_pat.result, ts.pat_status, 'PENDING') AS latest_pat_result,
+               COALESCE(sa.acceptance_status, 'NOT READY') AS acceptance_status
         {SITE_FROM_JOINS}
         LEFT JOIN (
             SELECT du_id, COUNT(DISTINCT employee_id) AS assigned_workers
@@ -4492,11 +5373,29 @@ def sites():
             FROM daily_site_logs
             GROUP BY duid
         ) daily_count ON daily_count.du_id = d.du_id
+        LEFT JOIN (
+            SELECT duid AS du_id,
+                   COUNT(*) FILTER (WHERE status <> 'CLOSED') AS open_punchlists,
+                   COUNT(*) FILTER (
+                       WHERE priority='CRITICAL'
+                         AND status = ANY(%s)
+                   ) AS critical_open
+            FROM punchlist_items
+            GROUP BY duid
+        ) pl_count ON pl_count.du_id = d.du_id
+        LEFT JOIN (
+            SELECT DISTINCT ON (duid)
+                   duid AS du_id,
+                   result
+            FROM pat_records
+            ORDER BY duid, pat_date DESC, created_at DESC, id DESC
+        ) latest_pat ON latest_pat.du_id = d.du_id
+        LEFT JOIN site_acceptance sa ON sa.duid = d.du_id
         WHERE {' AND '.join(conditions)}
         ORDER BY d.du_id
         LIMIT 300
         """,
-        params,
+        [PUNCHLIST_UNRESOLVED_STATUSES] + params,
     )
     sites_data = rows_to_dicts(cursor)
 
@@ -4727,6 +5626,66 @@ def site_detail(du_id):
     )
     today_daily_log = row_to_dict(cursor)
 
+    acceptance_info = get_site_acceptance_info(cursor, du_id)
+    punchlist_summary = acceptance_info["punchlist_summary"]
+    latest_pat = acceptance_info["latest_pat"]
+
+    cursor.execute(
+        """
+        SELECT pi.id,
+               pi.item_number,
+               pi.category,
+               pi.title,
+               pi.priority,
+               pi.status,
+               pi.assigned_employee_id,
+               pi.raised_date,
+               pi.target_date,
+               pi.rectified_date,
+               pi.verified_date,
+               pi.verified_by,
+               e.first_name,
+               e.last_name
+        FROM punchlist_items pi
+        LEFT JOIN employees e ON pi.assigned_employee_id = e.id
+        WHERE pi.duid=%s
+        ORDER BY
+            CASE pi.priority
+                WHEN 'CRITICAL' THEN 0
+                WHEN 'HIGH' THEN 1
+                WHEN 'MEDIUM' THEN 2
+                ELSE 3
+            END,
+            pi.updated_at DESC,
+            pi.id DESC
+        LIMIT 10
+        """,
+        (du_id,),
+    )
+    recent_punchlist_items = rows_to_dicts(cursor)
+
+    for item in recent_punchlist_items:
+        item["assigned_name"] = full_employee_name(item)
+
+    cursor.execute(
+        """
+        SELECT id,
+               pat_reference,
+               pat_date,
+               inspector_name,
+               result,
+               document_filename,
+               document_path,
+               updated_at
+        FROM pat_records
+        WHERE duid=%s
+        ORDER BY pat_date DESC, created_at DESC, id DESC
+        LIMIT 5
+        """,
+        (du_id,),
+    )
+    recent_pat_records = rows_to_dicts(cursor)
+
     cursor.close()
     conn.close()
 
@@ -4739,6 +5698,11 @@ def site_detail(du_id):
         recent_incidents=recent_incidents,
         recent_daily_logs=recent_daily_logs,
         today_daily_log=today_daily_log,
+        punchlist_summary=punchlist_summary,
+        recent_punchlist_items=recent_punchlist_items,
+        latest_pat=latest_pat,
+        recent_pat_records=recent_pat_records,
+        acceptance_info=acceptance_info,
         projects=get_projects_for_select(),
         employees=get_employees_for_select(),
         task_types=TELECOM_TASK_TYPES,
@@ -6546,6 +7510,855 @@ def id_cards(filename):
 
 
 #############################################
+# PHASE 5: PUNCHLIST, PAT, ACCEPTANCE
+#############################################
+
+
+@app.route("/punchlist")
+@login_required
+def punchlist():
+
+    filters = {
+        "duid": clean_text(request.args.get("duid")),
+        "project_id": clean_text(request.args.get("project_id")),
+        "status": clean_text(request.args.get("status")),
+        "priority": clean_text(request.args.get("priority")),
+        "assigned_employee_id": clean_text(request.args.get("assigned_employee_id")),
+    }
+    conditions = ["TRUE"]
+    params = []
+
+    if filters["duid"]:
+        conditions.append("pi.duid ILIKE %s")
+        params.append("%" + filters["duid"] + "%")
+
+    if filters["project_id"]:
+        conditions.append("pi.project_id=%s")
+        params.append(filters["project_id"])
+
+    if filters["status"] in PUNCHLIST_STATUSES:
+        conditions.append("pi.status=%s")
+        params.append(filters["status"])
+
+    if filters["priority"] in PUNCHLIST_PRIORITIES:
+        conditions.append("pi.priority=%s")
+        params.append(filters["priority"])
+
+    if filters["assigned_employee_id"]:
+        conditions.append("pi.assigned_employee_id=%s")
+        params.append(filters["assigned_employee_id"])
+
+    conn = connect_db()
+    cursor = conn.cursor()
+    cursor.execute(
+        f"""
+        {SITE_REFERENCE_CTE}
+        SELECT pi.id,
+               pi.duid,
+               pi.project_id,
+               pi.item_number,
+               pi.category,
+               pi.title,
+               pi.priority,
+               pi.status,
+               pi.assigned_employee_id,
+               pi.raised_date,
+               pi.target_date,
+               pi.rectified_date,
+               pi.verified_date,
+               pi.verified_by,
+               pi.updated_at,
+               p.project_name,
+               p.project_code,
+               e.first_name,
+               e.last_name,
+               COALESCE(g.site_name, g.sitename, g.globe_du_name, pr.planning_du_name) AS display_site_name
+        FROM punchlist_items pi
+        LEFT JOIN globe_sites g ON g.du_id = pi.duid
+        LEFT JOIN planning_sites pr ON pr.du_id = pi.duid
+        LEFT JOIN projects p ON pi.project_id = p.id
+        LEFT JOIN employees e ON pi.assigned_employee_id = e.id
+        WHERE {' AND '.join(conditions)}
+        ORDER BY
+            CASE pi.priority
+                WHEN 'CRITICAL' THEN 0
+                WHEN 'HIGH' THEN 1
+                WHEN 'MEDIUM' THEN 2
+                ELSE 3
+            END,
+            pi.updated_at DESC,
+            pi.id DESC
+        LIMIT 300
+        """,
+        params,
+    )
+    items = rows_to_dicts(cursor)
+
+    for item in items:
+        item["assigned_name"] = full_employee_name(item)
+
+    cursor.close()
+    conn.close()
+
+    return render_template(
+        "punchlist.html",
+        items=items,
+        filters=filters,
+        projects=get_projects_for_select(),
+        employees=get_employees_for_select(),
+        duids=get_duids_for_select(),
+        statuses=PUNCHLIST_STATUSES,
+        priorities=PUNCHLIST_PRIORITIES,
+    )
+
+
+@app.route("/sites/<path:du_id>/punchlist/new", methods=["GET", "POST"])
+@admin_required
+def new_punchlist_item(du_id):
+
+    du_id = validate_duid_value(du_id)
+    conn = connect_db()
+    cursor = conn.cursor()
+    site = get_site_by_duid(cursor, du_id)
+
+    if not site:
+        cursor.close()
+        conn.close()
+        return "Site not found"
+
+    if request.method == "POST":
+        try:
+            item_data = collect_punchlist_form_data(cursor, du_id, site)
+            cursor.execute(
+                """
+                INSERT INTO punchlist_items(
+                    duid,
+                    telecom_site_id,
+                    project_id,
+                    item_number,
+                    category,
+                    title,
+                    description,
+                    priority,
+                    status,
+                    assigned_employee_id,
+                    raised_by,
+                    raised_date,
+                    target_date,
+                    closure_notes,
+                    updated_at
+                )
+                VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,CURRENT_TIMESTAMP)
+                RETURNING id
+                """,
+                (
+                    item_data["duid"],
+                    item_data["telecom_site_id"],
+                    item_data["project_id"],
+                    item_data["item_number"],
+                    item_data["category"],
+                    item_data["title"],
+                    item_data["description"],
+                    item_data["priority"],
+                    item_data["status"],
+                    item_data["assigned_employee_id"],
+                    item_data["raised_by"],
+                    item_data["raised_date"],
+                    item_data["target_date"],
+                    item_data["closure_notes"],
+                ),
+            )
+            item_id = cursor.fetchone()[0]
+
+            if not item_data["item_number"]:
+                item_data["item_number"] = "PL-" + str(item_id).zfill(4)
+                cursor.execute(
+                    "UPDATE punchlist_items SET item_number=%s WHERE id=%s",
+                    (item_data["item_number"], item_id),
+                )
+
+            item = get_punchlist_item(cursor, item_id)
+            project_key = project_key_for_site_files(cursor, item["project_id"])
+            sync_punchlist_files(cursor, item, project_key)
+            sync_punchlist_item_to_project_workbook(cursor, item_id)
+            conn.commit()
+        except (ValueError, psycopg2.Error) as exc:
+            conn.rollback()
+            cursor.close()
+            conn.close()
+            flash(str(exc))
+            return redirect(url_for("new_punchlist_item", du_id=du_id))
+
+        cursor.close()
+        conn.close()
+        return redirect(url_for("punchlist_detail", item_id=item_id))
+
+    item = {
+        "duid": du_id,
+        "project_id": site.get("project_id"),
+        "priority": "MEDIUM",
+        "status": "OPEN",
+        "raised_date": date.today(),
+    }
+    people = get_punchlist_people(cursor, du_id, site.get("project_id"))
+    cursor.close()
+    conn.close()
+
+    return render_template(
+        "punchlist_form.html",
+        mode="new",
+        site=site,
+        item=item,
+        people=people,
+        files=[],
+        projects=get_projects_for_select(),
+        priorities=PUNCHLIST_PRIORITIES,
+        statuses=PUNCHLIST_STATUSES,
+        file_types=PUNCHLIST_FILE_TYPES,
+    )
+
+
+@app.route("/punchlist/<int:item_id>")
+@login_required
+def punchlist_detail(item_id):
+
+    conn = connect_db()
+    cursor = conn.cursor()
+    item = get_punchlist_item(cursor, item_id)
+
+    if not item:
+        cursor.close()
+        conn.close()
+        return "Punchlist item not found"
+
+    site = get_site_by_duid(cursor, item["duid"])
+    cursor.execute(
+        """
+        SELECT id,
+               file_type,
+               filename,
+               file_path,
+               caption,
+               uploaded_by,
+               uploaded_at
+        FROM punchlist_files
+        WHERE punchlist_item_id=%s
+        ORDER BY uploaded_at DESC, id DESC
+        """,
+        (item_id,),
+    )
+    files = rows_to_dicts(cursor)
+
+    for file_row in files:
+        file_row["display_name"] = (
+            file_row.get("filename")
+            or stored_file_display_name(file_row.get("file_path"))
+        )
+
+    cursor.close()
+    conn.close()
+
+    return render_template(
+        "punchlist_detail.html",
+        item=item,
+        site=site,
+        files=files,
+    )
+
+
+@app.route("/punchlist/<int:item_id>/edit", methods=["GET", "POST"])
+@admin_required
+def edit_punchlist_item(item_id):
+
+    conn = connect_db()
+    cursor = conn.cursor()
+    item = get_punchlist_item(cursor, item_id)
+
+    if not item:
+        cursor.close()
+        conn.close()
+        return "Punchlist item not found"
+
+    site = get_site_by_duid(cursor, item["duid"])
+
+    if request.method == "POST":
+        try:
+            item_data = collect_punchlist_form_data(cursor, item["duid"], site, item)
+            validate_punchlist_transition(item["status"], item_data["status"])
+            rectified_date = item.get("rectified_date")
+            verified_date = item.get("verified_date")
+            verified_by = item.get("verified_by")
+
+            if item_data["status"] == "RECTIFIED" and item["status"] != "RECTIFIED":
+                rectified_date = rectified_date or date.today()
+
+            if item_data["status"] == "VERIFIED" and item["status"] != "VERIFIED":
+                verified_date = date.today()
+                verified_by = session.get("admin", "")
+
+            cursor.execute(
+                """
+                UPDATE punchlist_items
+                SET project_id=%s,
+                    item_number=%s,
+                    category=%s,
+                    title=%s,
+                    description=%s,
+                    priority=%s,
+                    status=%s,
+                    assigned_employee_id=%s,
+                    raised_by=%s,
+                    raised_date=%s,
+                    target_date=%s,
+                    rectified_date=%s,
+                    verified_date=%s,
+                    verified_by=%s,
+                    closure_notes=%s,
+                    updated_at=CURRENT_TIMESTAMP
+                WHERE id=%s
+                """,
+                (
+                    item_data["project_id"],
+                    item_data["item_number"],
+                    item_data["category"],
+                    item_data["title"],
+                    item_data["description"],
+                    item_data["priority"],
+                    item_data["status"],
+                    item_data["assigned_employee_id"],
+                    item_data["raised_by"],
+                    item_data["raised_date"],
+                    item_data["target_date"],
+                    rectified_date,
+                    verified_date,
+                    verified_by,
+                    item_data["closure_notes"],
+                    item_id,
+                ),
+            )
+            updated_item = get_punchlist_item(cursor, item_id)
+            project_key = project_key_for_site_files(cursor, updated_item["project_id"])
+            sync_punchlist_files(cursor, updated_item, project_key)
+            sync_punchlist_item_to_project_workbook(cursor, item_id)
+            conn.commit()
+        except (ValueError, psycopg2.Error) as exc:
+            conn.rollback()
+            cursor.close()
+            conn.close()
+            flash(str(exc))
+            return redirect(url_for("edit_punchlist_item", item_id=item_id))
+
+        cursor.close()
+        conn.close()
+        return redirect(url_for("punchlist_detail", item_id=item_id))
+
+    cursor.execute(
+        """
+        SELECT id,
+               file_type,
+               filename,
+               file_path,
+               caption,
+               uploaded_by,
+               uploaded_at
+        FROM punchlist_files
+        WHERE punchlist_item_id=%s
+        ORDER BY uploaded_at DESC, id DESC
+        """,
+        (item_id,),
+    )
+    files = rows_to_dicts(cursor)
+
+    for file_row in files:
+        file_row["display_name"] = (
+            file_row.get("filename")
+            or stored_file_display_name(file_row.get("file_path"))
+        )
+
+    people = get_punchlist_people(cursor, item["duid"], item.get("project_id"))
+    cursor.close()
+    conn.close()
+
+    return render_template(
+        "punchlist_form.html",
+        mode="edit",
+        site=site,
+        item=item,
+        people=people,
+        files=files,
+        projects=get_projects_for_select(),
+        priorities=PUNCHLIST_PRIORITIES,
+        statuses=PUNCHLIST_STATUSES,
+        file_types=PUNCHLIST_FILE_TYPES,
+    )
+
+
+@app.route("/punchlist_files/<int:file_id>")
+@login_required
+def punchlist_file(file_id):
+
+    conn = connect_db()
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        SELECT file_path
+        FROM punchlist_files
+        WHERE id=%s
+        """,
+        (file_id,),
+    )
+    file_record = row_to_dict(cursor)
+    cursor.close()
+    conn.close()
+
+    if not file_record or not file_record.get("file_path"):
+        return "File not found"
+
+    return send_stored_file(file_record["file_path"])
+
+
+@app.route("/pat")
+@login_required
+def pat_history():
+
+    filters = {
+        "duid": clean_text(request.args.get("duid")),
+        "project_id": clean_text(request.args.get("project_id")),
+        "result": clean_text(request.args.get("result")),
+        "pat_date": clean_text(request.args.get("pat_date")),
+    }
+    conditions = ["TRUE"]
+    params = []
+
+    if filters["duid"]:
+        conditions.append("pr.duid ILIKE %s")
+        params.append("%" + filters["duid"] + "%")
+
+    if filters["project_id"]:
+        conditions.append("pr.project_id=%s")
+        params.append(filters["project_id"])
+
+    if filters["result"] in PAT_RESULTS:
+        conditions.append("pr.result=%s")
+        params.append(filters["result"])
+
+    if filters["pat_date"]:
+        try:
+            pat_date = validate_date_field(filters["pat_date"], "PAT date")
+        except ValueError as exc:
+            return str(exc)
+        conditions.append("pr.pat_date=%s")
+        params.append(pat_date)
+
+    conn = connect_db()
+    cursor = conn.cursor()
+    cursor.execute(
+        f"""
+        {SITE_REFERENCE_CTE}
+        SELECT pr.id,
+               pr.duid,
+               pr.project_id,
+               pr.pat_reference,
+               pr.pat_date,
+               pr.inspector_name,
+               pr.vendor_name,
+               pr.towerco_customer,
+               pr.result,
+               pr.remarks,
+               pr.document_filename,
+               pr.document_path,
+               pr.created_by,
+               pr.updated_at,
+               p.project_name,
+               p.project_code,
+               COALESCE(g.site_name, g.sitename, g.globe_du_name, prn.planning_du_name) AS display_site_name
+        FROM pat_records pr
+        LEFT JOIN globe_sites g ON g.du_id = pr.duid
+        LEFT JOIN planning_sites prn ON prn.du_id = pr.duid
+        LEFT JOIN projects p ON pr.project_id = p.id
+        WHERE {' AND '.join(conditions)}
+        ORDER BY pr.pat_date DESC, pr.created_at DESC, pr.id DESC
+        LIMIT 300
+        """,
+        params,
+    )
+    records = rows_to_dicts(cursor)
+    cursor.close()
+    conn.close()
+
+    return render_template(
+        "pat.html",
+        records=records,
+        filters=filters,
+        projects=get_projects_for_select(),
+        duids=get_duids_for_select(),
+        results=PAT_RESULTS,
+    )
+
+
+@app.route("/sites/<path:du_id>/pat/new", methods=["GET", "POST"])
+@admin_required
+def new_pat_record(du_id):
+
+    du_id = validate_duid_value(du_id)
+    conn = connect_db()
+    cursor = conn.cursor()
+    site = get_site_by_duid(cursor, du_id)
+
+    if not site:
+        cursor.close()
+        conn.close()
+        return "Site not found"
+
+    if request.method == "POST":
+        try:
+            pat_data = collect_pat_form_data(cursor, du_id, site)
+            cursor.execute(
+                """
+                INSERT INTO pat_records(
+                    duid,
+                    telecom_site_id,
+                    project_id,
+                    pat_reference,
+                    pat_date,
+                    inspector_name,
+                    vendor_name,
+                    towerco_customer,
+                    result,
+                    remarks,
+                    created_by,
+                    updated_at
+                )
+                VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,CURRENT_TIMESTAMP)
+                RETURNING id
+                """,
+                (
+                    pat_data["duid"],
+                    pat_data["telecom_site_id"],
+                    pat_data["project_id"],
+                    pat_data["pat_reference"],
+                    pat_data["pat_date"],
+                    pat_data["inspector_name"],
+                    pat_data["vendor_name"],
+                    pat_data["towerco_customer"],
+                    pat_data["result"],
+                    pat_data["remarks"],
+                    pat_data["created_by"],
+                ),
+            )
+            pat_id = cursor.fetchone()[0]
+            project_key = project_key_for_site_files(cursor, pat_data["project_id"])
+            pat_data["id"] = pat_id
+            document_filename, document_path = save_pat_document(cursor, pat_data, project_key)
+            cursor.execute(
+                """
+                UPDATE pat_records
+                SET document_filename=%s,
+                    document_path=%s
+                WHERE id=%s
+                """,
+                (document_filename, document_path, pat_id),
+            )
+            apply_latest_pat_to_site(cursor, du_id)
+            sync_pat_record_to_project_workbook(cursor, pat_id)
+            conn.commit()
+        except (ValueError, psycopg2.Error) as exc:
+            conn.rollback()
+            cursor.close()
+            conn.close()
+            flash(str(exc))
+            return redirect(url_for("new_pat_record", du_id=du_id))
+
+        cursor.close()
+        conn.close()
+        return redirect(url_for("pat_history", duid=du_id))
+
+    record = {
+        "duid": du_id,
+        "project_id": site.get("project_id"),
+        "pat_date": date.today(),
+        "result": "PENDING",
+        "vendor_name": site.get("vendor") or "",
+        "towerco_customer": site.get("towerco") or "",
+    }
+    cursor.close()
+    conn.close()
+
+    return render_template(
+        "pat_form.html",
+        mode="new",
+        site=site,
+        record=record,
+        projects=get_projects_for_select(),
+        results=PAT_RESULTS,
+    )
+
+
+@app.route("/pat/<int:pat_id>/edit", methods=["GET", "POST"])
+@admin_required
+def edit_pat_record(pat_id):
+
+    conn = connect_db()
+    cursor = conn.cursor()
+    record = get_pat_record(cursor, pat_id)
+
+    if not record:
+        cursor.close()
+        conn.close()
+        return "PAT record not found"
+
+    site = get_site_by_duid(cursor, record["duid"])
+
+    if request.method == "POST":
+        try:
+            pat_data = collect_pat_form_data(cursor, record["duid"], site, record)
+            project_key = project_key_for_site_files(cursor, pat_data["project_id"])
+            document_filename, document_path = save_pat_document(cursor, record, project_key)
+            cursor.execute(
+                """
+                UPDATE pat_records
+                SET project_id=%s,
+                    pat_reference=%s,
+                    pat_date=%s,
+                    inspector_name=%s,
+                    vendor_name=%s,
+                    towerco_customer=%s,
+                    result=%s,
+                    remarks=%s,
+                    document_filename=%s,
+                    document_path=%s,
+                    updated_at=CURRENT_TIMESTAMP
+                WHERE id=%s
+                """,
+                (
+                    pat_data["project_id"],
+                    pat_data["pat_reference"],
+                    pat_data["pat_date"],
+                    pat_data["inspector_name"],
+                    pat_data["vendor_name"],
+                    pat_data["towerco_customer"],
+                    pat_data["result"],
+                    pat_data["remarks"],
+                    document_filename,
+                    document_path,
+                    pat_id,
+                ),
+            )
+            apply_latest_pat_to_site(cursor, record["duid"])
+            sync_pat_record_to_project_workbook(cursor, pat_id)
+            conn.commit()
+        except (ValueError, psycopg2.Error) as exc:
+            conn.rollback()
+            cursor.close()
+            conn.close()
+            flash(str(exc))
+            return redirect(url_for("edit_pat_record", pat_id=pat_id))
+
+        cursor.close()
+        conn.close()
+        return redirect(url_for("pat_history", duid=record["duid"]))
+
+    cursor.close()
+    conn.close()
+
+    return render_template(
+        "pat_form.html",
+        mode="edit",
+        site=site,
+        record=record,
+        projects=get_projects_for_select(),
+        results=PAT_RESULTS,
+    )
+
+
+@app.route("/pat_records/<int:pat_id>/file")
+@login_required
+def pat_document_file(pat_id):
+
+    conn = connect_db()
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        SELECT document_path
+        FROM pat_records
+        WHERE id=%s
+        """,
+        (pat_id,),
+    )
+    record = row_to_dict(cursor)
+    cursor.close()
+    conn.close()
+
+    if not record or not record.get("document_path"):
+        return "File not found"
+
+    return send_stored_file(record["document_path"])
+
+
+@app.route("/sites/<path:du_id>/acceptance", methods=["POST"])
+@admin_required
+def site_acceptance_action(du_id):
+
+    du_id = validate_duid_value(du_id)
+    action = clean_text(request.form.get("action")) or "accept"
+    acceptance_reference = clean_text(request.form.get("acceptance_reference"))
+    remarks = clean_text(request.form.get("remarks"))
+    override_used = request.form.get("override_used") == "on"
+    override_reason = clean_text(request.form.get("override_reason"))
+
+    conn = connect_db()
+    cursor = conn.cursor()
+    site = get_site_by_duid(cursor, du_id)
+
+    if not site:
+        cursor.close()
+        conn.close()
+        return "Site not found"
+
+    project_id = clean_text(request.form.get("project_id")) or site.get("project_id")
+
+    if project_id:
+        cursor.execute("SELECT 1 FROM projects WHERE id=%s", (project_id,))
+
+        if not cursor.fetchone():
+            cursor.close()
+            conn.close()
+            return "Invalid project"
+
+    acceptance_info = get_site_acceptance_info(cursor, du_id)
+    readiness = acceptance_info["readiness"]
+
+    try:
+        if action == "reject":
+            cursor.execute(
+                """
+                INSERT INTO site_acceptance(
+                    duid,
+                    telecom_site_id,
+                    project_id,
+                    acceptance_status,
+                    accepted_by,
+                    accepted_at,
+                    acceptance_reference,
+                    remarks,
+                    override_used,
+                    override_reason,
+                    updated_at
+                )
+                VALUES(%s,%s,%s,'REJECTED',%s,CURRENT_TIMESTAMP,%s,%s,FALSE,NULL,CURRENT_TIMESTAMP)
+                ON CONFLICT(duid)
+                DO UPDATE SET
+                    telecom_site_id=EXCLUDED.telecom_site_id,
+                    project_id=EXCLUDED.project_id,
+                    acceptance_status='REJECTED',
+                    accepted_by=EXCLUDED.accepted_by,
+                    accepted_at=CURRENT_TIMESTAMP,
+                    acceptance_reference=EXCLUDED.acceptance_reference,
+                    remarks=EXCLUDED.remarks,
+                    override_used=FALSE,
+                    override_reason=NULL,
+                    updated_at=CURRENT_TIMESTAMP
+                """,
+                (
+                    du_id,
+                    site.get("operational_site_id"),
+                    project_id or None,
+                    session.get("admin", ""),
+                    acceptance_reference,
+                    remarks,
+                ),
+            )
+            conn.commit()
+            flash("Site acceptance was marked REJECTED.")
+            cursor.close()
+            conn.close()
+            return redirect(url_for("site_detail", du_id=du_id))
+
+        if action != "accept":
+            raise ValueError("Invalid acceptance action")
+
+        if override_used and not override_reason:
+            raise ValueError("Override reason is required")
+
+        if readiness["calculated_status"] != "READY" and not override_used:
+            raise ValueError("Site is not ready for acceptance: " + " ".join(readiness["reasons"]))
+
+        cursor.execute(
+            """
+            INSERT INTO telecom_sites(
+                du_id,
+                project_id,
+                current_stage,
+                overall_progress,
+                overall_status,
+                updated_at
+            )
+            VALUES(%s,%s,'Completed',100,'Completed',CURRENT_TIMESTAMP)
+            ON CONFLICT(du_id)
+            DO UPDATE SET
+                project_id=COALESCE(EXCLUDED.project_id, telecom_sites.project_id),
+                current_stage='Completed',
+                overall_progress=100,
+                overall_status='Completed',
+                updated_at=CURRENT_TIMESTAMP
+            RETURNING id
+            """,
+            (du_id, project_id or None),
+        )
+        telecom_site_id = cursor.fetchone()[0]
+
+        cursor.execute(
+            """
+            INSERT INTO site_acceptance(
+                duid,
+                telecom_site_id,
+                project_id,
+                acceptance_status,
+                accepted_by,
+                accepted_at,
+                acceptance_reference,
+                remarks,
+                override_used,
+                override_reason,
+                updated_at
+            )
+            VALUES(%s,%s,%s,'ACCEPTED',%s,CURRENT_TIMESTAMP,%s,%s,%s,%s,CURRENT_TIMESTAMP)
+            ON CONFLICT(duid)
+            DO UPDATE SET
+                telecom_site_id=EXCLUDED.telecom_site_id,
+                project_id=EXCLUDED.project_id,
+                acceptance_status='ACCEPTED',
+                accepted_by=EXCLUDED.accepted_by,
+                accepted_at=CURRENT_TIMESTAMP,
+                acceptance_reference=EXCLUDED.acceptance_reference,
+                remarks=EXCLUDED.remarks,
+                override_used=EXCLUDED.override_used,
+                override_reason=EXCLUDED.override_reason,
+                updated_at=CURRENT_TIMESTAMP
+            """,
+            (
+                du_id,
+                telecom_site_id,
+                project_id or None,
+                session.get("admin", ""),
+                acceptance_reference,
+                remarks,
+                override_used,
+                override_reason or None,
+            ),
+        )
+        conn.commit()
+        flash("Site accepted and marked Completed.")
+    except ValueError as exc:
+        conn.rollback()
+        flash(str(exc))
+
+    cursor.close()
+    conn.close()
+    return redirect(url_for("site_detail", du_id=du_id))
+
+
+#############################################
 # RESET SYSTEM
 #############################################
 
@@ -6562,6 +8375,10 @@ def reset_system():
     #################################
 
     reset_tables = [
+        "punchlist_files",
+        "site_acceptance",
+        "pat_records",
+        "punchlist_items",
         "incident_attachments",
         "daily_log_files",
         "daily_attendance",

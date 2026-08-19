@@ -18,6 +18,8 @@
       <a href="/safety">Safety Compliance</a>
       <a href="/sites">Sites</a>
       <a href="/daily_operations">Daily Operations</a>
+      <a href="/punchlist">Punchlist</a>
+      <a href="/pat">PAT</a>
       <a href="/safety_documents">Safety Documents</a>
       <a href="/site_assignments">Assignments</a>
       <a href="/telecom_tasks">Tasks</a>
@@ -53,6 +55,12 @@
         <div class="card">Present Today<br /><br /><b>{{ personnel_present_today }}</b></div>
         <div class="card">Blockers Today<br /><br /><b>{{ sites_with_blockers }}</b></div>
         <div class="card">Sites Updated Today<br /><br /><b>{{ sites_updated_today }}</b></div>
+        <div class="card">Open Punchlists<br /><br /><b>{{ sites_with_open_punchlists }}</b></div>
+        <div class="card">Critical Punchlist<br /><br /><b>{{ critical_punchlist_items }}</b></div>
+        <div class="card">Awaiting PAT<br /><br /><b>{{ sites_awaiting_pat }}</b></div>
+        <div class="card">PAT Failed<br /><br /><b>{{ pat_failed }}</b></div>
+        <div class="card">Ready Acceptance<br /><br /><b>{{ sites_ready_for_acceptance }}</b></div>
+        <div class="card">Accepted/Completed<br /><br /><b>{{ accepted_completed_sites }}</b></div>
       </div>
 
       <div class="toolbar">
