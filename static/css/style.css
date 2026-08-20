@@ -93,6 +93,36 @@ body {
     grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
 }
 
+.report-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 18px;
+    margin-top: 28px;
+}
+
+.report-card {
+    background: white;
+    border-left: 6px solid #FFD400;
+    color: #333;
+    display: block;
+    padding: 20px;
+    text-decoration: none;
+    box-shadow: 0px 3px 10px rgba(0, 0, 0, 0.1);
+}
+
+.report-card h2 {
+    color: #0a2a66;
+    margin-top: 0;
+}
+
+.report-card p {
+    margin-bottom: 0;
+}
+
+.report-page table {
+    margin-bottom: 28px;
+}
+
 .toolbar {
     margin: 25px 0;
 }
@@ -623,4 +653,39 @@ button:hover {
     background-color: #ffd700;
     color: black;
     transform: scale(1.05);
+}
+
+@media print {
+    .menu,
+    .toolbar,
+    .inline-form,
+    button {
+        display: none !important;
+    }
+
+    body {
+        background: white;
+        font-size: 11px;
+    }
+
+    .container {
+        padding: 12px;
+    }
+
+    table {
+        box-shadow: none;
+        page-break-inside: auto;
+    }
+
+    tr {
+        page-break-inside: avoid;
+        page-break-after: auto;
+    }
+
+    .card,
+    .info-panel,
+    .site-heading {
+        box-shadow: none;
+        border: 1px solid #ddd;
+    }
 }

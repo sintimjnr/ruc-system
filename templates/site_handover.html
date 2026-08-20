@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Handover {{ site.du_id }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
+  </head>
+  <body>
+    <div class="topbar">
+      <img class="logo" src="{{ url_for('static', filename='images/ruc_logo.png') }}" />
+      Site Handover
+    </div>
+
+    <div class="menu">
+      <a href="/dashboard">Dashboard</a>
+      <a href="/reports">Reports</a>
+      <a href="{{ url_for('site_completion_report', duid=site.du_id) }}">Site Report</a>
+      <a href="{{ url_for('site_detail', du_id=site.du_id) }}">Site Detail</a>
+      <a href="/logout">Logout</a>
+    </div>
+
+    <div class="container">
+      <div class="site-heading">
+        <div>
+          <h1>{{ site.du_id }}</h1>
+          <p>{{ site.display_site_name or site.du_name or 'Unnamed Site' }}</p>
+        </div>
+        <div class="site-badges">
+          <span class="status {{ site.overall_status|lower|replace(' ', '-') }}">{{ site.overall_status }}</span>
+          <span class="status {{ site.pat_status|lower|replace(' ', '-') }}">PAT {{ site.pat_status }}</span>
+          <span class="status {{ acceptance_info.display_status|lower|replace(' ', '-') }}">{{ acceptance_info.display_status }}</span>
+        </div>
+      </div>
+
+      <div class="notice {% if package_label.startswith('FINAL') %}success{% endif %}">
+        {{ package_label }}
+      </div>
+
+      <div class="detail-grid">
+        <section class="info-panel">
+          <h2>Readiness</h2>
+          <dl class="detail-list">
+            <dt>Stage</dt><dd>{{ site.current_stage }}</dd>
+            <dt>Progress</dt><dd>{{ site.overall_progress }}%</dd>
+            <dt>Site Status</dt><dd>{{ site.overall_status }}</dd>
+            <dt>PAT</dt><dd>{{ latest_pat.result if latest_pat else 'Not available' }}</dd>
+            <dt>Acceptance</dt><dd>{{ acceptance_info.display_status }}</dd>
+          </dl>
+        </section>
+
+        <section class="info-panel">
+          <h2>Blocking Reasons</h2>
+          {% if acceptance_info.readiness.reasons %}
+            <ul>
+              {% for reason in acceptance_info.readiness.reasons %}
+                <li>{{ reason }}</li>
+              {% endfor %}
+            </ul>
+          {% else %}
+            <p>No blocking readiness reasons recorded.</p>
+          {% endif %}
+          {% if acceptance_info.readiness.warnings %}
+            <ul>
+              {% for warning in acceptance_info.readiness.warnings %}
+                <li>{{ warning }}</li>
+              {% endfor %}
+            </ul>
+          {% endif %}
+        </section>
+      </div>
+
+      <div class="summary-grid">
+        <div class="card">Personnel<br /><br /><b>{{ assignments|length }}</b></div>
+        <div class="card">Daily Reports<br /><br /><b>{{ daily_logs|length }}</b></div>
+        <div class="card">Punchlist Items<br /><br /><b>{{ punchlist_summary.total }}</b></div>
+        <div class="card">Evidence Items<br /><br /><b>{{ evidence|length }}</b></div>
+      </div>
+
+      <div class="toolbar">
+        <a class="btn" href="{{ url_for('site_handover_package', duid=site.du_id) }}">
+          {% if package_label.startswith('FINAL') %}Generate Final Handover Package{% else %}Generate Draft Handover Package{% endif %}
+        </a>
+      </div>
+
+      <h2>Evidence Index Preview</h2>
+      <table>
+        <tr>
+          <th>Source</th>
+          <th>Document</th>
+          <th>Status</th>
+        </tr>
+        {% for row in evidence %}
+          <tr>
+            <td>{{ row.source }}</td>
+            <td>{{ row.display_name }}</td>
+            <td>{{ row.status }}</td>
+          </tr>
+        {% else %}
+          <tr><td colspan="3">No controlled evidence files are currently available.</td></tr>
+        {% endfor %}
+      </table>
+    </div>
+  </body>
+</html>

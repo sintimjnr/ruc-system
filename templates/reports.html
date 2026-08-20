@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Reporting Center</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
+  </head>
+  <body>
+    <div class="topbar">
+      <img class="logo" src="{{ url_for('static', filename='images/ruc_logo.png') }}" />
+      Reporting Center
+    </div>
+
+    <div class="menu">
+      <a href="/dashboard">Dashboard</a>
+      <a href="/sites">Sites</a>
+      <a href="/daily_operations">Daily Operations</a>
+      <a href="/punchlist">Punchlist</a>
+      <a href="/pat">PAT</a>
+      <a href="/logout">Logout</a>
+    </div>
+
+    <div class="container">
+      <div class="summary-grid">
+        <div class="card">Projects<br /><br /><b>{{ total_projects }}</b></div>
+        <div class="card">Operational Sites<br /><br /><b>{{ operational_sites }}</b></div>
+        <div class="card">Daily Reports<br /><br /><b>{{ daily_reports }}</b></div>
+        <div class="card">Open Punchlists<br /><br /><b>{{ open_punchlists }}</b></div>
+        <div class="card">PAT Records<br /><br /><b>{{ pat_records_count }}</b></div>
+        <div class="card">Accepted Sites<br /><br /><b>{{ accepted_sites }}</b></div>
+      </div>
+
+      <div class="report-grid">
+        <a class="report-card" href="{{ url_for('site_report_select') }}">
+          <h2>Site Completion Report</h2>
+          <p>Site status, personnel, safety, daily operations, punchlist, PAT, acceptance, and evidence summary.</p>
+        </a>
+        <a class="report-card" href="{{ url_for('project_report_select') }}">
+          <h2>Project Management Report</h2>
+          <p>Project progress, site table, safety, attendance, daily activity, PAT, and acceptance control.</p>
+        </a>
+        <a class="report-card" href="{{ url_for('personnel_safety_report') }}">
+          <h2>Personnel / Safety Report</h2>
+          <p>Personnel assignment and safety compliance reporting with project, DUID, role, and status filters.</p>
+        </a>
+        <a class="report-card" href="{{ url_for('daily_operations_report') }}">
+          <h2>Daily Operations Report</h2>
+          <p>Daily reporting, progress movement, attendance, blockers, and recent work completed.</p>
+        </a>
+        <a class="report-card" href="{{ url_for('punchlist_management_report') }}">
+          <h2>Punchlist Report</h2>
+          <p>Punchlist status, priority, owner, dates, overdue items, and verification information.</p>
+        </a>
+        <a class="report-card" href="{{ url_for('pat_acceptance_report') }}">
+          <h2>PAT / Acceptance Report</h2>
+          <p>PAT results, acceptance status, readiness, and handover audit information.</p>
+        </a>
+      </div>
+    </div>
+  </body>
+</html>

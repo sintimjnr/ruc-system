@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Site Report</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
+  </head>
+  <body>
+    <div class="topbar">
+      <img class="logo" src="{{ url_for('static', filename='images/ruc_logo.png') }}" />
+      Site Completion Report
+    </div>
+
+    <div class="menu">
+      <a href="/dashboard">Dashboard</a>
+      <a href="/reports">Reports</a>
+      <a href="/sites">Sites</a>
+      <a href="/logout">Logout</a>
+    </div>
+
+    <div class="container">
+      {% with messages = get_flashed_messages() %}
+        {% if messages %}
+          {% for message in messages %}
+            <div class="notice">{{ message }}</div>
+          {% endfor %}
+        {% endif %}
+      {% endwith %}
+
+      <div class="form-box wide">
+        <h2>Select Site</h2>
+        <form method="GET" class="filter-grid">
+          <select name="duid" required>
+            <option value="">Select DUID</option>
+            {% for duid in duids %}
+              <option value="{{ duid }}">{{ duid }}</option>
+            {% endfor %}
+          </select>
+          <button type="submit">Open Site Report</button>
+        </form>
+      </div>
+    </div>
+  </body>
+</html>

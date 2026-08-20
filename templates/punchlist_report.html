@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Punchlist Report</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
+  </head>
+  <body>
+    <div class="topbar">
+      <img class="logo" src="{{ url_for('static', filename='images/ruc_logo.png') }}" />
+      Punchlist Report
+    </div>
+    <div class="menu">
+      <a href="/dashboard">Dashboard</a>
+      <a href="/reports">Reports</a>
+      <a href="/punchlist">Punchlist</a>
+      <a href="/logout">Logout</a>
+    </div>
+    <div class="container">
+      {% if error %}<div class="notice danger">{{ error }}</div>{% endif %}
+      <div class="form-box wide">
+        <h2>Filters</h2>
+        <form method="GET" class="filter-grid">
+          <select name="project_id"><option value="">All Projects</option>{% for project in projects %}<option value="{{ project.id }}" {% if filters.project_id == project.id|string %}selected{% endif %}>{{ project.project_name }} - {{ project.project_code }}</option>{% endfor %}</select>
+          <select name="duid"><option value="">All DUIDs</option>{% for duid in duids %}<option value="{{ duid }}" {% if filters.duid == duid %}selected{% endif %}>{{ duid }}</option>{% endfor %}</select>
+          <select name="priority"><option value="">Any Priority</option>{% for priority in priorities %}<option value="{{ priority }}" {% if filters.priority == priority %}selected{% endif %}>{{ priority }}</option>{% endfor %}</select>
+          <select name="status"><option value="">Any Status</option>{% for status in statuses %}<option value="{{ status }}" {% if filters.status == status %}selected{% endif %}>{{ status }}</option>{% endfor %}</select>
+          <select name="assigned_employee_id"><option value="">Any Employee</option>{% for emp in employees %}<option value="{{ emp.id }}" {% if filters.assigned_employee_id == emp.id|string %}selected{% endif %}>{{ emp.first_name }} {{ emp.last_name }}</option>{% endfor %}</select>
+          <input type="date" name="date_from" value="{{ filters.date_from }}" />
+          <input type="date" name="date_to" value="{{ filters.date_to }}" />
+          <button type="submit">Filter</button>
+        </form>
+      </div>
+      <div class="toolbar">
+        <a class="btn" href="{{ url_for('punchlist_management_report_export', project_id=filters.project_id, duid=filters.duid, priority=filters.priority, status=filters.status, assigned_employee_id=filters.assigned_employee_id, date_from=filters.date_from, date_to=filters.date_to) }}">Export Excel</a>
+      </div>
+      <div class="summary-grid">
+        <div class="card">Total<br /><br /><b>{{ summary.total or 0 }}</b></div>
+        <div class="card">Open<br /><br /><b>{{ summary.open or 0 }}</b></div>
+        <div class="card">In Progress<br /><br /><b>{{ summary.in_progress or 0 }}</b></div>
+        <div class="card">Rectified<br /><br /><b>{{ summary.rectified or 0 }}</b></div>
+        <div class="card">Verified<br /><br /><b>{{ summary.verified or 0 }}</b></div>
+        <div class="card">Closed<br /><br /><b>{{ summary.closed or 0 }}</b></div>
+        <div class="card">High<br /><br /><b>{{ summary.high or 0 }}</b></div>
+        <div class="card">Critical<br /><br /><b>{{ summary.critical or 0 }}</b></div>
+        <div class="card">Overdue<br /><br /><b>{{ summary.overdue or 0 }}</b></div>
+      </div>
+      <table>
+        <tr><th>Item</th><th>DUID</th><th>Site</th><th>Title</th><th>Priority</th><th>Status</th><th>Assigned To</th><th>Raised</th><th>Target</th><th>Verified</th></tr>
+        {% for row in rows %}
+          <tr>
+            <td>{{ row.item_number or row.id }}</td>
+            <td><a href="{{ url_for('site_detail', du_id=row.duid) }}">{{ row.duid }}</a></td>
+            <td>{{ row.display_site_name or '-' }}</td>
+            <td>{{ row.title }}</td>
+            <td>{{ row.priority }}</td>
+            <td>{{ row.status }}</td>
+            <td>{{ row.assigned_name or '-' }}</td>
+            <td>{{ row.raised_date or '-' }}</td>
+            <td>{{ row.target_date or '-' }}</td>
+            <td>{{ row.verified_by or '-' }}</td>
+          </tr>
+        {% else %}
+          <tr><td colspan="10">No punchlist records found.</td></tr>
+        {% endfor %}
+      </table>
+    </div>
+  </body>
+</html>

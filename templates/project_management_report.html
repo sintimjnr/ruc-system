@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Project Report {{ project.project_code }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
+  </head>
+  <body>
+    <div class="topbar">
+      <img class="logo" src="{{ url_for('static', filename='images/ruc_logo.png') }}" />
+      Project Management Report
+    </div>
+    <div class="menu">
+      <a href="/dashboard">Dashboard</a>
+      <a href="/reports">Reports</a>
+      <a href="/sites">Sites</a>
+      <a href="/logout">Logout</a>
+    </div>
+    <div class="container report-page">
+      <div class="site-heading">
+        <div>
+          <h1>{{ project.project_name }}</h1>
+          <p>{{ project.project_code }} | {{ project.region or '-' }} | {{ project.company or '-' }}</p>
+        </div>
+      </div>
+      <div class="toolbar">
+        <a class="btn" href="{{ url_for('project_management_report_pdf', project_id=project.id) }}">Export PDF</a>
+        <a class="btn" href="{{ url_for('project_management_report_excel', project_id=project.id) }}">Export Excel</a>
+      </div>
+      <div class="summary-grid">
+        <div class="card">Sites<br /><br /><b>{{ summary.total_sites }}</b></div>
+        <div class="card">Active<br /><br /><b>{{ summary.active_sites }}</b></div>
+        <div class="card">Completed<br /><br /><b>{{ summary.completed_sites }}</b></div>
+        <div class="card">Average Progress<br /><br /><b>{{ summary.average_progress }}%</b></div>
+        <div class="card">Awaiting PAT<br /><br /><b>{{ summary.sites_awaiting_pat }}</b></div>
+        <div class="card">Open Punchlist Sites<br /><br /><b>{{ summary.open_punchlist_sites }}</b></div>
+        <div class="card">High/Critical Punchlists<br /><br /><b>{{ summary.critical_high_punchlists }}</b></div>
+        <div class="card">Accepted Sites<br /><br /><b>{{ summary.accepted_sites }}</b></div>
+      </div>
+      <h2>Site Table</h2>
+      <table>
+        <tr>
+          <th>DUID</th>
+          <th>Site</th>
+          <th>Stage</th>
+          <th>Progress</th>
+          <th>Status</th>
+          <th>Punchlist</th>
+          <th>PAT</th>
+          <th>Acceptance</th>
+          <th>Last Activity</th>
+        </tr>
+        {% for site in sites %}
+          <tr>
+            <td><a href="{{ url_for('site_detail', du_id=site.du_id) }}">{{ site.du_id }}</a></td>
+            <td>{{ site.display_site_name or '-' }}</td>
+            <td>{{ site.current_stage }}</td>
+            <td>{{ site.overall_progress }}%</td>
+            <td>{{ site.overall_status }}</td>
+            <td>{{ site.open_punchlists }}</td>
+            <td>{{ site.latest_pat_result }}</td>
+            <td>{{ site.acceptance_status }}</td>
+            <td>{{ site.last_activity or '-' }}</td>
+          </tr>
+        {% else %}
+          <tr><td colspan="9">No operational sites found.</td></tr>
+        {% endfor %}
+      </table>
+      <h2>Safety Summary</h2>
+      <table>
+        <tr><th>Status</th><th>Personnel</th></tr>
+        {% for status, count in safety_counts.items() %}
+          <tr><td>{{ status }}</td><td>{{ count }}</td></tr>
+        {% endfor %}
+      </table>
+      <h2>Recent Daily Activity</h2>
+      <table>
+        <tr><th>Date</th><th>DUID</th><th>Stage</th><th>Progress</th><th>Work Completed</th><th>Blocker</th></tr>
+        {% for row in recent_activity %}
+          <tr>
+            <td>{{ row.report_date }}</td>
+            <td>{{ row.duid }}</td>
+            <td>{{ row.current_stage }}</td>
+            <td>{{ row.progress_before }}% to {{ row.progress_after }}%</td>
+            <td>{{ row.work_completed or '-' }}</td>
+            <td>{{ row.blocker_category or '-' }}</td>
+          </tr>
+        {% else %}
+          <tr><td colspan="6">Not available.</td></tr>
+        {% endfor %}
+      </table>
+    </div>
+  </body>
+</html>

@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Project Report</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
+  </head>
+  <body>
+    <div class="topbar">
+      <img class="logo" src="{{ url_for('static', filename='images/ruc_logo.png') }}" />
+      Project Management Report
+    </div>
+
+    <div class="menu">
+      <a href="/dashboard">Dashboard</a>
+      <a href="/reports">Reports</a>
+      <a href="/sites">Sites</a>
+      <a href="/logout">Logout</a>
+    </div>
+
+    <div class="container">
+      <div class="form-box wide">
+        <h2>Select Project</h2>
+        <form method="GET" class="filter-grid">
+          <select name="project_id" required>
+            <option value="">Select Project</option>
+            {% for project in projects %}
+              <option value="{{ project.id }}">{{ project.project_name }} - {{ project.project_code }}</option>
+            {% endfor %}
+          </select>
+          <button type="submit">Open Project Report</button>
+        </form>
+      </div>
+    </div>
+  </body>
+</html>

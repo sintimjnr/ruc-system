@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Site Completion {{ site.du_id }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
+  </head>
+  <body>
+    <div class="topbar">
+      <img class="logo" src="{{ url_for('static', filename='images/ruc_logo.png') }}" />
+      Site Completion Report
+    </div>
+
+    <div class="menu">
+      <a href="/dashboard">Dashboard</a>
+      <a href="/reports">Reports</a>
+      <a href="{{ url_for('site_detail', du_id=site.du_id) }}">Site Detail</a>
+      <a href="/logout">Logout</a>
+    </div>
+
+    <div class="container report-page">
+      <div class="site-heading">
+        <div>
+          <h1>{{ site.du_id }}</h1>
+          <p>{{ site.display_site_name or site.du_name or 'Unnamed Site' }}</p>
+        </div>
+        <div class="site-badges">
+          <span class="status {{ site.current_stage|lower|replace(' ', '-') }}">{{ site.current_stage }}</span>
+          <span class="status {{ site.overall_status|lower|replace(' ', '-') }}">{{ site.overall_status }}</span>
+          <span class="status {{ site.pat_status|lower|replace(' ', '-') }}">PAT {{ site.pat_status }}</span>
+          <span class="status {{ acceptance_info.display_status|lower|replace(' ', '-') }}">Acceptance {{ acceptance_info.display_status }}</span>
+        </div>
+      </div>
+
+      <div class="toolbar">
+        <a class="btn" href="{{ url_for('site_completion_report_pdf', duid=site.du_id) }}">Export PDF</a>
+        <a class="btn" href="{{ url_for('site_completion_report_excel', duid=site.du_id) }}">Export Excel</a>
+        <a class="btn" href="{{ url_for('site_handover', duid=site.du_id) }}">Handover Readiness</a>
+      </div>
+
+      <div class="detail-grid">
+        <section class="info-panel">
+          <h2>Site Information</h2>
+          <dl class="detail-list">
+            <dt>DUID</dt><dd>{{ site.du_id }}</dd>
+            <dt>Site Name</dt><dd>{{ site.display_site_name or '-' }}</dd>
+            <dt>Project</dt><dd>{{ site.project_name or site.project_code or '-' }}</dd>
+            <dt>Region / Province</dt><dd>{{ site.region_province or '-' }}</dd>
+            <dt>TowerCo</dt><dd>{{ site.towerco or '-' }}</dd>
+            <dt>Vendor</dt><dd>{{ site.vendor or '-' }}</dd>
+            <dt>GPS</dt><dd>{% if site.lat and site.long %}{{ site.lat }}, {{ site.long }}{% else %}-{% endif %}</dd>
+          </dl>
+        </section>
+
+        <section class="info-panel">
+          <h2>Operational Status</h2>
+          <dl class="detail-list">
+            <dt>Current Stage</dt><dd>{{ site.current_stage }}</dd>
+            <dt>Progress</dt><dd>{{ site.overall_progress }}%</dd>
+            <dt>Site Status</dt><dd>{{ site.overall_status }}</dd>
+            <dt>PAT Status</dt><dd>{{ site.pat_status }}</dd>
+            <dt>Access</dt><dd>{{ site.access_validity }}</dd>
+            <dt>Team Leader</dt><dd>{{ site.team_leader or '-' }}</dd>
+          </dl>
+        </section>
+      </div>
+
+      <div class="summary-grid">
+        <div class="card">Assigned Workers<br /><br /><b>{{ assignments|length }}</b></div>
+        <div class="card">Safety Cleared<br /><br /><b>{{ safety_counts['VALID'] + safety_counts['EXPIRING SOON'] }}</b></div>
+        <div class="card">Daily Reports<br /><br /><b>{{ daily_logs|length }}</b></div>
+        <div class="card">Open Punchlists<br /><br /><b>{{ punchlist_summary.unresolved_count }}</b></div>
+        <div class="card">Evidence Items<br /><br /><b>{{ evidence|length }}</b></div>
+      </div>
+
+      <h2>Personnel & Safety</h2>
+      <table>
+        <tr>
+          <th>Employee</th>
+          <th>Role</th>
+          <th>Assignment</th>
+          <th>NBI</th>
+          <th>WAH</th>
+          <th>First Aid</th>
+          <th>Overall</th>
+        </tr>
+        {% for row in assignments %}
+          <tr>
+            <td>{{ row.full_name or '-' }}</td>
+            <td>{{ row.role or row.telecom_role or row.position or '-' }}</td>
+            <td>{{ row.assignment_status or '-' }}</td>
+            <td><span class="status {{ row.nbi_status|lower|replace(' ', '-') }}">{{ row.nbi_status }}</span></td>
+            <td><span class="status {{ row.wah_status|lower|replace(' ', '-') }}">{{ row.wah_status }}</span></td>
+            <td><span class="status {{ row.first_aid_status|lower|replace(' ', '-') }}">{{ row.first_aid_status }}</span></td>
+            <td><span class="status {{ row.overall_safety_status|lower|replace(' ', '-') }}">{{ row.overall_safety_status }}</span></td>
+          </tr>
+        {% else %}
+          <tr><td colspan="7">Not available.</td></tr>
+        {% endfor %}
+      </table>
+
+      <h2>Daily Operations</h2>
+      <table>
+        <tr>
+          <th>Date</th>
+          <th>Stage</th>
+          <th>Progress</th>
+          <th>Work Completed</th>
+          <th>Blockers</th>
+          <th>Next Day Plan</th>
+          <th>Attendance</th>
+        </tr>
+        {% for row in daily_logs %}
+          <tr>
+            <td>{{ row.report_date }}</td>
+            <td>{{ row.current_stage }}</td>
+            <td>{{ row.progress_before }}% to {{ row.progress_after }}%</td>
+            <td>{{ row.work_completed or '-' }}</td>
+            <td>{{ row.blocker_category or row.blockers or '-' }}</td>
+            <td>{{ row.next_day_plan or '-' }}</td>
+            <td>{{ row.present_count }}/{{ row.attendance_count }}</td>
+          </tr>
+        {% else %}
+          <tr><td colspan="7">Not available.</td></tr>
+        {% endfor %}
+      </table>
+
+      <h2>Punchlist</h2>
+      <table>
+        <tr>
+          <th>Item</th>
+          <th>Title</th>
+          <th>Priority</th>
+          <th>Status</th>
+          <th>Assigned</th>
+          <th>Target</th>
+          <th>Verified</th>
+        </tr>
+        {% for item in punchlist_items %}
+          <tr>
+            <td>{{ item.item_number or item.id }}</td>
+            <td>{{ item.title }}</td>
+            <td><span class="status {{ item.priority|lower }}">{{ item.priority }}</span></td>
+            <td><span class="status {{ item.status|lower|replace(' ', '-') }}">{{ item.status }}</span></td>
+            <td>{{ item.assigned_name or '-' }}</td>
+            <td>{{ item.target_date or '-' }}</td>
+            <td>{{ item.verified_by or '-' }}</td>
+          </tr>
+        {% else %}
+          <tr><td colspan="7">Not available.</td></tr>
+        {% endfor %}
+      </table>
+
+      <div class="detail-grid">
+        <section class="info-panel">
+          <h2>PAT</h2>
+          <dl class="detail-list">
+            <dt>Reference</dt><dd>{{ latest_pat.pat_reference if latest_pat else '-' }}</dd>
+            <dt>Date</dt><dd>{{ latest_pat.pat_date if latest_pat else '-' }}</dd>
+            <dt>Inspector</dt><dd>{{ latest_pat.inspector_name if latest_pat else '-' }}</dd>
+            <dt>Result</dt><dd>{{ latest_pat.result if latest_pat else 'Not available' }}</dd>
+            <dt>Remarks</dt><dd>{{ latest_pat.remarks if latest_pat else '-' }}</dd>
+          </dl>
+        </section>
+        <section class="info-panel">
+          <h2>Acceptance</h2>
+          {% set acceptance = acceptance_info.record %}
+          <dl class="detail-list">
+            <dt>Status</dt><dd>{{ acceptance_info.display_status }}</dd>
+            <dt>Accepted By</dt><dd>{{ acceptance.accepted_by or '-' }}</dd>
+            <dt>Accepted Date</dt><dd>{{ acceptance.accepted_at or '-' }}</dd>
+            <dt>Reference</dt><dd>{{ acceptance.acceptance_reference or '-' }}</dd>
+            <dt>Override</dt><dd>{% if acceptance.override_used %}Yes{% else %}No{% endif %}</dd>
+            <dt>Remarks</dt><dd>{{ acceptance.remarks or '-' }}</dd>
+          </dl>
+        </section>
+      </div>
+
+      <h2>Document / Evidence Summary</h2>
+      <table>
+        <tr>
+          <th>Source</th>
+          <th>Document</th>
+          <th>Status</th>
+        </tr>
+        {% for row in evidence %}
+          <tr>
+            <td>{{ row.source }}</td>
+            <td>{{ row.display_name }}</td>
+            <td>{{ row.status }}</td>
+          </tr>
+        {% else %}
+          <tr><td colspan="3">Not available.</td></tr>
+        {% endfor %}
+      </table>
+    </div>
+  </body>
+</html>

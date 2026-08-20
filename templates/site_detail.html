@@ -16,6 +16,7 @@
       <a href="/site_assignments">Assignments</a>
       <a href="/telecom_tasks">Tasks</a>
       <a href="/daily_operations">Daily Operations</a>
+      <a href="/reports">Reports</a>
       <a href="/punchlist">Punchlist</a>
       <a href="/pat">PAT</a>
       <a href="/permits">Permits</a>
@@ -128,6 +129,8 @@
           {% endif %}
         {% endif %}
         <a class="btn" href="{{ url_for('daily_operations', duid=site.du_id) }}">View Daily History</a>
+        <a class="btn" href="{{ url_for('site_completion_report', duid=site.du_id) }}">Site Report</a>
+        <a class="btn" href="{{ url_for('site_handover', duid=site.du_id) }}">Handover</a>
       </div>
 
       <div class="dashboard-panels two-column">
