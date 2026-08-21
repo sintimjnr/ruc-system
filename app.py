@@ -9894,6 +9894,41 @@ def add_handover_file(zip_file, evidence, archive_folder, used_names, index_rows
     index_rows.append([evidence.get("source"), display_name, "Copied"])
 
 
+def build_handover_readme(data):
+
+    site = data["site"]
+    acceptance_info = data["acceptance_info"]
+    readiness = acceptance_info.get("readiness") or {}
+    reasons = list(readiness.get("reasons") or [])
+
+    if handover_readiness_label(data) != "FINAL HANDOVER PACKAGE":
+        record = acceptance_info.get("record") or {}
+        if record.get("acceptance_status") != "ACCEPTED" and "Site acceptance is not ready." not in reasons:
+            reasons.append("Site acceptance is not ready.")
+
+    lines = [
+        f"RUC System handover package for {site['du_id']}",
+        f"Package type: {handover_readiness_label(data)}",
+        f"Readiness: {readiness.get('calculated_status') or acceptance_info.get('display_status') or 'UNKNOWN'}",
+        f"Generated: {datetime.now().strftime('%d/%m/%Y %H:%M')}",
+    ]
+
+    if reasons:
+        lines.extend(["", "Blocking Reasons:"])
+        lines.extend(f"- {reason}" for reason in reasons)
+
+    lines.extend(
+        [
+            "",
+            "Original evidence files were copied, not moved.",
+            "Missing evidence is listed in Document_Index.xlsx.",
+            "",
+        ]
+    )
+
+    return "\n".join(lines)
+
+
 def build_document_index_workbook(index_rows):
 
     return build_report_workbook(
@@ -10396,15 +10431,7 @@ def site_handover_package(duid):
         build_document_index_workbook(index_rows).save(index_xlsx)
         index_xlsx.seek(0)
         zip_file.writestr("Document_Index.xlsx", index_xlsx.getvalue())
-        zip_file.writestr(
-            "README.txt",
-            (
-                f"RUC System handover package for {data['site']['du_id']}\\n"
-                f"Package type: {handover_readiness_label(data)}\\n"
-                f"Generated: {datetime.now().strftime('%d/%m/%Y %H:%M')}\\n"
-                "Original evidence files were copied, not moved. Missing evidence is listed in Document_Index.xlsx.\\n"
-            ),
-        )
+        zip_file.writestr("README.txt", build_handover_readme(data))
 
     return send_file(zip_path, as_attachment=True, download_name=zip_filename, mimetype="application/zip")
 
