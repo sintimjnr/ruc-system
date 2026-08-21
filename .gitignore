@@ -1,5 +1,36 @@
-.venv/
-__pycache__/
-*.pyc
+# Local environment and secrets
 .env
-backups/*.backup
+.env.*
+!.env.example
+.venv/
+
+# Python cache
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*$py.class
+
+# IDE, OS, and Office temp files
+.vscode/
+.DS_Store
+Thumbs.db
+~$*.xlsx
+~$*.xls*
+*.tmp
+*.log
+
+# Local operational uploads
+uploads/
+static/uploads/
+
+# Generated application outputs
+id_cards/
+generated_reports/
+
+# Runtime Excel workbooks
+excel_files/*.xlsx
+excel_files/master/*.xlsx
+
+# Local backups and database dumps
+backups/
+*.backup
