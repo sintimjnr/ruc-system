@@ -15,6 +15,13 @@
     <div class="container">
       <div class="form-box wide">
         <h2>Employee Registration Form</h2>
+        {% with messages = get_flashed_messages() %}
+          {% if messages %}
+            {% for message in messages %}
+              <div class="notice">{{ message }}</div>
+            {% endfor %}
+          {% endif %}
+        {% endwith %}
         {% if project %}
           <p class="muted">Project: {{ project.project_name }} - {{ project.project_code }}</p>
         {% endif %}

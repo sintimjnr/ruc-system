@@ -22,6 +22,13 @@
 
     <div class="container">
       <div class="form-card">
+        {% with messages = get_flashed_messages() %}
+          {% if messages %}
+            {% for message in messages %}
+              <div class="notice">{{ message }}</div>
+            {% endfor %}
+          {% endif %}
+        {% endwith %}
         <h2>{{ emp.first_name }} {{ emp.last_name }}</h2>
         <p>Employee ID: {{ emp.id }}</p>
         <p>Role: {{ emp.telecom_role or emp.position }}</p>

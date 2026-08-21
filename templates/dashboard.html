@@ -36,6 +36,14 @@
     </div>
 
     <div class="container">
+      {% with messages = get_flashed_messages() %}
+        {% if messages %}
+          {% for message in messages %}
+            <div class="notice">{{ message }}</div>
+          {% endfor %}
+        {% endif %}
+      {% endwith %}
+
       <div class="summary-grid">
         <div class="card">Projects<br /><br /><b>{{ total_projects }}</b></div>
         <div class="card">Telecom Sites<br /><br /><b>{{ total_telecom_sites }}</b></div>

@@ -8,7 +8,7 @@ import os
 import random
 from werkzeug.utils import secure_filename
 import shutil
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, timedelta, time
 from werkzeug.security import generate_password_hash, check_password_hash
 from flask import send_from_directory
 from functools import wraps
@@ -1839,6 +1839,7 @@ def sync_daily_log_to_project_workbook(cursor, daily_log_id):
             ]
         )
 
+    apply_project_workbook_formatting(wb)
     wb.save(excel_path)
 
 
@@ -2234,6 +2235,7 @@ def sync_punchlist_item_to_project_workbook(cursor, item_id):
     for col, value in enumerate(values, start=1):
         ws.cell(row=row, column=col).value = value
 
+    apply_project_workbook_formatting(wb)
     wb.save(excel_path)
 
 
@@ -2424,6 +2426,7 @@ def sync_pat_record_to_project_workbook(cursor, pat_id):
     for col, value in enumerate(values, start=1):
         ws.cell(row=row, column=col).value = value
 
+    apply_project_workbook_formatting(wb)
     wb.save(excel_path)
 
 
@@ -2775,6 +2778,242 @@ def project_excel_path(project_code):
         raise ValueError("Invalid project Excel path")
 
     return path
+
+
+def build_project_workbook_template():
+
+    wb = Workbook()
+
+    ws1 = wb.active
+    ws1.title = "ACCESS INFO"
+    ws1.append(ACCESS_INFO_HEADERS)
+    ensure_access_info_headers(ws1)
+
+    sheets = [
+        "2X2",
+        "NBI",
+        "CERTIFICATES",
+        "eSignature",
+        "SEC ID",
+        "WAH CERT",
+        "ID",
+    ]
+
+    for sheet_name in sheets:
+
+        ws = wb.create_sheet(sheet_name)
+
+        if sheet_name == "SEC ID":
+            ws.append(["NAME", "SEC NUMBER", "EXPIRY", "IMAGE"])
+        elif sheet_name == "ID":
+            ws.append(["NAME", "ID NUMBER", "EXPIRY", "IMAGE"])
+        else:
+            ws.append(["NAME", "IMAGE"])
+
+    ensure_phase5_workbook_sheets(wb)
+    apply_project_workbook_formatting(wb)
+
+    return wb
+
+
+def project_workbook_missing_message(project):
+
+    return (
+        f"Project workbook for {project.get('project_name') or 'this project'} / "
+        f"{project.get('project_code') or 'unknown code'} is missing. "
+        "Please rebuild or restore the project workbook before using this Excel workflow."
+    )
+
+
+def get_project_by_code(cursor, code):
+
+    cursor.execute(
+        """
+        SELECT id, project_name, region, company, project_code, date_created
+        FROM projects
+        WHERE project_code=%s
+        """,
+        (code,),
+    )
+    return row_to_dict(cursor)
+
+
+def style_project_header(ws):
+
+    fill = PatternFill(start_color="FFE599", end_color="FFE599", fill_type="solid")
+    font = Font(bold=True)
+    border = Border(
+        left=Side(style="thin"),
+        right=Side(style="thin"),
+        top=Side(style="thin"),
+        bottom=Side(style="thin"),
+    )
+
+    for cell in ws[1]:
+        cell.fill = fill
+        cell.font = font
+        cell.alignment = Alignment(
+            horizontal="center",
+            vertical="center",
+            wrap_text=True,
+        )
+        cell.border = border
+
+    ws.row_dimensions[1].height = 34
+    ws.freeze_panes = "A2"
+
+
+def apply_project_sheet_formatting(ws, fixed_widths=None, wrapped_columns=None):
+
+    fixed_widths = fixed_widths or {}
+    wrapped_columns = set(wrapped_columns or [])
+    style_project_header(ws)
+
+    for column, width in fixed_widths.items():
+        ws.column_dimensions[column].width = width
+
+    for row in ws.iter_rows(min_row=2):
+        max_text_length = 0
+
+        for cell in row:
+            column = cell.column_letter
+            wrap = column in wrapped_columns
+            cell.alignment = Alignment(
+                horizontal="left",
+                vertical="top",
+                wrap_text=wrap,
+            )
+
+            if isinstance(cell.value, datetime):
+                cell.number_format = "yyyy-mm-dd hh:mm"
+            elif isinstance(cell.value, date):
+                cell.number_format = "yyyy-mm-dd"
+            elif isinstance(cell.value, time):
+                cell.number_format = "hh:mm"
+
+            if wrap and cell.value not in (None, ""):
+                max_text_length = max(max_text_length, len(str(cell.value)))
+
+        if max_text_length > 90:
+            ws.row_dimensions[row[0].row].height = 60
+        elif max_text_length > 45:
+            ws.row_dimensions[row[0].row].height = 42
+
+
+def apply_project_workbook_formatting(wb):
+
+    sheet_widths = {
+        "ACCESS INFO": {
+            "A": 26,
+            "B": 10,
+            "C": 18,
+            "D": 18,
+            "E": 18,
+            "F": 30,
+            "G": 18,
+            "H": 20,
+            "I": 30,
+            "J": 20,
+            "K": 32,
+            "L": 20,
+            "M": 18,
+            "N": 14,
+            "O": 14,
+            "P": 16,
+            "Q": 16,
+        },
+        "DAILY LOGS": {
+            "A": 10,
+            "B": 20,
+            "C": 16,
+            "D": 18,
+            "E": 16,
+            "F": 16,
+            "G": 42,
+            "H": 22,
+            "I": 36,
+            "J": 42,
+            "K": 18,
+            "L": 21,
+        },
+        "ATTENDANCE": {
+            "A": 10,
+            "B": 20,
+            "C": 16,
+            "D": 13,
+            "E": 26,
+            "F": 22,
+            "G": 18,
+            "H": 12,
+            "I": 12,
+            "J": 16,
+            "K": 35,
+        },
+        "PUNCHLIST": {
+            "A": 10,
+            "B": 16,
+            "C": 24,
+            "D": 18,
+            "E": 36,
+            "F": 14,
+            "G": 16,
+            "H": 24,
+            "I": 14,
+            "J": 14,
+            "K": 16,
+            "L": 16,
+            "M": 42,
+            "N": 21,
+        },
+        "PAT": {
+            "A": 10,
+            "B": 16,
+            "C": 24,
+            "D": 14,
+            "E": 22,
+            "F": 22,
+            "G": 24,
+            "H": 20,
+            "I": 42,
+            "J": 28,
+            "K": 21,
+        },
+        "SEC ID": {"A": 28, "B": 20, "C": 14, "D": 45},
+        "ID": {"A": 28, "B": 20, "C": 14, "D": 52, "E": 14, "F": 22, "G": 18, "H": 18},
+    }
+    wrapped_columns = {
+        "ACCESS INFO": {"F", "I", "K"},
+        "DAILY LOGS": {"G", "H", "I", "J"},
+        "ATTENDANCE": {"E", "F", "K"},
+        "PUNCHLIST": {"E", "M"},
+        "PAT": {"I", "J"},
+    }
+
+    image_sheet_widths = {"A": 28, "B": 45}
+
+    for ws in wb.worksheets:
+        widths = sheet_widths.get(ws.title)
+
+        if widths is None and ws.title in ("2X2", "NBI", "CERTIFICATES", "eSignature", "WAH CERT"):
+            widths = image_sheet_widths
+
+        apply_project_sheet_formatting(ws, widths, wrapped_columns.get(ws.title))
+
+        if ws.title in ("2X2", "NBI", "CERTIFICATES", "eSignature", "WAH CERT"):
+            for row in range(2, ws.max_row + 1):
+                if ws.cell(row=row, column=2).value:
+                    ws.row_dimensions[row].height = max(
+                        ws.row_dimensions[row].height or 0,
+                        25,
+                    )
+
+        if ws.title in ("SEC ID", "ID"):
+            for row in range(2, ws.max_row + 1):
+                if any(ws.cell(row=row, column=col).value for col in range(1, ws.max_column + 1)):
+                    ws.row_dimensions[row].height = max(
+                        ws.row_dimensions[row].height or 0,
+                        32,
+                    )
 
 
 def ensure_access_info_headers(ws):
@@ -4209,6 +4448,7 @@ def edit_employee(emp_id):
         if emp.get("project_code") and os.path.exists(project_excel_path(emp["project_code"])):
             wb = load_workbook(project_excel_path(emp["project_code"]))
             write_access_info_row(wb, emp, updated_employee, old_name=old_name)
+            apply_project_workbook_formatting(wb)
             wb.save(project_excel_path(emp["project_code"]))
 
         update_master_tracker_safety(updated_employee)
@@ -4271,56 +4511,7 @@ def create_project():
         # CREATE EXCEL
         #################################
 
-        wb = Workbook()
-
-        yellow = PatternFill(start_color="FFFF00", fill_type="solid")
-        bold = Font(bold=True)
-        center = Alignment(horizontal="center")
-        border = Border(
-            left=Side(style="thin"),
-            right=Side(style="thin"),
-            top=Side(style="thin"),
-            bottom=Side(style="thin"),
-        )
-
-        ws1 = wb.active
-        ws1.title = "ACCESS INFO"
-
-        headers = ACCESS_INFO_HEADERS
-
-        ws1.append(headers)
-
-        for col in range(1, len(headers) + 1):
-
-            cell = ws1.cell(row=1, column=col)
-            cell.fill = yellow
-            cell.font = bold
-            cell.alignment = center
-            cell.border = border
-
-        sheets = [
-            "2X2",
-            "NBI",
-            "CERTIFICATES",
-            "eSignature",
-            "SEC ID",
-            "WAH CERT",
-            "ID",
-        ]
-
-        for s in sheets:
-
-            ws = wb.create_sheet(s)
-
-            if s == "SEC ID":
-                ws.append(["NAME", "SEC NUMBER", "EXPIRY", "IMAGE"])
-            elif s == "ID":
-                ws.append(["NAME", "ID NUMBER", "EXPIRY", "IMAGE"])
-            else:
-                ws.append(["NAME", "IMAGE"])
-
-        ensure_phase5_workbook_sheets(wb)
-
+        wb = build_project_workbook_template()
         file_path = project_excel_path(project_code)
         wb.save(file_path)
 
@@ -4342,21 +4533,25 @@ def form(code):
     conn = connect_db()
     cursor = conn.cursor()
 
-    cursor.execute(
-        """
-        SELECT id, project_name, region, company, project_code, date_created
-        FROM projects
-        WHERE project_code=%s
-        """,
-        (code,),
-    )
-
-    project = row_to_dict(cursor)
+    project = get_project_by_code(cursor, code)
 
     if not project:
         cursor.close()
         conn.close()
         return "Invalid Project Link"
+
+    try:
+        workbook_path = project_excel_path(project["project_code"])
+    except ValueError:
+        cursor.close()
+        conn.close()
+        return "Invalid Project Excel Path"
+
+    if request.method == "POST" and not os.path.exists(workbook_path):
+        flash(project_workbook_missing_message(project))
+        cursor.close()
+        conn.close()
+        return redirect(url_for("form", code=project["project_code"]))
 
     #################################
     # FORM SUBMIT
@@ -4616,7 +4811,7 @@ def form(code):
         # OPEN EXCEL
         #################################
 
-        file_path = project_excel_path(code)
+        file_path = workbook_path
         wb = load_workbook(file_path)
 
         #################################
@@ -4718,6 +4913,7 @@ def form(code):
         # SAVE EXCEL
         #################################
 
+        apply_project_workbook_formatting(wb)
         wb.save(file_path)
         update_master_tracker_safety(employee_record)
 
@@ -4743,7 +4939,27 @@ def form(code):
 @login_required
 def open_excel(code):
 
-    return send_file(project_excel_path(code))
+    conn = connect_db()
+    cursor = conn.cursor()
+    project = get_project_by_code(cursor, code)
+    cursor.close()
+    conn.close()
+
+    if not project:
+        flash("Project not found.")
+        return redirect(url_for("dashboard"))
+
+    try:
+        excel_path = project_excel_path(project["project_code"])
+    except ValueError:
+        flash("Invalid project Excel path.")
+        return redirect(url_for("dashboard"))
+
+    if os.path.exists(excel_path):
+        return send_file(excel_path)
+
+    flash(project_workbook_missing_message(project))
+    return redirect(url_for("dashboard"))
 
 
 #############################################
@@ -5187,6 +5403,7 @@ def safety_documents():
             if os.path.exists(excel_path):
                 wb = load_workbook(excel_path)
                 write_access_info_row(wb, updated_employee, updated_employee)
+                apply_project_workbook_formatting(wb)
                 wb.save(excel_path)
 
             update_master_tracker_safety(updated_employee)
@@ -7222,6 +7439,151 @@ def update_incident_status(incident_id):
 #############################################
 
 
+def load_id_font(size, bold=False):
+
+    font_names = ["arialbd.ttf"] if bold else ["arial.ttf"]
+    font_names.append("Arial.ttf")
+
+    for font_name in font_names:
+        try:
+            return ImageFont.truetype(font_name, size)
+        except OSError:
+            continue
+
+    return ImageFont.load_default()
+
+
+def text_dimensions(draw, text, font):
+
+    bbox = draw.textbbox((0, 0), clean_text(text), font=font)
+    return bbox[2] - bbox[0], bbox[3] - bbox[1]
+
+
+def text_fits(draw, text, font, width, height):
+
+    text_width, text_height = text_dimensions(draw, text, font)
+    return text_width <= width and text_height <= height
+
+
+def fitted_font(draw, text, box, max_size, min_size, bold=False):
+
+    width = box[2] - box[0]
+    height = box[3] - box[1]
+
+    for size in range(max_size, min_size - 1, -1):
+        font = load_id_font(size, bold=bold)
+        if text_fits(draw, text, font, width, height):
+            return font
+
+    return load_id_font(min_size, bold=bold)
+
+
+def draw_fitted_text(draw, text, box, max_size, min_size, bold=False, fill=(0, 0, 0), align="center"):
+
+    text = clean_text(text)
+
+    if not text:
+        return
+
+    font = fitted_font(draw, text, box, max_size, min_size, bold=bold)
+    text_width, text_height = text_dimensions(draw, text, font)
+
+    if align == "left":
+        x = box[0]
+    elif align == "right":
+        x = box[2] - text_width
+    else:
+        x = box[0] + ((box[2] - box[0] - text_width) // 2)
+
+    y = box[1] + ((box[3] - box[1] - text_height) // 2)
+    draw.text((x, y), text, fill, font=font)
+
+
+def wrap_text_for_width(draw, text, font, max_width, max_lines):
+
+    words = clean_text(text).split()
+    lines = []
+    current = ""
+
+    for word in words:
+        candidate = clean_text(current + " " + word)
+
+        if not current or text_dimensions(draw, candidate, font)[0] <= max_width:
+            current = candidate
+        else:
+            lines.append(current)
+            current = word
+
+            if len(lines) == max_lines:
+                break
+
+    if current and len(lines) < max_lines:
+        lines.append(current)
+
+    if len(lines) == max_lines and len(words) > len(" ".join(lines).split()):
+        ellipsis = "..."
+        while lines[-1] and text_dimensions(draw, lines[-1] + ellipsis, font)[0] > max_width:
+            lines[-1] = lines[-1][:-1].rstrip()
+        lines[-1] = lines[-1] + ellipsis
+
+    return lines
+
+
+def draw_wrapped_text(draw, text, box, max_size, min_size, max_lines=2, bold=False, fill=(0, 0, 0)):
+
+    text = clean_text(text)
+
+    if not text:
+        return
+
+    width = box[2] - box[0]
+    height = box[3] - box[1]
+
+    for size in range(max_size, min_size - 1, -1):
+        font = load_id_font(size, bold=bold)
+        lines = wrap_text_for_width(draw, text, font, width, max_lines)
+        line_height = text_dimensions(draw, "Ag", font)[1] + 4
+
+        if lines and len(lines) * line_height <= height:
+            y = box[1] + ((height - len(lines) * line_height) // 2)
+
+            for line in lines:
+                draw.text((box[0], y), line, fill, font=font)
+                y += line_height
+
+            return
+
+    font = load_id_font(min_size, bold=bold)
+    lines = wrap_text_for_width(draw, text, font, width, max_lines)
+    line_height = text_dimensions(draw, "Ag", font)[1] + 4
+    y = box[1]
+
+    for line in lines:
+        draw.text((box[0], y), line, fill, font=font)
+        y += line_height
+
+
+def fit_image_to_box(image, box):
+
+    target_width = box[2] - box[0]
+    target_height = box[3] - box[1]
+    source_width, source_height = image.size
+    source_ratio = source_width / source_height
+    target_ratio = target_width / target_height
+
+    if source_ratio > target_ratio:
+        crop_width = int(source_height * target_ratio)
+        left = (source_width - crop_width) // 2
+        crop = (left, 0, left + crop_width, source_height)
+    else:
+        crop_height = int(source_width / target_ratio)
+        top = max(0, int((source_height - crop_height) * 0.36))
+        crop = (0, top, source_width, top + crop_height)
+
+    resample = getattr(Image, "Resampling", Image).LANCZOS
+    return image.crop(crop).resize((target_width, target_height), resample)
+
+
 @app.route("/generate_id/<code>/<employee_id>", methods=["GET", "POST"])
 @login_required
 def generate_id(code, employee_id):
@@ -7291,6 +7653,25 @@ def generate_id(code, employee_id):
 
     if request.method == "POST":
 
+        try:
+            excel_path = project_excel_path(emp["project_code"])
+        except ValueError:
+            cursor.close()
+            conn.close()
+            return "Invalid Project Excel Path"
+
+        if not os.path.exists(excel_path):
+            flash(project_workbook_missing_message(emp))
+            cursor.close()
+            conn.close()
+            return redirect(
+                url_for(
+                    "generate_id",
+                    code=emp["project_code"],
+                    employee_id=employee_id,
+                )
+            )
+
         id_number = clean_text(request.form.get("id_number"))
         expiry = clean_text(request.form.get("expiry"))
         address = clean_text(request.form.get("address"))
@@ -7306,7 +7687,6 @@ def generate_id(code, employee_id):
         # OPEN EXCEL AND CHECK DUPLICATE
         #################################
 
-        excel_path = project_excel_path(emp["project_code"])
         wb = load_workbook(excel_path)
 
         if "ID" not in wb.sheetnames:
@@ -7343,75 +7723,48 @@ def generate_id(code, employee_id):
         # LOAD ID TEMPLATES (PIXEL PERFECT)
         #################################
 
-        from PIL import Image, ImageDraw, ImageFont
-
         front = Image.open(os.path.join(ID_TEMPLATE_DIR, "front.png")).convert("RGB")
         back = Image.open(os.path.join(ID_TEMPLATE_DIR, "back.png")).convert("RGB")
-
-        front = front.resize((600, 900))
-        back = back.resize((600, 900))
 
         draw_front = ImageDraw.Draw(front)
         draw_back = ImageDraw.Draw(back)
 
         #################################
-        # LOAD PROFESSIONAL FONTS
+        # FIT PHOTO INTO TEMPLATE FRAME
         #################################
 
-        try:
-            font_big = ImageFont.truetype("arialbd.ttf", 42)
-            font_small = ImageFont.truetype("arial.ttf", 26)
-            font_badge = ImageFont.truetype("arialbd.ttf", 24)
-        except:
-            font_big = ImageFont.load_default()
-            font_small = ImageFont.load_default()
-            font_badge = ImageFont.load_default()
+        photo_box = (140, 195, 356, 411)
+        photo = Image.open(photo_path).convert("RGB")
+        front.paste(fit_image_to_box(photo, photo_box), (photo_box[0], photo_box[1]))
 
         #################################
-        # FIX 2X2 PHOTO PERFECTLY
+        # FRONT TEXT
         #################################
 
-        photo = Image.open(photo_path)
-
-        size = min(photo.size)
-
-        left = (photo.width - size) // 2
-        top = (photo.height - size) // 2
-        right = left + size
-        bottom = top + size
-
-        photo = photo.crop((left, top, right, bottom))
-        photo = photo.resize((200, 200))
-
-        #################################
-        # EXACT PHOTO BOX LOCATION
-        #################################
-
-        PHOTO_X = 200
-        PHOTO_Y = 210
-
-        front.paste(photo, (PHOTO_X, PHOTO_Y))
-
-        #################################
-        # CENTER TEXT FUNCTION
-        #################################
-
-        def center_text(draw, text, font, y, width=600):
-
-            bbox = draw.textbbox((0, 0), text, font=font)
-            text_width = bbox[2] - bbox[0]
-            x = (width - text_width) // 2
-            draw.text((x, y), text, (0, 0, 0), font)
-
-        #################################
-        # FRONT TEXT (PIXEL PERFECT)
-        #################################
-
-        center_text(draw_front, name, font_big, 450)
-        center_text(draw_front, telecom_role, font_small, 510)
-        center_text(draw_front, "Employee ID: " + str(emp["id"]), font_small, 555)
-        center_text(draw_front, "ID No: " + id_number, font_small, 595)
-        center_text(draw_front, "DUID: " + assigned_du_id, font_small, 635)
+        draw_fitted_text(draw_front, name.upper(), (52, 420, 443, 457), 30, 18, bold=True)
+        draw_fitted_text(
+            draw_front,
+            "Employee ID: " + str(emp["id"]),
+            (118, 462, 377, 486),
+            16,
+            11,
+        )
+        draw_fitted_text(
+            draw_front,
+            "ID No: " + id_number,
+            (100, 492, 395, 518),
+            18,
+            12,
+            bold=True,
+        )
+        draw_fitted_text(
+            draw_front,
+            "DUID: " + assigned_du_id,
+            (114, 522, 381, 548),
+            16,
+            11,
+        )
+        draw_fitted_text(draw_front, telecom_role, (104, 559, 391, 599), 22, 12, bold=True)
 
         badge_text = emp["safety_badge"]
         badge_color = (
@@ -7419,18 +7772,34 @@ def generate_id(code, employee_id):
             if emp["overall_safety_status"] in ("VALID", "EXPIRING SOON")
             else (150, 45, 45)
         )
-        draw_front.rounded_rectangle((150, 685, 450, 735), radius=12, fill=badge_color)
-        center_text(draw_front, badge_text, font_badge, 696)
+        badge_box = (155, 616, 340, 646)
+        draw_front.rounded_rectangle(badge_box, radius=8, fill=badge_color)
+        draw_fitted_text(
+            draw_front,
+            badge_text,
+            (badge_box[0] + 6, badge_box[1] + 2, badge_box[2] - 6, badge_box[3] - 2),
+            16,
+            10,
+            bold=True,
+        )
 
         #################################
         # BACK TEXT
         #################################
 
-        draw_back.text((180, 300), name, (0, 0, 0), font_small)
-        draw_back.text((180, 340), "DUID: " + assigned_du_id, (0, 0, 0), font_small)
-        draw_back.text((180, 380), address, (0, 0, 0), font_small)
-        draw_back.text((180, 420), contact_number, (0, 0, 0), font_small)
-        draw_back.text((220, 740), "EXPIRY: " + expiry, (0, 0, 0), font_small)
+        draw_fitted_text(draw_back, name, (126, 189, 442, 214), 18, 11, bold=True, align="left")
+        draw_wrapped_text(draw_back, address, (144, 217, 442, 264), 17, 11, max_lines=2)
+        draw_fitted_text(
+            draw_back,
+            contact_number,
+            (218, 270, 442, 294),
+            17,
+            11,
+            align="left",
+        )
+        draw_fitted_text(draw_back, "DUID: " + assigned_du_id, (60, 298, 435, 320), 14, 10)
+        draw_fitted_text(draw_back, "ID No: " + id_number, (70, 584, 425, 607), 16, 10)
+        draw_fitted_text(draw_back, "EXPIRY: " + expiry, (70, 610, 425, 635), 18, 11, bold=True)
 
         #################################
         # SAVE ID CARDS
@@ -7476,6 +7845,7 @@ def generate_id(code, employee_id):
 
         ws.add_image(img, "D" + str(row))
 
+        apply_project_workbook_formatting(wb)
         wb.save(excel_path)
 
         #################################
