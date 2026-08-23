@@ -15,7 +15,7 @@
       <a href="/punchlist">Punchlist</a>
       <a href="{{ url_for('site_detail', du_id=item.duid) }}">Site Detail</a>
       <a href="/pat">PAT</a>
-      {% if session.get('role') == 'admin' %}
+      {% if can('manage_punchlist') %}
         <a href="{{ url_for('edit_punchlist_item', item_id=item.id) }}">Edit Item</a>
       {% endif %}
       <a href="/logout">Logout</a>

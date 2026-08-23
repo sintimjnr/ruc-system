@@ -13,7 +13,7 @@
 
     <div class="menu">
       <a href="/dashboard">Dashboard</a>
-      <a href="/create_project">Create Project</a>
+      {% if can('manage_projects') %}<a href="/create_project">Create Project</a>{% endif %}
       <a href="/search">Search</a>
       <a href="/safety">Safety Compliance</a>
       <a href="/sites">Sites</a>
@@ -21,18 +21,23 @@
       <a href="/reports">Reports</a>
       <a href="/punchlist">Punchlist</a>
       <a href="/pat">PAT</a>
-      <a href="/safety_documents">Safety Documents</a>
-      <a href="/site_assignments">Assignments</a>
-      <a href="/telecom_tasks">Tasks</a>
-      <a href="/permits">Permits</a>
-      <a href="/toolbox_talks">Toolbox Talks</a>
-      <a href="/incidents">Incidents</a>
-      <a href="/id_generator">ID Generator</a>
+      {% if can('manage_safety') %}<a href="/safety_documents">Safety Documents</a>{% endif %}
+      {% if can('manage_assignments') %}<a href="/site_assignments">Assignments</a>{% endif %}
+      {% if can('manage_teams') %}<a href="/teams">Teams</a>{% endif %}
+      {% if can('manage_tasks') %}<a href="/telecom_tasks">Tasks</a>{% endif %}
+      {% if can('manage_permits') %}<a href="/permits">Permits</a>{% endif %}
+      {% if can('manage_operations') %}<a href="/toolbox_talks">Toolbox Talks</a>{% endif %}
+      {% if can('manage_incidents') %}<a href="/incidents">Incidents</a>{% endif %}
+      {% if can('generate_ids') %}<a href="/id_generator">ID Generator</a>{% endif %}
+      {% if can('manage_users') or can('manage_team_leader_accounts') %}<a href="/users">Users</a>{% endif %}
+      {% if can('view_audit_logs') %}<a href="/audit_logs">Audit Log</a>{% endif %}
       <a href="/logout">Logout</a>
 
+      {% if can('reset_system') %}
       <form class="inline-form" method="POST" action="/reset_system" onsubmit="return confirm('Reset project, employee, upload, ID, and operational records?')">
         <button class="btn danger" type="submit">Reset System</button>
       </form>
+      {% endif %}
     </div>
 
     <div class="container">
@@ -75,7 +80,9 @@
 
       <div class="toolbar">
         <a class="btn" href="/master_tracker" target="_blank">MASTER TRACKER</a>
+        {% if can('manage_master_tracker') %}
         <a class="btn" href="/upload_master_tracker">Upload Updated Master Tracker</a>
+        {% endif %}
         <a class="btn" href="/daily_operations">Daily Operations</a>
         <a class="btn" href="/reports">Reporting Center</a>
       </div>
@@ -145,12 +152,18 @@
             <td>{{ project.region }}</td>
             <td>{{ project.company }}</td>
             <td>
+              {% if can('manage_personnel') %}
               <a class="btn" href="/form/{{ project.project_code }}" target="_blank">FORM</a>
+              {% endif %}
               <a class="btn" href="/open_excel/{{ project.project_code }}">EXCEL</a>
+              {% if can('delete_projects') %}
               <form class="inline-form" method="POST" action="/delete_project/{{ project.project_code }}" onsubmit="return confirm('Delete this project and its Excel file?')">
                 <button class="btn delete" type="submit">DELETE</button>
               </form>
+              {% endif %}
+              {% if can('manage_personnel') %}
               <button class="btn-small" onclick="copyProjectLink('{{ project.project_code }}')">Copy</button>
+              {% endif %}
             </td>
           </tr>
         {% endfor %}

@@ -21,7 +21,7 @@
     </div>
 
     <div class="container">
-      {% if session.get('role') == 'admin' %}
+      {% if can('manage_assignments') %}
         <div class="form-box wide">
           <h2>Assign Worker to Site</h2>
           <form method="POST" class="filter-grid">

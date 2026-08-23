@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>{{ emp.full_name }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
+  </head>
+  <body>
+    <div class="topbar">
+      <img class="logo" src="{{ url_for('static', filename='images/ruc_logo.png') }}" />
+      {{ emp.full_name }}
+    </div>
+
+    <div class="menu">
+      <a href="/team_leader">My Team</a>
+      <a href="/daily_operations">Daily Operations</a>
+      <a href="/telecom_tasks">Tasks</a>
+      <a href="/logout">Logout</a>
+    </div>
+
+    <div class="container">
+      <div class="detail-grid">
+        <section class="info-panel">
+          <h2>Team Member</h2>
+          <dl class="detail-list">
+            <dt>Name</dt>
+            <dd>{{ emp.full_name }}</dd>
+            <dt>Position</dt>
+            <dd>{{ emp.position or '-' }}</dd>
+            <dt>Telecom Role</dt>
+            <dd>{{ emp.telecom_role or '-' }}</dd>
+            <dt>Project</dt>
+            <dd>{{ emp.project_name or emp.project_code or '-' }}</dd>
+            <dt>DUID</dt>
+            <dd>{{ emp.assigned_du_id or '-' }}</dd>
+            <dt>Overall Safety</dt>
+            <dd><span class="status {{ emp.overall_safety_status|lower|replace(' ', '-') }}">{{ emp.overall_safety_status }}</span></dd>
+          </dl>
+        </section>
+
+        <section class="info-panel">
+          <h2>ID Cards</h2>
+          {% if id_cards %}
+            {% for card in id_cards %}
+              <p>
+                {{ card.id_number }} / {{ card.expiry or '-' }}
+                <a class="btn-small" href="{{ card.print_url }}">Preview</a>
+                <a class="btn-small" href="{{ card.front_url }}" target="_blank">Front</a>
+                <a class="btn-small" href="{{ card.back_url }}" target="_blank">Back</a>
+              </p>
+            {% endfor %}
+          {% else %}
+            <p>ID card not yet generated.</p>
+          {% endif %}
+        </section>
+      </div>
+
+      <h2>Safety Documents</h2>
+      <table>
+        <tr>
+          <th>Document</th>
+          <th>Reference</th>
+          <th>Issue Date</th>
+          <th>Expiry Date</th>
+          <th>Status</th>
+        </tr>
+        {% for document in current_documents %}
+          <tr>
+            <td>{{ document.label }}</td>
+            <td>{{ document.reference_number or '-' }}</td>
+            <td>{{ document.issue_date or '-' }}</td>
+            <td>{{ document.expiry_date or '-' }}</td>
+            <td><span class="status {{ document.current_status|lower|replace(' ', '-') }}">{{ document.current_status }}</span></td>
+          </tr>
+        {% endfor %}
+      </table>
+
+      <h2>Recent Attendance</h2>
+      <table>
+        <tr>
+          <th>Date</th>
+          <th>DUID</th>
+          <th>Stage</th>
+          <th>Status</th>
+          <th>Role</th>
+        </tr>
+        {% for row in recent_attendance %}
+          <tr>
+            <td>{{ row.report_date }}</td>
+            <td>{{ row.duid }}</td>
+            <td>{{ row.current_stage }}</td>
+            <td>{{ row.attendance_status }}</td>
+            <td>{{ row.role_at_site or '-' }}</td>
+          </tr>
+        {% else %}
+          <tr>
+            <td colspan="5">No recent attendance records.</td>
+          </tr>
+        {% endfor %}
+      </table>
+    </div>
+  </body>
+</html>

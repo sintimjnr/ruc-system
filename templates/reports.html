@@ -34,10 +34,12 @@
           <h2>Site Completion Report</h2>
           <p>Site status, personnel, safety, daily operations, punchlist, PAT, acceptance, and evidence summary.</p>
         </a>
-        <a class="report-card" href="{{ url_for('project_report_select') }}">
-          <h2>Project Management Report</h2>
-          <p>Project progress, site table, safety, attendance, daily activity, PAT, and acceptance control.</p>
-        </a>
+        {% if current_effective_role != 'team_leader' %}
+          <a class="report-card" href="{{ url_for('project_report_select') }}">
+            <h2>Project Management Report</h2>
+            <p>Project progress, site table, safety, attendance, daily activity, PAT, and acceptance control.</p>
+          </a>
+        {% endif %}
         <a class="report-card" href="{{ url_for('personnel_safety_report') }}">
           <h2>Personnel / Safety Report</h2>
           <p>Personnel assignment and safety compliance reporting with project, DUID, role, and status filters.</p>

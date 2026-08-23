@@ -16,7 +16,7 @@
       <a href="/daily_operations">Daily Operations</a>
       <a href="/pat">PAT</a>
       <a href="/reports">Reports</a>
-      <a href="/site_assignments">Assignments</a>
+      {% if can('manage_assignments') %}<a href="/site_assignments">Assignments</a>{% endif %}
       <a href="/logout">Logout</a>
     </div>
 
@@ -67,7 +67,7 @@
       </div>
 
       <div class="toolbar">
-        {% if session.get('role') == 'admin' and filters.duid %}
+        {% if can('manage_punchlist') and filters.duid %}
           <a class="btn" href="{{ url_for('new_punchlist_item', du_id=filters.duid) }}">Add Punchlist Item</a>
         {% endif %}
       </div>
@@ -101,7 +101,7 @@
             <td>{{ item.target_date or '-' }}</td>
             <td>
               <a class="btn-small" href="{{ url_for('punchlist_detail', item_id=item.id) }}">View</a>
-              {% if session.get('role') == 'admin' %}
+              {% if can('manage_punchlist') %}
                 <a class="btn-small" href="{{ url_for('edit_punchlist_item', item_id=item.id) }}">Edit</a>
               {% endif %}
             </td>

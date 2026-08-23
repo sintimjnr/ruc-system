@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
+    <title>Audit Log</title>
+  </head>
+  <body>
+    <div class="topbar">
+      <img class="logo" src="{{ url_for('static', filename='images/ruc_logo.png') }}" />
+      RUC Management System
+    </div>
+
+    <div class="menu">
+      <a href="/dashboard">Dashboard</a>
+      <a href="/users">User Management</a>
+      <a href="/audit_logs">Audit Log</a>
+      <a href="/logout">Logout</a>
+    </div>
+
+    <div class="container">
+      <h2>Audit Log</h2>
+
+      <div class="form-box wide">
+        <form method="GET" action="{{ url_for('audit_logs') }}" class="filter-grid">
+          <input name="username" placeholder="Username" value="{{ filters.username }}" />
+          <input name="action" placeholder="Action" value="{{ filters.action }}" />
+          <input name="entity_type" placeholder="Entity type" value="{{ filters.entity_type }}" />
+          <input name="date_from" type="date" value="{{ filters.date_from }}" />
+          <input name="date_to" type="date" value="{{ filters.date_to }}" />
+          <button type="submit">Filter</button>
+        </form>
+      </div>
+
+      <table>
+        <tr>
+          <th>Timestamp</th>
+          <th>Username</th>
+          <th>Role</th>
+          <th>Action</th>
+          <th>Entity</th>
+          <th>Description</th>
+          <th>Route</th>
+        </tr>
+        {% for log in logs %}
+          <tr>
+            <td>{{ log.created_at }}</td>
+            <td>{{ log.username_snapshot or '-' }}</td>
+            <td>{{ role_label(log.role_snapshot) if log.role_snapshot else '-' }}</td>
+            <td>{{ log.action }}</td>
+            <td>{{ log.entity_type or '-' }}{% if log.entity_id %}: {{ log.entity_id }}{% endif %}</td>
+            <td>{{ log.description or '-' }}</td>
+            <td>{{ log.http_method or '-' }} {{ log.route or '-' }}</td>
+          </tr>
+        {% else %}
+          <tr>
+            <td colspan="7">No audit events found.</td>
+          </tr>
+        {% endfor %}
+      </table>
+    </div>
+  </body>
+</html>

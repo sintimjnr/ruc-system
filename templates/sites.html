@@ -20,7 +20,7 @@
       <a href="/pat">PAT</a>
       <a href="/permits">Permits</a>
       <a href="/incidents">Incidents</a>
-      {% if session.get('role') == 'admin' %}
+      {% if can('manage_sites') %}
         <a href="{{ url_for('new_site') }}">Register Site</a>
       {% endif %}
       <a href="/logout">Logout</a>
@@ -63,10 +63,12 @@
       </div>
 
       <div class="toolbar">
-        {% if session.get('role') == 'admin' %}
+        {% if can('manage_sites') %}
           <a class="btn" href="{{ url_for('new_site') }}">Register Operational Site</a>
         {% endif %}
-        <a class="btn" href="/master_tracker" target="_blank">MASTER TRACKER</a>
+        {% if can('view_master_tracker') %}
+          <a class="btn" href="/master_tracker" target="_blank">MASTER TRACKER</a>
+        {% endif %}
       </div>
 
       <h2>DUID Site Register</h2>
@@ -123,7 +125,7 @@
             </td>
             <td>
               <a class="btn-small" href="{{ url_for('site_detail', du_id=site.du_id) }}">View</a>
-              {% if session.get('role') == 'admin' %}
+              {% if can('manage_sites') %}
                 <a class="btn-small" href="{{ url_for('edit_site', du_id=site.du_id) }}">Edit</a>
               {% endif %}
             </td>

@@ -22,7 +22,7 @@
     </div>
 
     <div class="container">
-      {% if session.get('role') == 'admin' %}
+      {% if can('manage_safety') %}
         <div class="form-box wide">
           <h2>Add Safety Document</h2>
           <form method="POST" enctype="multipart/form-data" class="filter-grid">

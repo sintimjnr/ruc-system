@@ -288,14 +288,101 @@ PUNCHLIST_UNRESOLVED_STATUSES = ["OPEN", "IN PROGRESS", "RECTIFIED"]
 PAT_RESULTS = ["PENDING", "PASSED", "PASSED WITH PUNCHLIST", "FAILED"]
 ACCEPTANCE_STATUSES = ["NOT READY", "READY", "ACCEPTED", "REJECTED"]
 
+FINAL_ROLE_LABELS = {
+    "super_admin": "SUPER ADMIN",
+    "hr": "HR",
+    "team_leader": "TEAM LEADER",
+}
+LEGACY_ROLE_ALIASES = {
+    "admin": "hr",
+    "project_manager": "hr",
+    "site_supervisor": "team_leader",
+    "viewer": "hr",
+}
+ROLE_LABELS = {
+    **FINAL_ROLE_LABELS,
+    "admin": "HR (LEGACY ADMIN)",
+    "project_manager": "HR (LEGACY PROJECT MANAGER)",
+    "site_supervisor": "TEAM LEADER (LEGACY SITE SUPERVISOR)",
+    "viewer": "HR (LEGACY VIEWER)",
+}
+ROLE_FORM_LABELS = FINAL_ROLE_LABELS
+ROLE_PERMISSIONS = {
+    "super_admin": {
+        "view",
+        "manage_users",
+        "manage_team_leader_accounts",
+        "manage_teams",
+        "transfer_team_members",
+        "view_audit_logs",
+        "manage_projects",
+        "delete_projects",
+        "manage_personnel",
+        "assign_employee_projects",
+        "manage_sites",
+        "manage_assignments",
+        "manage_safety",
+        "manage_operations",
+        "manage_attendance",
+        "manage_tasks",
+        "manage_permits",
+        "manage_toolbox",
+        "manage_incidents",
+        "manage_punchlist",
+        "manage_pat",
+        "view_pat",
+        "manage_acceptance",
+        "generate_ids",
+        "view_id_cards",
+        "view_master_tracker",
+        "manage_master_tracker",
+        "view_project_workbooks",
+        "export_reports",
+        "reset_system",
+    },
+    "hr": {
+        "view",
+        "manage_team_leader_accounts",
+        "manage_personnel",
+        "assign_employee_projects",
+        "manage_safety",
+        "generate_ids",
+        "view_id_cards",
+        "view_master_tracker",
+        "view_project_workbooks",
+        "export_reports",
+    },
+    "team_leader": {
+        "view",
+        "team_leader_portal",
+        "view_team",
+        "manage_attendance",
+        "manage_operations",
+        "manage_tasks",
+        "manage_toolbox",
+        "manage_incidents",
+        "manage_punchlist",
+        "view_pat",
+        "view_id_cards",
+        "export_reports",
+    },
+}
+LAST_SUPER_ADMIN_MESSAGE = "At least one active Super Admin must remain."
+
 
 @app.route("/static/<path:filename>", endpoint="static")
 def static_files(filename):
 
     normalized = filename.replace("\\", "/")
 
-    if normalized.startswith("uploads/") and "admin" not in session:
+    if normalized.startswith("uploads/") and not validate_session_account():
         return redirect("/")
+
+    if normalized.startswith("uploads/"):
+        denied = authorize_stored_file_access("static/" + normalized)
+
+        if denied:
+            return denied
 
     if not normalized.startswith(("css/", "images/", "uploads/")):
         return "Invalid static path"
@@ -303,12 +390,182 @@ def static_files(filename):
     return send_from_directory(safe_abs_path("static"), normalized)
 
 
+def role_label(role):
+
+    return ROLE_LABELS.get(role, str(role or "").upper() or "UNKNOWN")
+
+
+def effective_role(role):
+
+    return LEGACY_ROLE_ALIASES.get(role, role)
+
+
+def current_effective_role():
+
+    return effective_role(session.get("role"))
+
+
+def is_super_admin_role(role=None):
+
+    return effective_role(role if role is not None else session.get("role")) == "super_admin"
+
+
+def is_hr_role(role=None):
+
+    return effective_role(role if role is not None else session.get("role")) == "hr"
+
+
+def is_team_leader_role(role=None):
+
+    return effective_role(role if role is not None else session.get("role")) == "team_leader"
+
+
+def has_permission(role, permission):
+
+    return permission in ROLE_PERMISSIONS.get(effective_role(role), set())
+
+
+def can(permission):
+
+    return has_permission(session.get("role"), permission)
+
+
+def get_request_ip():
+
+    forwarded_for = request.headers.get("X-Forwarded-For", "")
+
+    if forwarded_for:
+        return forwarded_for.split(",")[0].strip()
+
+    return request.remote_addr
+
+
+def audit_event(
+    action,
+    entity_type=None,
+    entity_id=None,
+    description=None,
+    conn=None,
+    username_snapshot=None,
+    role_snapshot=None,
+    admin_id=None,
+):
+
+    db = conn
+    owns_connection = db is None
+    cursor = None
+
+    try:
+        if db is None:
+            db = connect_db()
+
+        cursor = db.cursor()
+        cursor.execute(
+            """
+            INSERT INTO audit_logs (
+                admin_id,
+                username_snapshot,
+                role_snapshot,
+                action,
+                entity_type,
+                entity_id,
+                description,
+                ip_address,
+                http_method,
+                route
+            )
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            """,
+            (
+                admin_id if admin_id is not None else session.get("admin_id"),
+                username_snapshot if username_snapshot is not None else session.get("admin"),
+                role_snapshot if role_snapshot is not None else session.get("role"),
+                action,
+                entity_type,
+                str(entity_id) if entity_id is not None else None,
+                description,
+                get_request_ip(),
+                request.method,
+                request.endpoint or request.path,
+            ),
+        )
+
+        if owns_connection:
+            db.commit()
+
+    except Exception:
+        if owns_connection and db:
+            db.rollback()
+
+    finally:
+        if cursor:
+            cursor.close()
+        if owns_connection and db:
+            db.close()
+
+
+def validate_session_account():
+
+    admin_id = session.get("admin_id")
+    username = session.get("admin")
+
+    if not admin_id and not username:
+        return None
+
+    conn = connect_db()
+    cursor = conn.cursor()
+
+    if admin_id:
+        cursor.execute(
+            """
+            SELECT id, username, role, active, employee_id
+            FROM admins
+            WHERE id=%s
+            """,
+            (admin_id,),
+        )
+    else:
+        cursor.execute(
+            """
+            SELECT id, username, role, active, employee_id
+            FROM admins
+            WHERE username=%s
+            """,
+            (username,),
+        )
+
+    account = cursor.fetchone()
+    cursor.close()
+    conn.close()
+
+    if not account or not account[3]:
+        session.clear()
+        return None
+
+    session["admin_id"] = account[0]
+    session["admin"] = account[1]
+    session["role"] = account[2]
+    session["employee_id"] = account[4]
+    return account
+
+
+def access_denied(message="You do not have permission to perform this action."):
+
+    audit_event(
+        "AUTH_ACCESS_DENIED",
+        "route",
+        request.path,
+        f"Denied access to {request.path}",
+    )
+    return render_template("access_denied.html", message=message), 403
+
+
 def login_required(view):
 
     @wraps(view)
     def wrapped(*args, **kwargs):
 
-        if "admin" not in session:
+        if not validate_session_account():
             return redirect("/")
 
         return view(*args, **kwargs)
@@ -316,20 +573,89 @@ def login_required(view):
     return wrapped
 
 
-def admin_required(view):
+def permission_required(*permissions):
 
-    @wraps(view)
-    def wrapped(*args, **kwargs):
+    def decorator(view):
 
-        if "admin" not in session:
-            return redirect("/")
+        @wraps(view)
+        def wrapped(*args, **kwargs):
 
-        if session.get("role") != "admin":
-            return "Access Denied"
+            if not validate_session_account():
+                return redirect("/")
 
-        return view(*args, **kwargs)
+            role = session.get("role")
 
-    return wrapped
+            if not all(has_permission(role, permission) for permission in permissions):
+                return access_denied()
+
+            return view(*args, **kwargs)
+
+        return wrapped
+
+    return decorator
+
+
+def any_permission_required(*permissions):
+
+    def decorator(view):
+
+        @wraps(view)
+        def wrapped(*args, **kwargs):
+
+            if not validate_session_account():
+                return redirect("/")
+
+            role = session.get("role")
+
+            if not any(has_permission(role, permission) for permission in permissions):
+                return access_denied()
+
+            return view(*args, **kwargs)
+
+        return wrapped
+
+    return decorator
+
+
+def role_required(*roles):
+
+    def decorator(view):
+
+        @wraps(view)
+        def wrapped(*args, **kwargs):
+
+            if not validate_session_account():
+                return redirect("/")
+
+            if current_effective_role() not in roles:
+                return access_denied()
+
+            return view(*args, **kwargs)
+
+        return wrapped
+
+    return decorator
+
+
+def super_admin_required(view):
+
+    return role_required("super_admin")(view)
+
+
+@app.context_processor
+def inject_auth_context():
+
+    return {
+        "current_username": session.get("admin"),
+        "current_role": session.get("role"),
+        "current_effective_role": current_effective_role(),
+        "current_role_label": role_label(session.get("role")),
+        "role_label": role_label,
+        "effective_role": effective_role,
+        "can": can,
+        "ROLE_LABELS": ROLE_LABELS,
+        "ROLE_FORM_LABELS": ROLE_FORM_LABELS,
+    }
 
 
 def safe_abs_path(*parts):
@@ -789,22 +1115,27 @@ def get_duids_for_select():
 
     conn = connect_db()
     cursor = conn.cursor()
-    cursor.execute(
-        """
-        SELECT DISTINCT du_id
-        FROM (
-            SELECT du_id FROM globe_nlz
-            UNION
-            SELECT du_id FROM planning_reference
-            UNION
-            SELECT du_id FROM telecom_sites
-        ) all_duids
-        WHERE du_id IS NOT NULL
-          AND TRIM(du_id) <> ''
-        ORDER BY du_id
-        """
-    )
-    duids = [row[0] for row in cursor.fetchall()]
+
+    if is_team_leader_role():
+        duids = get_team_leader_duids(cursor)
+    else:
+        cursor.execute(
+            """
+            SELECT DISTINCT du_id
+            FROM (
+                SELECT du_id FROM globe_nlz
+                UNION
+                SELECT du_id FROM planning_reference
+                UNION
+                SELECT du_id FROM telecom_sites
+            ) all_duids
+            WHERE du_id IS NOT NULL
+              AND TRIM(du_id) <> ''
+            ORDER BY du_id
+            """
+        )
+        duids = [row[0] for row in cursor.fetchall()]
+
     cursor.close()
     conn.close()
     return duids
@@ -833,8 +1164,27 @@ def get_employees_for_select():
 
     conn = connect_db()
     cursor = conn.cursor()
+    params = []
+    where_sql = ""
+
+    if is_team_leader_role():
+        team_ids = get_team_leader_team_ids(cursor)
+        if team_ids:
+            where_sql = """
+            WHERE EXISTS (
+                SELECT 1
+                FROM team_memberships tm
+                WHERE tm.employee_id = employees.id
+                  AND tm.active IS TRUE
+                  AND tm.team_id = ANY(%s)
+            )
+            """
+            params.append(team_ids)
+        else:
+            where_sql = "WHERE FALSE"
+
     cursor.execute(
-        """
+        f"""
         SELECT id,
                first_name,
                last_name,
@@ -843,8 +1193,10 @@ def get_employees_for_select():
                assigned_du_id,
                project_id
         FROM employees
+        {where_sql}
         ORDER BY first_name, last_name, id
-        """
+        """,
+        params,
     )
     employees = rows_to_dicts(cursor)
     cursor.close()
@@ -874,6 +1226,270 @@ def stored_file_display_name(path_or_name):
     return filename
 
 
+def stored_file_path_variants(rel_path):
+
+    cleaned = clean_text(rel_path).replace("\\", "/").lstrip("/")
+    normalized = os.path.normpath(cleaned).replace("\\", "/")
+
+    if normalized == ".":
+        normalized = ""
+
+    variants = [normalized]
+
+    if normalized.startswith("static/uploads/"):
+        variants.append(normalized[len("static/") :])
+
+    if normalized.startswith("uploads/"):
+        variants.append("static/" + normalized)
+
+    filename = os.path.basename(normalized)
+
+    if filename:
+        variants.append(filename)
+
+    return list(dict.fromkeys([variant for variant in variants if variant]))
+
+
+def employee_id_for_uploaded_path(cursor, rel_path):
+
+    variants = stored_file_path_variants(rel_path)
+
+    if not variants:
+        return None
+
+    cursor.execute(
+        """
+        SELECT id
+        FROM employees
+        WHERE photo = ANY(%s)
+           OR nbi = ANY(%s)
+           OR certificate = ANY(%s)
+           OR signature = ANY(%s)
+           OR wah_file = ANY(%s)
+           OR first_aid_file = ANY(%s)
+        ORDER BY id
+        LIMIT 1
+        """,
+        (variants, variants, variants, variants, variants, variants),
+    )
+    row = cursor.fetchone()
+
+    if row:
+        return row[0]
+
+    like_patterns = ["%/" + variant for variant in variants if "/" not in variant]
+
+    if like_patterns:
+        cursor.execute(
+            """
+            SELECT id
+            FROM employees
+            WHERE wah_file LIKE ANY(%s)
+               OR first_aid_file LIKE ANY(%s)
+            ORDER BY id
+            LIMIT 1
+            """,
+            (like_patterns, like_patterns),
+        )
+        row = cursor.fetchone()
+
+        if row:
+            return row[0]
+
+    cursor.execute(
+        """
+        SELECT employee_id
+        FROM safety_documents
+        WHERE file_path = ANY(%s)
+           OR original_filename = ANY(%s)
+        ORDER BY is_current DESC, updated_at DESC, id DESC
+        LIMIT 1
+        """,
+        (variants, variants),
+    )
+    row = cursor.fetchone()
+
+    if row:
+        return row[0]
+
+    if like_patterns:
+        cursor.execute(
+            """
+            SELECT employee_id
+            FROM safety_documents
+            WHERE file_path LIKE ANY(%s)
+            ORDER BY is_current DESC, updated_at DESC, id DESC
+            LIMIT 1
+            """,
+            (like_patterns,),
+        )
+        row = cursor.fetchone()
+
+        if row:
+            return row[0]
+
+    normalized = variants[0]
+    parts = normalized.split("/")
+
+    if (
+        len(parts) >= 5
+        and parts[0] == "static"
+        and parts[1] == "uploads"
+        and parts[2] == "projects"
+        and parts[4].isdigit()
+    ):
+        return int(parts[4])
+
+    return None
+
+
+def duid_for_uploaded_path(cursor, rel_path):
+
+    variants = stored_file_path_variants(rel_path)
+
+    if not variants:
+        return None
+
+    cursor.execute(
+        """
+        SELECT dsl.duid
+        FROM daily_log_files dlf
+        JOIN daily_site_logs dsl ON dsl.id = dlf.daily_log_id
+        WHERE dlf.file_path = ANY(%s)
+           OR dlf.original_filename = ANY(%s)
+        ORDER BY dlf.id DESC
+        LIMIT 1
+        """,
+        (variants, variants),
+    )
+    row = cursor.fetchone()
+
+    if row:
+        return row[0]
+
+    cursor.execute(
+        """
+        SELECT pi.duid
+        FROM punchlist_files pf
+        JOIN punchlist_items pi ON pi.id = pf.punchlist_item_id
+        WHERE pf.file_path = ANY(%s)
+           OR pf.filename = ANY(%s)
+        ORDER BY pf.id DESC
+        LIMIT 1
+        """,
+        (variants, variants),
+    )
+    row = cursor.fetchone()
+
+    if row:
+        return row[0]
+
+    cursor.execute(
+        """
+        SELECT duid
+        FROM pat_records
+        WHERE document_path = ANY(%s)
+           OR document_filename = ANY(%s)
+        ORDER BY id DESC
+        LIMIT 1
+        """,
+        (variants, variants),
+    )
+    row = cursor.fetchone()
+
+    if row:
+        return row[0]
+
+    cursor.execute(
+        """
+        SELECT ir.du_id
+        FROM incident_attachments ia
+        JOIN incident_reports ir ON ir.id = ia.incident_report_id
+        WHERE ia.file_path = ANY(%s)
+           OR ia.original_filename = ANY(%s)
+        ORDER BY ia.id DESC
+        LIMIT 1
+        """,
+        (variants, variants),
+    )
+    row = cursor.fetchone()
+
+    if row:
+        return row[0]
+
+    cursor.execute(
+        """
+        SELECT du_id
+        FROM permit_to_work
+        WHERE file_path = ANY(%s)
+        ORDER BY id DESC
+        LIMIT 1
+        """,
+        (variants,),
+    )
+    row = cursor.fetchone()
+
+    if row:
+        return row[0]
+
+    normalized = variants[0]
+    parts = normalized.split("/")
+
+    if (
+        len(parts) >= 6
+        and parts[0] == "static"
+        and parts[1] == "uploads"
+        and parts[2] == "projects"
+        and parts[4] == "sites"
+    ):
+        return parts[5]
+
+    return None
+
+
+def authorize_stored_file_access(rel_path):
+
+    rel_path = clean_text(rel_path).replace("\\", "/").lstrip("/")
+    rel_path = os.path.normpath(rel_path).replace("\\", "/")
+
+    if not rel_path or rel_path == "." or rel_path.startswith("../") or "/../" in rel_path:
+        return "Invalid file path"
+
+    if is_super_admin_role() or is_hr_role():
+        return None
+
+    if not is_team_leader_role():
+        return access_denied("This file is outside your authorized access.")
+
+    conn = connect_db()
+    cursor = conn.cursor()
+
+    try:
+        employee_id = employee_id_for_uploaded_path(cursor, rel_path)
+
+        if employee_id:
+            denied = enforce_team_leader_employee_scope(cursor, conn, employee_id)
+            return denied
+
+        duid = duid_for_uploaded_path(cursor, rel_path)
+
+        if duid:
+            denied = enforce_team_leader_site_scope(cursor, conn, duid)
+            return denied
+
+        audit_scope_denied(
+            conn,
+            "file",
+            rel_path,
+            "Denied Team Leader access to an upload outside current team scope.",
+        )
+        return access_denied("This file is outside your current team scope.")
+
+    finally:
+        cursor.close()
+        conn.close()
+
+
 def send_stored_file(rel_path):
 
     rel_path = clean_text(rel_path).replace("\\", "/").lstrip("/")
@@ -884,6 +1500,11 @@ def send_stored_file(rel_path):
 
     if rel_path == "." or rel_path.startswith("../") or "/../" in rel_path:
         return "Invalid file path"
+
+    denied = authorize_stored_file_access(rel_path)
+
+    if denied:
+        return denied
 
     if rel_path.startswith("static/uploads/"):
         folder, filename = os.path.split(rel_path)
@@ -980,6 +1601,192 @@ def get_employee_detail(cursor, employee_id):
         emp["full_name"] = full_employee_name(emp)
 
     return emp
+
+
+def get_team_leader_team_ids(cursor, admin_id=None):
+
+    admin_id = admin_id or session.get("admin_id")
+
+    if not admin_id:
+        return []
+
+    cursor.execute(
+        """
+        SELECT id
+        FROM teams
+        WHERE active IS TRUE
+          AND team_leader_admin_id=%s
+        ORDER BY id
+        """,
+        (admin_id,),
+    )
+    return [row[0] for row in cursor.fetchall()]
+
+
+def get_team_leader_duids(cursor, admin_id=None):
+
+    admin_id = admin_id or session.get("admin_id")
+
+    if not admin_id:
+        return []
+
+    cursor.execute(
+        """
+        SELECT DISTINCT du_id
+        FROM teams
+        WHERE active IS TRUE
+          AND team_leader_admin_id=%s
+          AND du_id IS NOT NULL
+          AND TRIM(du_id) <> ''
+        ORDER BY du_id
+        """,
+        (admin_id,),
+    )
+    return [row[0] for row in cursor.fetchall()]
+
+
+def get_team_leader_employee_ids(cursor, admin_id=None):
+
+    team_ids = get_team_leader_team_ids(cursor, admin_id=admin_id)
+
+    if not team_ids:
+        return []
+
+    cursor.execute(
+        """
+        SELECT DISTINCT employee_id
+        FROM team_memberships
+        WHERE active IS TRUE
+          AND team_id = ANY(%s)
+        ORDER BY employee_id
+        """,
+        (team_ids,),
+    )
+    return [row[0] for row in cursor.fetchall()]
+
+
+def team_leader_has_site(cursor, du_id, admin_id=None):
+
+    if not du_id:
+        return False
+
+    cursor.execute(
+        """
+        SELECT 1
+        FROM teams
+        WHERE active IS TRUE
+          AND team_leader_admin_id=%s
+          AND du_id=%s
+        LIMIT 1
+        """,
+        (admin_id or session.get("admin_id"), du_id),
+    )
+    return cursor.fetchone() is not None
+
+
+def team_leader_has_employee(cursor, employee_id, admin_id=None):
+
+    cursor.execute(
+        """
+        SELECT 1
+        FROM team_memberships tm
+        JOIN teams t ON t.id = tm.team_id
+        WHERE tm.active IS TRUE
+          AND t.active IS TRUE
+          AND t.team_leader_admin_id=%s
+          AND tm.employee_id=%s
+        LIMIT 1
+        """,
+        (admin_id or session.get("admin_id"), employee_id),
+    )
+    return cursor.fetchone() is not None
+
+
+def team_leader_has_employee_at_site(cursor, employee_id, duid, admin_id=None):
+
+    cursor.execute(
+        """
+        SELECT 1
+        FROM team_memberships tm
+        JOIN teams t ON t.id = tm.team_id
+        WHERE tm.active IS TRUE
+          AND t.active IS TRUE
+          AND t.team_leader_admin_id=%s
+          AND tm.employee_id=%s
+          AND t.du_id=%s
+        LIMIT 1
+        """,
+        (admin_id or session.get("admin_id"), employee_id, duid),
+    )
+    return cursor.fetchone() is not None
+
+
+def audit_scope_denied(conn, entity_type, entity_id, description):
+
+    audit_event(
+        "TEAM_SCOPE_ACCESS_DENIED",
+        entity_type,
+        entity_id,
+        description,
+        conn=conn,
+    )
+    conn.commit()
+
+
+def enforce_team_leader_site_scope(cursor, conn, du_id):
+
+    if is_team_leader_role() and not team_leader_has_site(cursor, du_id):
+        audit_scope_denied(
+            conn,
+            "site",
+            du_id,
+            f"Denied Team Leader access to unassigned site {du_id}.",
+        )
+        return access_denied("This site is outside your assigned team scope.")
+
+    return None
+
+
+def enforce_team_leader_employee_scope(cursor, conn, employee_id):
+
+    if is_team_leader_role() and not team_leader_has_employee(cursor, employee_id):
+        audit_scope_denied(
+            conn,
+            "employee",
+            employee_id,
+            f"Denied Team Leader access to employee {employee_id} outside current team.",
+        )
+        return access_denied("This employee is outside your current team scope.")
+
+    return None
+
+
+def add_team_leader_duid_scope(cursor, conditions, params, column_name):
+
+    if not is_team_leader_role():
+        return
+
+    duids = get_team_leader_duids(cursor)
+
+    if duids:
+        conditions.append(f"{column_name} = ANY(%s)")
+        params.append(duids)
+    else:
+        conditions.append("FALSE")
+
+
+def add_team_leader_employee_scope(cursor, conditions, params, column_name):
+
+    if not is_team_leader_role():
+        return
+
+    employee_ids = get_team_leader_employee_ids(cursor)
+
+    if employee_ids:
+        conditions.append(f"{column_name} = ANY(%s)")
+        params.append(employee_ids)
+    else:
+        conditions.append("FALSE")
 
 
 def build_document_record(document_type, employee, document=None):
@@ -1444,7 +2251,85 @@ def apply_daily_site_progress(cursor, log_data):
 
 def get_daily_attendance_people(cursor, duid, daily_log_id=None):
 
-    if daily_log_id:
+    if is_team_leader_role():
+        if daily_log_id:
+            cursor.execute(
+                """
+                SELECT DISTINCT ON (e.id)
+                       e.id,
+                       e.first_name,
+                       e.last_name,
+                       e.position,
+                       e.telecom_role,
+                       e.nbi,
+                       e.wah_file,
+                       e.first_aid_file,
+                       e.nbi_expiry_date,
+                       e.wah_expiry_date,
+                       e.first_aid_expiry_date,
+                       COALESCE(tm_role.role, e.telecom_role, e.position) AS assignment_role,
+                       da.attendance_status,
+                       da.time_in,
+                       da.time_out,
+                       da.role_at_site,
+                       da.safety_status_snapshot,
+                       da.remarks
+                FROM team_memberships tm
+                JOIN teams t ON t.id = tm.team_id
+                JOIN employees e ON e.id = tm.employee_id
+                LEFT JOIN site_assignments tm_role
+                  ON tm_role.employee_id = e.id
+                 AND tm_role.du_id = t.du_id
+                 AND tm_role.assignment_status='ACTIVE'
+                LEFT JOIN daily_attendance da
+                  ON da.employee_id = e.id
+                 AND da.daily_log_id = %s
+                WHERE tm.active IS TRUE
+                  AND t.active IS TRUE
+                  AND t.team_leader_admin_id=%s
+                  AND t.du_id=%s
+                ORDER BY e.id, da.id NULLS LAST, tm.id DESC
+                """,
+                (daily_log_id, session.get("admin_id"), duid),
+            )
+        else:
+            cursor.execute(
+                """
+                SELECT DISTINCT ON (e.id)
+                       e.id,
+                       e.first_name,
+                       e.last_name,
+                       e.position,
+                       e.telecom_role,
+                       e.nbi,
+                       e.wah_file,
+                       e.first_aid_file,
+                       e.nbi_expiry_date,
+                       e.wah_expiry_date,
+                       e.first_aid_expiry_date,
+                       COALESCE(sa.role, e.telecom_role, e.position) AS assignment_role,
+                       'Present' AS attendance_status,
+                       NULL::time AS time_in,
+                       NULL::time AS time_out,
+                       COALESCE(sa.role, e.telecom_role, e.position) AS role_at_site,
+                       NULL AS safety_status_snapshot,
+                       NULL AS remarks
+                FROM team_memberships tm
+                JOIN teams t ON t.id = tm.team_id
+                JOIN employees e ON e.id = tm.employee_id
+                LEFT JOIN site_assignments sa
+                  ON sa.employee_id = e.id
+                 AND sa.du_id = t.du_id
+                 AND sa.assignment_status='ACTIVE'
+                WHERE tm.active IS TRUE
+                  AND t.active IS TRUE
+                  AND t.team_leader_admin_id=%s
+                  AND t.du_id=%s
+                ORDER BY e.id, tm.id DESC
+                """,
+                (session.get("admin_id"), duid),
+            )
+    elif daily_log_id:
         cursor.execute(
             """
             SELECT DISTINCT ON (e.id)
@@ -1532,12 +2417,30 @@ def get_daily_attendance_people(cursor, duid, daily_log_id=None):
 def sync_daily_attendance(cursor, daily_log_id, duid):
 
     employee_ids = request.form.getlist("attendance_employee_id")
+    cleaned_employee_ids = [
+        clean_text(raw_employee_id)
+        for raw_employee_id in employee_ids
+        if clean_text(raw_employee_id)
+    ]
 
-    for raw_employee_id in employee_ids:
-        employee_id = clean_text(raw_employee_id)
+    if is_team_leader_role():
+        unauthorized_employee_ids = [
+            employee_id
+            for employee_id in sorted(set(cleaned_employee_ids))
+            if not team_leader_has_employee_at_site(cursor, employee_id, duid)
+        ]
 
-        if not employee_id:
-            continue
+        if unauthorized_employee_ids:
+            audit_event(
+                "TEAM_SCOPE_ACCESS_DENIED",
+                "attendance",
+                duid,
+                "Denied Team Leader attendance submission for employee(s) outside current team scope: "
+                + ", ".join(unauthorized_employee_ids),
+            )
+            raise ValueError("Attendance includes an employee outside your current team scope.")
+
+    for employee_id in cleaned_employee_ids:
 
         cursor.execute(
             """
@@ -3336,7 +4239,7 @@ def sync_site_assignment(cursor, project_id, employee_id, du_id, role):
 
 
 @app.route("/master_tracker")
-@login_required
+@permission_required("view_master_tracker")
 def master_tracker():
 
     return send_file(MASTER_TRACKER_PATH, as_attachment=True)
@@ -3348,7 +4251,7 @@ def master_tracker():
 
 
 @app.route("/upload_master_tracker", methods=["GET", "POST"])
-@login_required
+@permission_required("manage_master_tracker")
 def upload_master_tracker():
 
     master_path = MASTER_TRACKER_PATH
@@ -3394,15 +4297,15 @@ def login():
 
     if request.method == "POST":
 
-        username = request.form["username"]
-        password = request.form["password"]
+        username = clean_text(request.form.get("username"))
+        password = request.form.get("password", "")
 
         conn = connect_db()
         cursor = conn.cursor()
 
         cursor.execute(
             """
-            SELECT username,password,role
+            SELECT id, username, password, role, active, employee_id
             FROM admins
             WHERE username=%s
             """,
@@ -3411,18 +4314,57 @@ def login():
 
         admin = cursor.fetchone()
 
-        cursor.close()
-        conn.close()
+        if admin and admin[4] and check_password_hash(admin[2], password):
 
-        if admin and check_password_hash(admin[1], password):
+            session.clear()
+            session["admin_id"] = admin[0]
+            session["admin"] = admin[1]
+            session["role"] = admin[3]
+            session["employee_id"] = admin[5]
 
-            session["admin"] = admin[0]
-            session["role"] = admin[2]
+            cursor.execute(
+                """
+                UPDATE admins
+                SET last_login=CURRENT_TIMESTAMP,
+                    updated_at=CURRENT_TIMESTAMP
+                WHERE id=%s
+                """,
+                (admin[0],),
+            )
+            audit_event(
+                "AUTH_LOGIN_SUCCESS",
+                "admin",
+                admin[0],
+                "User logged in successfully.",
+                conn=conn,
+                admin_id=admin[0],
+                username_snapshot=admin[1],
+                role_snapshot=admin[3],
+            )
+            conn.commit()
+            cursor.close()
+            conn.close()
+
+            if is_team_leader_role(admin[3]):
+                return redirect(url_for("team_leader_dashboard"))
 
             return redirect("/dashboard")
 
-        else:
-            return "Wrong Username or Password"
+        audit_event(
+            "AUTH_LOGIN_FAILED",
+            "admin",
+            None,
+            "Failed login attempt.",
+            conn=conn,
+            admin_id=None,
+            username_snapshot=username,
+            role_snapshot=None,
+        )
+        conn.commit()
+        cursor.close()
+        conn.close()
+
+        flash("Invalid username or password.")
 
     return render_template("login.html")
 
@@ -3435,6 +4377,9 @@ def login():
 @app.route("/dashboard")
 @login_required
 def dashboard():
+
+    if is_team_leader_role():
+        return redirect(url_for("team_leader_dashboard"))
 
     conn = connect_db()
     cursor = conn.cursor()
@@ -3993,6 +4938,1443 @@ def dashboard():
     )
 
 
+#############################################
+# PHASE 7 USER MANAGEMENT AND AUDIT LOGS
+#############################################
+
+
+def count_active_super_admins(cursor, exclude_admin_id=None):
+
+    if exclude_admin_id:
+        cursor.execute(
+            """
+            SELECT COUNT(*)
+            FROM admins
+            WHERE role='super_admin'
+              AND active IS TRUE
+              AND id<>%s
+            """,
+            (exclude_admin_id,),
+        )
+    else:
+        cursor.execute(
+            """
+            SELECT COUNT(*)
+            FROM admins
+            WHERE role='super_admin'
+              AND active IS TRUE
+            """
+        )
+
+    return cursor.fetchone()[0]
+
+
+def is_last_active_super_admin(cursor, user):
+
+    return (
+        bool(user)
+        and user.get("role") == "super_admin"
+        and bool(user.get("active"))
+        and count_active_super_admins(cursor, exclude_admin_id=user.get("id")) == 0
+    )
+
+
+def audit_last_super_admin_denied(cursor, conn, user, attempted_action):
+
+    audit_event(
+        "USER_SUPER_ADMIN_PROTECTION_DENIED",
+        "admin",
+        user.get("id") if user else None,
+        f"Blocked {attempted_action} for the last active Super Admin.",
+        conn=conn,
+    )
+    conn.commit()
+
+
+def get_admin_account(cursor, admin_id):
+
+    cursor.execute(
+        """
+        SELECT a.id,
+               a.username,
+               a.role,
+               a.active,
+               a.created_at,
+               a.updated_at,
+               a.last_login,
+               a.employee_id,
+               a.created_by_admin_id,
+               a.activated_by_admin_id,
+               a.deactivated_by_admin_id,
+               a.status_changed_at,
+               e.first_name,
+               e.last_name
+        FROM admins a
+        LEFT JOIN employees e ON a.employee_id = e.id
+        WHERE a.id=%s
+        """,
+        (admin_id,),
+    )
+    return row_to_dict(cursor)
+
+
+def account_display_name(account):
+
+    employee_name = full_employee_name(account) if account else ""
+    return employee_name or clean_text(account.get("username") if account else "")
+
+
+def can_hr_manage_team_leader_account(account):
+
+    return (
+        is_hr_role()
+        and account
+        and effective_role(account.get("role")) == "team_leader"
+        and (
+            account.get("created_by_admin_id") == session.get("admin_id")
+            or account.get("activated_by_admin_id") == session.get("admin_id")
+        )
+    )
+
+
+def can_current_user_manage_account(account):
+
+    if is_super_admin_role():
+        return True
+
+    return can_hr_manage_team_leader_account(account)
+
+
+def audit_hr_account_action_denied(cursor, conn, account, action):
+
+    audit_event(
+        "USER_HR_ACCOUNT_ACTION_DENIED",
+        "admin",
+        account.get("id") if account else None,
+        f"Blocked HR {action}; target account is outside HR account authority.",
+        conn=conn,
+    )
+    conn.commit()
+
+
+def available_user_roles():
+
+    if is_super_admin_role():
+        return ROLE_FORM_LABELS
+
+    if has_permission(session.get("role"), "manage_team_leader_accounts"):
+        return {"team_leader": ROLE_FORM_LABELS["team_leader"]}
+
+    return {}
+
+
+@app.route("/users")
+@any_permission_required("manage_users", "manage_team_leader_accounts")
+def users():
+
+    conn = connect_db()
+    cursor = conn.cursor()
+
+    if is_super_admin_role():
+        cursor.execute(
+            """
+            SELECT a.id,
+                   a.username,
+                   a.role,
+                   a.active,
+                   a.created_at,
+                   a.updated_at,
+                   a.last_login,
+                   a.employee_id,
+                   a.created_by_admin_id,
+                   a.activated_by_admin_id,
+                   e.first_name,
+                   e.last_name
+            FROM admins a
+            LEFT JOIN employees e ON a.employee_id = e.id
+            ORDER BY a.created_at DESC, a.id DESC
+            """
+        )
+    else:
+        cursor.execute(
+            """
+            SELECT a.id,
+                   a.username,
+                   a.role,
+                   a.active,
+                   a.created_at,
+                   a.updated_at,
+                   a.last_login,
+                   a.employee_id,
+                   a.created_by_admin_id,
+                   a.activated_by_admin_id,
+                   e.first_name,
+                   e.last_name
+            FROM admins a
+            LEFT JOIN employees e ON a.employee_id = e.id
+            WHERE a.role='team_leader'
+              AND (
+                  a.created_by_admin_id=%s
+                  OR a.activated_by_admin_id=%s
+              )
+            ORDER BY a.created_at DESC, a.id DESC
+            """,
+            (session.get("admin_id"), session.get("admin_id")),
+        )
+    admin_users = rows_to_dicts(cursor)
+    active_super_admin_count = count_active_super_admins(cursor)
+
+    for admin_user in admin_users:
+        admin_user["display_name"] = account_display_name(admin_user)
+        admin_user["effective_role"] = effective_role(admin_user.get("role"))
+        admin_user["can_manage"] = can_current_user_manage_account(admin_user)
+        admin_user["is_last_active_super_admin"] = (
+            admin_user.get("role") == "super_admin"
+            and bool(admin_user.get("active"))
+            and active_super_admin_count == 1
+        )
+
+    cursor.close()
+    conn.close()
+
+    return render_template("users.html", users=admin_users, can_create_user=bool(available_user_roles()))
+
+
+@app.route("/users/new", methods=["GET", "POST"])
+@any_permission_required("manage_users", "manage_team_leader_accounts")
+def new_user():
+
+    roles = available_user_roles()
+
+    if request.method == "POST":
+        username = clean_text(request.form.get("username"))
+        password = request.form.get("password", "")
+        role = clean_text(request.form.get("role"))
+        active = request.form.get("active") == "on"
+        employee_id = clean_text(request.form.get("employee_id"))
+
+        if not username or not password or role not in roles:
+            flash("Username, password, and a valid role are required.")
+            return render_template(
+                "user_form.html",
+                user=None,
+                roles=roles,
+                employees=get_employees_for_select(),
+            )
+
+        conn = connect_db()
+        cursor = conn.cursor()
+
+        if employee_id:
+            cursor.execute("SELECT 1 FROM employees WHERE id=%s", (employee_id,))
+            if not cursor.fetchone():
+                cursor.close()
+                conn.close()
+                flash("Linked employee not found.")
+                return render_template(
+                    "user_form.html",
+                    user=None,
+                    roles=roles,
+                    employees=get_employees_for_select(),
+                )
+
+        try:
+            cursor.execute(
+                """
+                INSERT INTO admins (
+                    username,
+                    password,
+                    role,
+                    active,
+                    employee_id,
+                    created_by_admin_id,
+                    activated_by_admin_id,
+                    status_changed_at,
+                    created_at,
+                    updated_at
+                )
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)
+                RETURNING id
+                """,
+                (
+                    username,
+                    generate_password_hash(password),
+                    role,
+                    active,
+                    employee_id or None,
+                    session.get("admin_id"),
+                    session.get("admin_id") if active else None,
+                    datetime.now() if active else None,
+                ),
+            )
+            new_admin_id = cursor.fetchone()[0]
+            audit_event(
+                "TEAM_LEADER_ACCOUNT_CREATED" if role == "team_leader" else "USER_CREATED",
+                "admin",
+                new_admin_id,
+                f"Created user {username} with role {role_label(role)}.",
+                conn=conn,
+            )
+            conn.commit()
+            flash("User account created.")
+            return redirect(url_for("users"))
+
+        except psycopg2.IntegrityError:
+            conn.rollback()
+            flash("Username already exists.")
+
+        finally:
+            cursor.close()
+            conn.close()
+
+    return render_template(
+        "user_form.html",
+        user=None,
+        roles=roles,
+        employees=get_employees_for_select(),
+    )
+
+
+@app.route("/users/<int:user_id>/edit", methods=["GET", "POST"])
+@any_permission_required("manage_users", "manage_team_leader_accounts")
+def edit_user(user_id):
+
+    conn = connect_db()
+    cursor = conn.cursor()
+    user = get_admin_account(cursor, user_id)
+
+    if not user:
+        cursor.close()
+        conn.close()
+        flash("User account not found.")
+        return redirect(url_for("users"))
+
+    if not can_current_user_manage_account(user):
+        audit_hr_account_action_denied(cursor, conn, user, "edit")
+        cursor.close()
+        conn.close()
+        flash("You can only manage Team Leader accounts you created or activated.")
+        return redirect(url_for("users"))
+
+    roles = available_user_roles()
+    if user.get("role") not in roles:
+        roles = {user.get("role"): role_label(user.get("role")), **roles}
+
+    if request.method == "POST":
+        role = (
+            clean_text(request.form.get("role"))
+            if is_super_admin_role()
+            else user.get("role")
+        )
+        active = request.form.get("active") == "on"
+        employee_id = clean_text(request.form.get("employee_id"))
+        last_active_super_admin = is_last_active_super_admin(cursor, user)
+
+        if role not in roles and role != user.get("role"):
+            flash("Invalid role selected.")
+            cursor.close()
+            conn.close()
+            return render_template(
+                "user_form.html",
+                user=user,
+                roles=roles,
+                employees=get_employees_for_select(),
+                last_active_super_admin=last_active_super_admin,
+            )
+
+        if last_active_super_admin and (role != "super_admin" or not active):
+            audit_last_super_admin_denied(cursor, conn, user, "role/status change")
+            flash(LAST_SUPER_ADMIN_MESSAGE)
+            cursor.close()
+            conn.close()
+            return render_template(
+                "user_form.html",
+                user=user,
+                roles=roles,
+                employees=get_employees_for_select(),
+                last_active_super_admin=True,
+            )
+
+        if employee_id:
+            cursor.execute("SELECT 1 FROM employees WHERE id=%s", (employee_id,))
+            if not cursor.fetchone():
+                cursor.close()
+                conn.close()
+                flash("Linked employee not found.")
+                return render_template(
+                    "user_form.html",
+                    user=user,
+                    roles=roles,
+                    employees=get_employees_for_select(),
+                    last_active_super_admin=last_active_super_admin,
+                )
+
+        activated_by_admin_id = user.get("activated_by_admin_id")
+        deactivated_by_admin_id = user.get("deactivated_by_admin_id")
+        status_changed_at = user.get("status_changed_at")
+
+        if bool(active) != bool(user.get("active")):
+            status_changed_at = datetime.now()
+            if active:
+                activated_by_admin_id = session.get("admin_id")
+                deactivated_by_admin_id = None
+            else:
+                deactivated_by_admin_id = session.get("admin_id")
+
+        cursor.execute(
+            """
+            UPDATE admins
+            SET role=%s,
+                active=%s,
+                employee_id=%s,
+                activated_by_admin_id=%s,
+                deactivated_by_admin_id=%s,
+                status_changed_at=%s,
+                updated_at=CURRENT_TIMESTAMP
+            WHERE id=%s
+            """,
+            (
+                role,
+                active,
+                employee_id or None,
+                activated_by_admin_id,
+                deactivated_by_admin_id,
+                status_changed_at,
+                user_id,
+            ),
+        )
+        audit_event(
+            "USER_UPDATED",
+            "admin",
+            user_id,
+            f"Updated user {user['username']} to role {role_label(role)}; active={active}.",
+            conn=conn,
+        )
+        conn.commit()
+        cursor.close()
+        conn.close()
+        flash("User account updated.")
+        return redirect(url_for("users"))
+
+    last_active_super_admin = is_last_active_super_admin(cursor, user)
+    cursor.close()
+    conn.close()
+    return render_template(
+        "user_form.html",
+        user=user,
+        roles=roles,
+        employees=get_employees_for_select(),
+        last_active_super_admin=last_active_super_admin,
+    )
+
+
+@app.route("/users/<int:user_id>/password", methods=["GET", "POST"])
+@any_permission_required("manage_users", "manage_team_leader_accounts")
+def reset_user_password(user_id):
+
+    conn = connect_db()
+    cursor = conn.cursor()
+    user = get_admin_account(cursor, user_id)
+
+    if not user:
+        cursor.close()
+        conn.close()
+        flash("User account not found.")
+        return redirect(url_for("users"))
+
+    if not can_current_user_manage_account(user):
+        audit_hr_account_action_denied(cursor, conn, user, "password reset")
+        cursor.close()
+        conn.close()
+        flash("You can only manage Team Leader accounts you created or activated.")
+        return redirect(url_for("users"))
+
+    if request.method == "POST":
+        password = request.form.get("password", "")
+        confirm_password = request.form.get("confirm_password", "")
+
+        if not password or password != confirm_password:
+            flash("Password and confirmation must match.")
+            cursor.close()
+            conn.close()
+            return render_template("user_password.html", user=user)
+
+        cursor.execute(
+            """
+            UPDATE admins
+            SET password=%s,
+                updated_at=CURRENT_TIMESTAMP
+            WHERE id=%s
+            """,
+            (generate_password_hash(password), user_id),
+        )
+        audit_event(
+            "USER_PASSWORD_RESET",
+            "admin",
+            user_id,
+            f"Password reset for user {user['username']}.",
+            conn=conn,
+        )
+        conn.commit()
+        cursor.close()
+        conn.close()
+        flash("Password updated.")
+        return redirect(url_for("users"))
+
+    cursor.close()
+    conn.close()
+    return render_template("user_password.html", user=user)
+
+
+@app.route("/users/<int:user_id>/toggle", methods=["POST"])
+@any_permission_required("manage_users", "manage_team_leader_accounts")
+def toggle_user(user_id):
+
+    conn = connect_db()
+    cursor = conn.cursor()
+    user = get_admin_account(cursor, user_id)
+
+    if not user:
+        cursor.close()
+        conn.close()
+        flash("User account not found.")
+        return redirect(url_for("users"))
+
+    if not can_current_user_manage_account(user):
+        audit_hr_account_action_denied(cursor, conn, user, "status change")
+        cursor.close()
+        conn.close()
+        flash("You can only activate or deactivate Team Leader accounts you created or activated.")
+        return redirect(url_for("users"))
+
+    new_active = not user["active"]
+
+    if user["role"] == "super_admin" and user["active"] and not new_active:
+        if is_last_active_super_admin(cursor, user):
+            audit_last_super_admin_denied(cursor, conn, user, "deactivation")
+            cursor.close()
+            conn.close()
+            flash(LAST_SUPER_ADMIN_MESSAGE)
+            return redirect(url_for("users"))
+
+    cursor.execute(
+        """
+        UPDATE admins
+        SET active=%s,
+            activated_by_admin_id=CASE WHEN %s THEN %s ELSE activated_by_admin_id END,
+            deactivated_by_admin_id=CASE WHEN %s THEN NULL ELSE %s END,
+            status_changed_at=CURRENT_TIMESTAMP,
+            updated_at=CURRENT_TIMESTAMP
+        WHERE id=%s
+        """,
+        (
+            new_active,
+            new_active,
+            session.get("admin_id"),
+            new_active,
+            session.get("admin_id"),
+            user_id,
+        ),
+    )
+    audit_event(
+        "USER_ACTIVATED" if new_active else "USER_DEACTIVATED",
+        "admin",
+        user_id,
+        f"Set user {user['username']} active={new_active}.",
+        conn=conn,
+    )
+    conn.commit()
+    cursor.close()
+    conn.close()
+
+    flash("User account status updated.")
+    return redirect(url_for("users"))
+
+
+#############################################
+# PHASE 7 TEAM MANAGEMENT
+#############################################
+
+
+def get_team_leader_accounts_for_select():
+
+    conn = connect_db()
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        SELECT a.id,
+               a.username,
+               a.employee_id,
+               e.first_name,
+               e.last_name
+        FROM admins a
+        LEFT JOIN employees e ON a.employee_id = e.id
+        WHERE a.role='team_leader'
+          AND a.active IS TRUE
+        ORDER BY e.first_name NULLS LAST, e.last_name NULLS LAST, a.username
+        """
+    )
+    accounts = rows_to_dicts(cursor)
+    cursor.close()
+    conn.close()
+
+    for account in accounts:
+        account["display_name"] = account_display_name(account)
+
+    return accounts
+
+
+def get_team_detail(cursor, team_id):
+
+    cursor.execute(
+        """
+        SELECT t.id,
+               t.name,
+               t.project_id,
+               t.du_id,
+               t.team_leader_admin_id,
+               t.team_leader_employee_id,
+               t.active,
+               t.created_by_admin_id,
+               t.created_at,
+               t.updated_at,
+               p.project_name,
+               p.project_code,
+               a.username AS team_leader_username,
+               ae.first_name AS leader_first_name,
+               ae.last_name AS leader_last_name
+        FROM teams t
+        LEFT JOIN projects p ON t.project_id = p.id
+        LEFT JOIN admins a ON t.team_leader_admin_id = a.id
+        LEFT JOIN employees ae ON COALESCE(t.team_leader_employee_id, a.employee_id) = ae.id
+        WHERE t.id=%s
+        """,
+        (team_id,),
+    )
+    team = row_to_dict(cursor)
+
+    if team:
+        team["leader_name"] = full_employee_name(
+            {
+                "first_name": team.get("leader_first_name"),
+                "last_name": team.get("leader_last_name"),
+            }
+        ) or team.get("team_leader_username")
+
+    return team
+
+
+def collect_team_form_data(cursor):
+
+    name = clean_text(request.form.get("name"))
+    project_id = clean_text(request.form.get("project_id"))
+    du_id = clean_text(request.form.get("du_id"))
+    team_leader_admin_id = clean_text(request.form.get("team_leader_admin_id"))
+    team_leader_employee_id = clean_text(request.form.get("team_leader_employee_id"))
+    active = request.form.get("active") == "on"
+
+    if not name:
+        raise ValueError("Team name is required.")
+
+    if project_id:
+        cursor.execute("SELECT 1 FROM projects WHERE id=%s", (project_id,))
+        if not cursor.fetchone():
+            raise ValueError("Invalid project.")
+
+    if du_id and not duid_exists(cursor, du_id):
+        raise ValueError("Invalid DUID.")
+
+    if team_leader_admin_id:
+        cursor.execute(
+            """
+            SELECT employee_id
+            FROM admins
+            WHERE id=%s
+              AND role='team_leader'
+              AND active IS TRUE
+            """,
+            (team_leader_admin_id,),
+        )
+        account = row_to_dict(cursor)
+
+        if not account:
+            raise ValueError("Invalid Team Leader account.")
+
+        team_leader_employee_id = team_leader_employee_id or account.get("employee_id")
+
+    if team_leader_employee_id:
+        cursor.execute("SELECT 1 FROM employees WHERE id=%s", (team_leader_employee_id,))
+        if not cursor.fetchone():
+            raise ValueError("Invalid Team Leader employee record.")
+
+    return {
+        "name": name,
+        "project_id": project_id or None,
+        "du_id": du_id or None,
+        "team_leader_admin_id": team_leader_admin_id or None,
+        "team_leader_employee_id": team_leader_employee_id or None,
+        "active": active,
+    }
+
+
+@app.route("/teams")
+@permission_required("manage_teams")
+def teams():
+
+    conn = connect_db()
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        SELECT t.id,
+               t.name,
+               t.project_id,
+               t.du_id,
+               t.active,
+               t.created_at,
+               t.updated_at,
+               p.project_name,
+               p.project_code,
+               a.username AS team_leader_username,
+               ae.first_name AS leader_first_name,
+               ae.last_name AS leader_last_name,
+               COUNT(tm.id) FILTER (WHERE tm.active IS TRUE) AS active_members,
+               COUNT(tm.id) AS historical_memberships
+        FROM teams t
+        LEFT JOIN projects p ON t.project_id = p.id
+        LEFT JOIN admins a ON t.team_leader_admin_id = a.id
+        LEFT JOIN employees ae ON COALESCE(t.team_leader_employee_id, a.employee_id) = ae.id
+        LEFT JOIN team_memberships tm ON tm.team_id = t.id
+        GROUP BY t.id, p.project_name, p.project_code, a.username, ae.first_name, ae.last_name
+        ORDER BY t.active DESC, t.updated_at DESC, t.id DESC
+        """
+    )
+    team_rows = rows_to_dicts(cursor)
+    cursor.close()
+    conn.close()
+
+    for team in team_rows:
+        team["leader_name"] = full_employee_name(
+            {
+                "first_name": team.get("leader_first_name"),
+                "last_name": team.get("leader_last_name"),
+            }
+        ) or team.get("team_leader_username")
+
+    return render_template("teams.html", teams=team_rows)
+
+
+@app.route("/teams/new", methods=["GET", "POST"])
+@permission_required("manage_teams")
+def new_team():
+
+    if request.method == "POST":
+        conn = connect_db()
+        cursor = conn.cursor()
+
+        try:
+            team_data = collect_team_form_data(cursor)
+            cursor.execute(
+                """
+                INSERT INTO teams (
+                    name,
+                    project_id,
+                    du_id,
+                    team_leader_admin_id,
+                    team_leader_employee_id,
+                    active,
+                    created_by_admin_id,
+                    updated_at
+                )
+                VALUES (%s,%s,%s,%s,%s,%s,%s,CURRENT_TIMESTAMP)
+                RETURNING id
+                """,
+                (
+                    team_data["name"],
+                    team_data["project_id"],
+                    team_data["du_id"],
+                    team_data["team_leader_admin_id"],
+                    team_data["team_leader_employee_id"],
+                    team_data["active"],
+                    session.get("admin_id"),
+                ),
+            )
+            team_id = cursor.fetchone()[0]
+            audit_event(
+                "TEAM_CREATED",
+                "team",
+                team_id,
+                f"Created team {team_data['name']} for DUID {team_data['du_id'] or '-'}."
+                ,
+                conn=conn,
+            )
+            conn.commit()
+            cursor.close()
+            conn.close()
+            flash("Team created.")
+            return redirect(url_for("team_detail", team_id=team_id))
+        except (ValueError, psycopg2.Error) as exc:
+            conn.rollback()
+            cursor.close()
+            conn.close()
+            flash(str(exc))
+
+    return render_template(
+        "team_form.html",
+        team=None,
+        projects=get_projects_for_select(),
+        duids=get_duids_for_select(),
+        employees=get_employees_for_select(),
+        team_leaders=get_team_leader_accounts_for_select(),
+    )
+
+
+@app.route("/teams/<int:team_id>")
+@permission_required("manage_teams")
+def team_detail(team_id):
+
+    conn = connect_db()
+    cursor = conn.cursor()
+    team = get_team_detail(cursor, team_id)
+
+    if not team:
+        cursor.close()
+        conn.close()
+        return "Team not found"
+
+    cursor.execute(
+        """
+        SELECT tm.id,
+               tm.employee_id,
+               tm.start_at,
+               tm.end_at,
+               tm.active,
+               tm.assigned_by_admin_id,
+               e.first_name,
+               e.last_name,
+               e.position,
+               e.telecom_role,
+               e.assigned_du_id,
+               p.project_name,
+               p.project_code
+        FROM team_memberships tm
+        JOIN employees e ON e.id = tm.employee_id
+        LEFT JOIN projects p ON e.project_id = p.id
+        WHERE tm.team_id=%s
+        ORDER BY tm.active DESC, tm.start_at DESC, tm.id DESC
+        """,
+        (team_id,),
+    )
+    memberships = rows_to_dicts(cursor)
+
+    for membership in memberships:
+        membership["full_name"] = full_employee_name(membership)
+
+    cursor.close()
+    conn.close()
+
+    return render_template(
+        "team_detail.html",
+        team=team,
+        memberships=memberships,
+        employees=get_employees_for_select(),
+    )
+
+
+@app.route("/teams/<int:team_id>/edit", methods=["GET", "POST"])
+@permission_required("manage_teams")
+def edit_team(team_id):
+
+    conn = connect_db()
+    cursor = conn.cursor()
+    team = get_team_detail(cursor, team_id)
+
+    if not team:
+        cursor.close()
+        conn.close()
+        return "Team not found"
+
+    if request.method == "POST":
+        try:
+            team_data = collect_team_form_data(cursor)
+            cursor.execute(
+                """
+                UPDATE teams
+                SET name=%s,
+                    project_id=%s,
+                    du_id=%s,
+                    team_leader_admin_id=%s,
+                    team_leader_employee_id=%s,
+                    active=%s,
+                    updated_at=CURRENT_TIMESTAMP
+                WHERE id=%s
+                """,
+                (
+                    team_data["name"],
+                    team_data["project_id"],
+                    team_data["du_id"],
+                    team_data["team_leader_admin_id"],
+                    team_data["team_leader_employee_id"],
+                    team_data["active"],
+                    team_id,
+                ),
+            )
+            audit_event(
+                "TEAM_UPDATED",
+                "team",
+                team_id,
+                f"Updated team {team_data['name']} for DUID {team_data['du_id'] or '-'}."
+                ,
+                conn=conn,
+            )
+            conn.commit()
+            cursor.close()
+            conn.close()
+            flash("Team updated.")
+            return redirect(url_for("team_detail", team_id=team_id))
+        except (ValueError, psycopg2.Error) as exc:
+            conn.rollback()
+            cursor.close()
+            conn.close()
+            flash(str(exc))
+            return redirect(url_for("edit_team", team_id=team_id))
+
+    cursor.close()
+    conn.close()
+
+    return render_template(
+        "team_form.html",
+        team=team,
+        projects=get_projects_for_select(),
+        duids=get_duids_for_select(),
+        employees=get_employees_for_select(),
+        team_leaders=get_team_leader_accounts_for_select(),
+    )
+
+
+@app.route("/teams/<int:team_id>/members/add", methods=["POST"])
+@permission_required("transfer_team_members")
+def add_team_member(team_id):
+
+    employee_id = clean_text(request.form.get("employee_id"))
+
+    conn = connect_db()
+    cursor = conn.cursor()
+    team = get_team_detail(cursor, team_id)
+
+    if not team:
+        cursor.close()
+        conn.close()
+        return "Team not found"
+
+    employee = get_employee_detail(cursor, employee_id)
+
+    if not employee:
+        cursor.close()
+        conn.close()
+        return "Employee not found"
+
+    cursor.execute(
+        """
+        SELECT tm.id,
+               tm.team_id,
+               t.name
+        FROM team_memberships tm
+        JOIN teams t ON t.id = tm.team_id
+        WHERE tm.employee_id=%s
+          AND tm.active IS TRUE
+        LIMIT 1
+        """,
+        (employee_id,),
+    )
+    existing_membership = row_to_dict(cursor)
+    was_transfer = bool(existing_membership and existing_membership["team_id"] != team_id)
+
+    try:
+        cursor.execute(
+            """
+            UPDATE team_memberships
+            SET active=FALSE,
+                end_at=CURRENT_TIMESTAMP,
+                updated_at=CURRENT_TIMESTAMP
+            WHERE employee_id=%s
+              AND active IS TRUE
+            """,
+            (employee_id,),
+        )
+        cursor.execute(
+            """
+            INSERT INTO team_memberships (
+                team_id,
+                employee_id,
+                start_at,
+                active,
+                assigned_by_admin_id,
+                updated_at
+            )
+            VALUES (%s,%s,CURRENT_TIMESTAMP,TRUE,%s,CURRENT_TIMESTAMP)
+            """,
+            (team_id, employee_id, session.get("admin_id")),
+        )
+
+        if team.get("du_id"):
+            cursor.execute(
+                """
+                UPDATE employees
+                SET assigned_du_id=%s
+                WHERE id=%s
+                """,
+                (team["du_id"], employee_id),
+            )
+            sync_site_assignment(
+                cursor,
+                team.get("project_id") or employee.get("project_id"),
+                employee_id,
+                team["du_id"],
+                employee.get("telecom_role") or employee.get("position"),
+            )
+
+        audit_event(
+            "TEAM_MEMBER_TRANSFERRED" if was_transfer else "TEAM_MEMBER_ADDED",
+            "employee",
+            employee_id,
+            (
+                f"Moved employee {employee_id} from team {existing_membership['team_id']} "
+                f"to team {team_id}."
+                if was_transfer
+                else f"Added employee {employee_id} to team {team_id}."
+            ),
+            conn=conn,
+        )
+        conn.commit()
+    except psycopg2.Error as exc:
+        conn.rollback()
+        cursor.close()
+        conn.close()
+        flash(str(exc))
+        return redirect(url_for("team_detail", team_id=team_id))
+
+    cursor.close()
+    conn.close()
+    flash("Team membership updated.")
+    return redirect(url_for("team_detail", team_id=team_id))
+
+
+@app.route("/team_memberships/<int:membership_id>/end", methods=["POST"])
+@permission_required("transfer_team_members")
+def end_team_membership(membership_id):
+
+    conn = connect_db()
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        SELECT team_id,
+               employee_id,
+               active
+        FROM team_memberships
+        WHERE id=%s
+        """,
+        (membership_id,),
+    )
+    membership = row_to_dict(cursor)
+
+    if not membership:
+        cursor.close()
+        conn.close()
+        return "Membership not found"
+
+    cursor.execute(
+        """
+        UPDATE team_memberships
+        SET active=FALSE,
+            end_at=COALESCE(end_at, CURRENT_TIMESTAMP),
+            updated_at=CURRENT_TIMESTAMP
+        WHERE id=%s
+        """,
+        (membership_id,),
+    )
+    audit_event(
+        "TEAM_MEMBER_ENDED",
+        "team_membership",
+        membership_id,
+        f"Ended team membership for employee {membership['employee_id']}.",
+        conn=conn,
+    )
+    conn.commit()
+    cursor.close()
+    conn.close()
+    flash("Team membership ended.")
+    return redirect(url_for("team_detail", team_id=membership["team_id"]))
+
+
+def find_generated_id_cards_for_employee(employee_id):
+
+    cards = []
+
+    if not os.path.isdir(EXCEL_DIR):
+        return cards
+
+    for filename in os.listdir(EXCEL_DIR):
+        if not filename.lower().endswith(".xlsx"):
+            continue
+
+        workbook_path = os.path.join(EXCEL_DIR, filename)
+
+        try:
+            wb = load_workbook(workbook_path, data_only=True, read_only=False)
+        except Exception:
+            continue
+
+        if "ID" not in wb.sheetnames:
+            continue
+
+        ws = wb["ID"]
+
+        for row in ws.iter_rows(min_row=2, values_only=True):
+            id_number = clean_text(row[1] if len(row) > 1 else "")
+            row_employee_id = row[4] if len(row) > 4 else None
+
+            if not id_number or clean_text(row_employee_id) != clean_text(employee_id):
+                continue
+
+            safe_id = secure_filename(id_number)
+            front_path = os.path.join(ID_CARD_DIR, safe_id + "_front.png")
+            back_path = os.path.join(ID_CARD_DIR, safe_id + "_back.png")
+
+            if os.path.exists(front_path) and os.path.exists(back_path):
+                cards.append(
+                    {
+                        "id_number": id_number,
+                        "expiry": row[2] if len(row) > 2 else "",
+                        "print_url": url_for("print_id", id_number=safe_id),
+                        "front_url": url_for("id_cards", filename=safe_id + "_front.png"),
+                        "back_url": url_for("id_cards", filename=safe_id + "_back.png"),
+                    }
+                )
+
+    return cards
+
+
+def employee_id_for_id_card_number(id_number):
+
+    clean_id_number = clean_text(id_number)
+
+    if not clean_id_number or not os.path.isdir(EXCEL_DIR):
+        return None
+
+    for filename in os.listdir(EXCEL_DIR):
+        if not filename.lower().endswith(".xlsx"):
+            continue
+
+        workbook_path = os.path.join(EXCEL_DIR, filename)
+
+        try:
+            wb = load_workbook(workbook_path, data_only=True, read_only=False)
+        except Exception:
+            continue
+
+        if "ID" not in wb.sheetnames:
+            continue
+
+        ws = wb["ID"]
+
+        for row in ws.iter_rows(min_row=2, values_only=True):
+            row_id_number = clean_text(row[1] if len(row) > 1 else "")
+            row_employee_id = row[4] if len(row) > 4 else None
+
+            if row_id_number == clean_id_number and row_employee_id:
+                return row_employee_id
+
+    return None
+
+
+def enforce_team_leader_id_card_scope(id_number):
+
+    if not is_team_leader_role():
+        return None
+
+    employee_id = employee_id_for_id_card_number(id_number)
+
+    if not employee_id:
+        audit_event(
+            "TEAM_SCOPE_ACCESS_DENIED",
+            "id_card",
+            id_number,
+            "Denied Team Leader access to unknown ID card.",
+        )
+        return access_denied("This ID card is outside your current team scope.")
+
+    conn = connect_db()
+    cursor = conn.cursor()
+    denied = enforce_team_leader_employee_scope(cursor, conn, employee_id)
+    cursor.close()
+    conn.close()
+    return denied
+
+
+@app.route("/team_leader")
+@permission_required("team_leader_portal")
+def team_leader_dashboard():
+
+    conn = connect_db()
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        SELECT t.id,
+               t.name,
+               t.project_id,
+               t.du_id,
+               t.active,
+               p.project_name,
+               p.project_code,
+               COALESCE(g.site_name, g.sitename, g.du_name, pr.du_name) AS display_site_name,
+               ts.current_stage,
+               ts.overall_progress,
+               ts.overall_status,
+               ts.pat_status
+        FROM teams t
+        LEFT JOIN projects p ON t.project_id = p.id
+        LEFT JOIN globe_nlz g ON g.du_id = t.du_id
+        LEFT JOIN planning_reference pr ON pr.du_id = t.du_id
+        LEFT JOIN telecom_sites ts ON ts.du_id = t.du_id
+        WHERE t.active IS TRUE
+          AND t.team_leader_admin_id=%s
+        ORDER BY t.name, t.id
+        """,
+        (session.get("admin_id"),),
+    )
+    teams_data = rows_to_dicts(cursor)
+    team_ids = [team["id"] for team in teams_data]
+    duids = [team["du_id"] for team in teams_data if team.get("du_id")]
+
+    if team_ids:
+        cursor.execute(
+            """
+            SELECT e.id,
+                   e.project_id,
+                   e.first_name,
+                   e.last_name,
+                   e.position,
+                   e.telecom_role,
+                   e.assigned_du_id,
+                   e.photo,
+                   e.nbi,
+                   e.wah_file,
+                   e.first_aid_file,
+                   e.nbi_expiry_date,
+                   e.wah_expiry_date,
+                   e.first_aid_expiry_date,
+                   tm.team_id,
+                   p.project_name,
+                   p.project_code
+            FROM team_memberships tm
+            JOIN employees e ON e.id = tm.employee_id
+            LEFT JOIN projects p ON e.project_id = p.id
+            WHERE tm.active IS TRUE
+              AND tm.team_id = ANY(%s)
+            ORDER BY e.first_name, e.last_name, e.id
+            """,
+            (team_ids,),
+        )
+        members = rows_to_dicts(cursor)
+    else:
+        members = []
+
+    for member in members:
+        member["full_name"] = full_employee_name(member)
+        member.update(safety_summary_from_employee(member))
+        member["id_cards"] = find_generated_id_cards_for_employee(member["id"])
+
+    today = date.today()
+
+    if duids:
+        cursor.execute(
+            """
+            SELECT COUNT(*) AS open_tasks
+            FROM telecom_tasks
+            WHERE du_id = ANY(%s)
+              AND status NOT IN ('COMPLETED','CLOSED','CANCELLED')
+            """,
+            (duids,),
+        )
+        open_tasks = cursor.fetchone()[0]
+        cursor.execute(
+            """
+            SELECT COUNT(*) AS open_incidents
+            FROM incident_reports
+            WHERE du_id = ANY(%s)
+              AND status NOT IN ('CLOSED','RESOLVED','CANCELLED')
+            """,
+            (duids,),
+        )
+        open_incidents = cursor.fetchone()[0]
+        cursor.execute(
+            """
+            SELECT COUNT(*) AS open_punchlists
+            FROM punchlist_items
+            WHERE duid = ANY(%s)
+              AND status <> 'CLOSED'
+            """,
+            (duids,),
+        )
+        open_punchlists = cursor.fetchone()[0]
+        cursor.execute(
+            """
+            SELECT COUNT(*) AS reports_today
+            FROM daily_site_logs
+            WHERE duid = ANY(%s)
+              AND report_date=%s
+            """,
+            (duids, today),
+        )
+        reports_today = cursor.fetchone()[0]
+        cursor.execute(
+            """
+            SELECT COUNT(*) FILTER (WHERE da.attendance_status IN ('Present','Late')) AS present_today
+            FROM daily_attendance da
+            JOIN daily_site_logs dsl ON dsl.id = da.daily_log_id
+            WHERE dsl.duid = ANY(%s)
+              AND dsl.report_date=%s
+            """,
+            (duids, today),
+        )
+        present_today = cursor.fetchone()[0] or 0
+    else:
+        open_tasks = 0
+        open_incidents = 0
+        open_punchlists = 0
+        reports_today = 0
+        present_today = 0
+
+    cursor.close()
+    conn.close()
+
+    return render_template(
+        "team_leader_dashboard.html",
+        teams=teams_data,
+        members=members,
+        summary={
+            "team_members": len(members),
+            "present_today": present_today,
+            "reports_today": reports_today,
+            "open_tasks": open_tasks,
+            "open_incidents": open_incidents,
+            "open_punchlists": open_punchlists,
+        },
+    )
+
+
+@app.route("/team_leader/members/<int:employee_id>")
+@permission_required("view_team")
+def team_member_detail(employee_id):
+
+    conn = connect_db()
+    cursor = conn.cursor()
+    denied = enforce_team_leader_employee_scope(cursor, conn, employee_id)
+
+    if denied:
+        cursor.close()
+        conn.close()
+        return denied
+
+    employee = get_employee_detail(cursor, employee_id)
+
+    if not employee:
+        cursor.close()
+        conn.close()
+        return "Employee not found"
+
+    current_documents, document_history = get_employee_safety_documents(cursor, employee)
+    employee.update(safety_summary_from_document_records(current_documents))
+
+    cursor.execute(
+        """
+        SELECT dsl.id AS daily_log_id,
+               dsl.duid,
+               dsl.report_date,
+               dsl.current_stage,
+               da.attendance_status,
+               da.time_in,
+               da.time_out,
+               da.role_at_site,
+               da.safety_status_snapshot
+        FROM daily_attendance da
+        JOIN daily_site_logs dsl ON da.daily_log_id = dsl.id
+        WHERE da.employee_id=%s
+        ORDER BY dsl.report_date DESC, dsl.created_at DESC, dsl.id DESC
+        LIMIT 10
+        """,
+        (employee_id,),
+    )
+    recent_attendance = rows_to_dicts(cursor)
+    id_cards_data = find_generated_id_cards_for_employee(employee_id)
+    cursor.close()
+    conn.close()
+
+    return render_template(
+        "team_member_detail.html",
+        emp=employee,
+        current_documents=current_documents,
+        recent_attendance=recent_attendance,
+        id_cards=id_cards_data,
+    )
+
+
+@app.route("/audit_logs")
+@permission_required("view_audit_logs")
+def audit_logs():
+
+    filters = {
+        "username": clean_text(request.args.get("username")),
+        "action": clean_text(request.args.get("action")),
+        "entity_type": clean_text(request.args.get("entity_type")),
+        "date_from": clean_text(request.args.get("date_from")),
+        "date_to": clean_text(request.args.get("date_to")),
+    }
+    clauses = []
+    values = []
+
+    if filters["username"]:
+        clauses.append("username_snapshot ILIKE %s")
+        values.append(f"%{filters['username']}%")
+
+    if filters["action"]:
+        clauses.append("action ILIKE %s")
+        values.append(f"%{filters['action']}%")
+
+    if filters["entity_type"]:
+        clauses.append("entity_type ILIKE %s")
+        values.append(f"%{filters['entity_type']}%")
+
+    if filters["date_from"]:
+        clauses.append("created_at::date >= %s")
+        values.append(filters["date_from"])
+
+    if filters["date_to"]:
+        clauses.append("created_at::date <= %s")
+        values.append(filters["date_to"])
+
+    where_sql = "WHERE " + " AND ".join(clauses) if clauses else ""
+
+    conn = connect_db()
+    cursor = conn.cursor()
+    cursor.execute(
+        f"""
+        SELECT id, username_snapshot, role_snapshot, action, entity_type,
+               entity_id, description, ip_address, http_method, route, created_at
+        FROM audit_logs
+        {where_sql}
+        ORDER BY created_at DESC, id DESC
+        LIMIT 300
+        """,
+        values,
+    )
+    logs = rows_to_dicts(cursor)
+    cursor.close()
+    conn.close()
+
+    return render_template("audit_logs.html", logs=logs, filters=filters)
+
+
 @app.route("/search", methods=["GET", "POST"])
 @login_required
 def search():
@@ -4046,6 +6428,8 @@ def search():
     if filters["role"]:
         conditions.append("(e.telecom_role ILIKE %s OR e.position ILIKE %s)")
         params.extend(["%" + filters["role"] + "%", "%" + filters["role"] + "%"])
+
+    add_team_leader_employee_scope(cursor, conditions, params, "e.id")
 
     cursor.execute(
         f"""
@@ -4144,7 +6528,7 @@ def search():
 
 
 @app.route("/edit_employee/<emp_id>", methods=["GET", "POST"])
-@login_required
+@permission_required("manage_personnel")
 def edit_employee(emp_id):
 
     conn = connect_db()
@@ -4421,6 +6805,13 @@ def edit_employee(emp_id):
         sync_site_assignment(
             cursor, emp["project_id"], emp_id, assigned_du_id, telecom_role
         )
+        audit_event(
+            "EMPLOYEE_UPDATED",
+            "employee",
+            emp_id,
+            f"Updated employee {first_name} {last_name}.",
+            conn=conn,
+        )
 
         conn.commit()
 
@@ -4473,7 +6864,7 @@ def edit_employee(emp_id):
 
 
 @app.route("/create_project", methods=["GET", "POST"])
-@admin_required
+@permission_required("manage_projects")
 def create_project():
 
     if request.method == "POST":
@@ -4500,6 +6891,13 @@ def create_project():
             VALUES(%s,%s,%s,%s)
             """,
             (project_name, region, company, project_code),
+        )
+        audit_event(
+            "PROJECT_CREATED",
+            "project",
+            project_code,
+            f"Created project {project_name}.",
+            conn=conn,
         )
 
         conn.commit()
@@ -4936,7 +7334,7 @@ def form(code):
 
 
 @app.route("/open_excel/<code>")
-@login_required
+@permission_required("view_project_workbooks")
 def open_excel(code):
 
     conn = connect_db()
@@ -4968,13 +7366,20 @@ def open_excel(code):
 
 
 @app.route("/delete_project/<code>", methods=["POST"])
-@admin_required
+@permission_required("delete_projects")
 def delete_project(code):
 
     conn = connect_db()
     cursor = conn.cursor()
 
     cursor.execute("DELETE FROM projects WHERE project_code=%s", (code,))
+    audit_event(
+        "PROJECT_DELETED",
+        "project",
+        code,
+        f"Deleted project {code}.",
+        conn=conn,
+    )
 
     conn.commit()
 
@@ -4993,6 +7398,16 @@ def delete_project(code):
 @login_required
 def photos(filename):
 
+    safe_filename = secure_filename(filename)
+
+    if safe_filename != filename:
+        return "Invalid upload filename"
+
+    denied = authorize_stored_file_access("uploads/photos/" + filename)
+
+    if denied:
+        return denied
+
     return send_from_directory(safe_abs_path("uploads", "photos"), filename)
 
 
@@ -5004,6 +7419,9 @@ def photos(filename):
 @app.route("/id_generator")
 @login_required
 def id_generator():
+
+    if not can("generate_ids"):
+        return access_denied("Team Leaders can view existing team ID cards, but cannot generate new ID cards.")
 
     conn = connect_db()
     cursor = conn.cursor()
@@ -5049,6 +7467,16 @@ def uploaded_file(folder, filename):
     if folder not in {"photos", "nbi", "certificates", "signatures", "secid", "wah"}:
         return "Invalid upload folder"
 
+    safe_filename = secure_filename(filename)
+
+    if safe_filename != filename:
+        return "Invalid upload filename"
+
+    denied = authorize_stored_file_access("uploads/" + folder + "/" + filename)
+
+    if denied:
+        return denied
+
     return send_from_directory(safe_abs_path("uploads", folder), filename)
 
 
@@ -5064,6 +7492,13 @@ def employee_dossier(employee_id):
         cursor.close()
         conn.close()
         return "Employee not found"
+
+    denied = enforce_team_leader_employee_scope(cursor, conn, employee_id)
+
+    if denied:
+        cursor.close()
+        conn.close()
+        return denied
 
     site = None
     if employee.get("assigned_du_id"):
@@ -5157,6 +7592,16 @@ def employee_file(employee_id, file_kind):
     if not employee:
         return "Employee not found"
 
+    if is_team_leader_role():
+        conn = connect_db()
+        cursor = conn.cursor()
+        denied = enforce_team_leader_employee_scope(cursor, conn, employee_id)
+        cursor.close()
+        conn.close()
+
+        if denied:
+            return denied
+
     rel_path = employee_file_rel_path(employee, file_kind)
 
     if not rel_path:
@@ -5173,13 +7618,23 @@ def safety_document_file(document_id):
     cursor = conn.cursor()
     cursor.execute(
         """
-        SELECT file_path
+        SELECT employee_id,
+               file_path
         FROM safety_documents
         WHERE id=%s
         """,
         (document_id,),
     )
     document = row_to_dict(cursor)
+
+    if document:
+        denied = enforce_team_leader_employee_scope(cursor, conn, document["employee_id"])
+
+        if denied:
+            cursor.close()
+            conn.close()
+            return denied
+
     cursor.close()
     conn.close()
 
@@ -5211,6 +7666,8 @@ def safety_compliance():
     if filters["du_id"]:
         conditions.append("e.assigned_du_id=%s")
         params.append(filters["du_id"])
+
+    add_team_leader_employee_scope(cursor, conditions, params, "e.id")
 
     cursor.execute(
         f"""
@@ -5276,10 +7733,10 @@ def safety_documents():
     cursor = conn.cursor()
 
     if request.method == "POST":
-        if session.get("role") != "admin":
+        if not can("manage_safety"):
             cursor.close()
             conn.close()
-            return "Access Denied"
+            return access_denied()
 
         employee_id = clean_text(request.form.get("employee_id"))
         project_id = clean_text(request.form.get("project_id"))
@@ -5408,6 +7865,13 @@ def safety_documents():
 
             update_master_tracker_safety(updated_employee)
 
+        audit_event(
+            "SAFETY_DOCUMENT_CHANGED",
+            "employee",
+            employee_id,
+            f"Updated {document_type} safety document.",
+            conn=conn,
+        )
         conn.commit()
         cursor.close()
         conn.close()
@@ -5431,6 +7895,8 @@ def safety_documents():
     if filters["document_type"]:
         conditions.append("sd.document_type=%s")
         params.append(filters["document_type"])
+
+    add_team_leader_employee_scope(cursor, conditions, params, "sd.employee_id")
 
     cursor.execute(
         f"""
@@ -5568,6 +8034,8 @@ def sites():
         )
         params.extend([filters["project_id"], filters["project_id"]])
 
+    add_team_leader_duid_scope(cursor, conditions, params, "d.du_id")
+
     cursor.execute(
         f"""
         {SITE_REFERENCE_CTE}
@@ -5659,7 +8127,7 @@ def sites():
 
 
 @app.route("/sites/new", methods=["GET", "POST"])
-@admin_required
+@permission_required("manage_sites")
 def new_site():
 
     conn = connect_db()
@@ -5689,6 +8157,13 @@ def new_site():
             return "Operational site already exists for this DUID"
 
         save_site_operational_record(cursor, site_data)
+        audit_event(
+            "SITE_CREATED",
+            "telecom_site",
+            site_data["du_id"],
+            f"Created operational site {site_data['du_id']}.",
+            conn=conn,
+        )
         conn.commit()
         cursor.close()
         conn.close()
@@ -5725,6 +8200,13 @@ def site_detail(du_id):
         cursor.close()
         conn.close()
         return "Site not found"
+
+    denied = enforce_team_leader_site_scope(cursor, conn, du_id)
+
+    if denied:
+        cursor.close()
+        conn.close()
+        return denied
 
     cursor.execute(
         """
@@ -5952,7 +8434,7 @@ def site_detail(du_id):
 
 
 @app.route("/sites/<path:du_id>/edit", methods=["GET", "POST"])
-@admin_required
+@permission_required("manage_sites")
 def edit_site(du_id):
 
     du_id = validate_duid_value(du_id)
@@ -5965,6 +8447,13 @@ def edit_site(du_id):
         conn.close()
         return "Site not found"
 
+    denied = enforce_team_leader_site_scope(cursor, conn, du_id)
+
+    if denied:
+        cursor.close()
+        conn.close()
+        return denied
+
     if request.method == "POST":
         try:
             site_data = collect_site_form_data(cursor, du_id)
@@ -5974,6 +8463,13 @@ def edit_site(du_id):
             return str(exc)
 
         save_site_operational_record(cursor, site_data)
+        audit_event(
+            "SITE_UPDATED",
+            "telecom_site",
+            du_id,
+            f"Updated operational site {du_id}.",
+            conn=conn,
+        )
         conn.commit()
         cursor.close()
         conn.close()
@@ -6024,6 +8520,7 @@ def daily_operations():
 
     conn = connect_db()
     cursor = conn.cursor()
+    add_team_leader_duid_scope(cursor, conditions, params, "dsl.duid")
     cursor.execute(
         f"""
         {SITE_REFERENCE_CTE}
@@ -6108,6 +8605,7 @@ def daily_operations_export():
 
     conn = connect_db()
     cursor = conn.cursor()
+    add_team_leader_duid_scope(cursor, conditions, params, "dsl.duid")
     cursor.execute(
         f"""
         {SITE_REFERENCE_CTE}
@@ -6197,7 +8695,7 @@ def daily_operations_export():
 
 
 @app.route("/sites/<path:du_id>/daily_logs/new", methods=["GET", "POST"])
-@admin_required
+@permission_required("manage_operations")
 def new_daily_log(du_id):
 
     du_id = validate_duid_value(du_id)
@@ -6209,6 +8707,13 @@ def new_daily_log(du_id):
         cursor.close()
         conn.close()
         return "Site not found"
+
+    denied = enforce_team_leader_site_scope(cursor, conn, du_id)
+
+    if denied:
+        cursor.close()
+        conn.close()
+        return denied
 
     if request.method == "POST":
         try:
@@ -6290,6 +8795,13 @@ def new_daily_log(du_id):
             )
             apply_daily_site_progress(cursor, log_data)
             sync_daily_log_to_project_workbook(cursor, daily_log_id)
+            audit_event(
+                "DAILY_REPORT_CREATED",
+                "daily_site_log",
+                daily_log_id,
+                f"Created daily report for {du_id} on {log_data['report_date']}.",
+                conn=conn,
+            )
             conn.commit()
         except (ValueError, psycopg2.Error) as exc:
             conn.rollback()
@@ -6365,6 +8877,13 @@ def daily_log_detail(log_id):
         conn.close()
         return "Daily report not found"
 
+    denied = enforce_team_leader_site_scope(cursor, conn, log["duid"])
+
+    if denied:
+        cursor.close()
+        conn.close()
+        return denied
+
     site = get_site_by_duid(cursor, log["duid"])
 
     cursor.execute(
@@ -6428,7 +8947,7 @@ def daily_log_detail(log_id):
 
 
 @app.route("/daily_logs/<int:log_id>/edit", methods=["GET", "POST"])
-@admin_required
+@permission_required("manage_operations")
 def edit_daily_log(log_id):
 
     conn = connect_db()
@@ -6447,6 +8966,13 @@ def edit_daily_log(log_id):
         cursor.close()
         conn.close()
         return "Daily report not found"
+
+    denied = enforce_team_leader_site_scope(cursor, conn, log["duid"])
+
+    if denied:
+        cursor.close()
+        conn.close()
+        return denied
 
     site = get_site_by_duid(cursor, log["duid"])
 
@@ -6527,6 +9053,13 @@ def edit_daily_log(log_id):
             )
             apply_daily_site_progress(cursor, log_data)
             sync_daily_log_to_project_workbook(cursor, log_id)
+            audit_event(
+                "DAILY_REPORT_UPDATED",
+                "daily_site_log",
+                log_id,
+                f"Updated daily report for {log['duid']} on {log_data['report_date']}.",
+                conn=conn,
+            )
             conn.commit()
         except (ValueError, psycopg2.Error) as exc:
             conn.rollback()
@@ -6586,13 +9119,24 @@ def daily_log_file(file_id):
     cursor = conn.cursor()
     cursor.execute(
         """
-        SELECT file_path
-        FROM daily_log_files
-        WHERE id=%s
+        SELECT dlf.file_path,
+               dsl.duid
+        FROM daily_log_files dlf
+        JOIN daily_site_logs dsl ON dsl.id = dlf.daily_log_id
+        WHERE dlf.id=%s
         """,
         (file_id,),
     )
     file_record = row_to_dict(cursor)
+
+    if file_record:
+        denied = enforce_team_leader_site_scope(cursor, conn, file_record["duid"])
+
+        if denied:
+            cursor.close()
+            conn.close()
+            return denied
+
     cursor.close()
     conn.close()
 
@@ -6611,14 +9155,17 @@ def daily_log_file(file_id):
 @login_required
 def site_assignments():
 
+    if not can("manage_assignments"):
+        return access_denied()
+
     conn = connect_db()
     cursor = conn.cursor()
 
     if request.method == "POST":
-        if session.get("role") != "admin":
+        if not can("manage_assignments"):
             cursor.close()
             conn.close()
-            return "Access Denied"
+            return access_denied()
 
         project_id = clean_text(request.form.get("project_id"))
         employee_id = clean_text(request.form.get("employee_id"))
@@ -6727,6 +9274,13 @@ def site_assignments():
                 (du_id, role, employee_id),
             )
 
+        audit_event(
+            "SITE_ASSIGNMENT_CHANGED",
+            "employee",
+            employee_id,
+            f"Assigned employee {employee_id} to {du_id}.",
+            conn=conn,
+        )
         conn.commit()
         cursor.close()
         conn.close()
@@ -6778,10 +9332,10 @@ def telecom_tasks():
     cursor = conn.cursor()
 
     if request.method == "POST":
-        if session.get("role") != "admin":
+        if not can("manage_tasks"):
             cursor.close()
             conn.close()
-            return "Access Denied"
+            return access_denied()
 
         project_id = clean_text(request.form.get("project_id"))
         return_to = safe_return_path(request.form.get("return_to"), "/telecom_tasks")
@@ -6793,11 +9347,26 @@ def telecom_tasks():
             conn.close()
             return str(exc)
 
+        denied = enforce_team_leader_site_scope(cursor, conn, du_id)
+
+        if denied:
+            cursor.close()
+            conn.close()
+            return denied
+
         task_type = clean_text(request.form.get("task_type"))
         description = clean_text(request.form.get("description"))
         priority = clean_text(request.form.get("priority")) or "MEDIUM"
         assigned_employee_id = clean_text(request.form.get("assigned_employee_id"))
         status = clean_text(request.form.get("status")) or "PENDING"
+
+        if assigned_employee_id:
+            denied = enforce_team_leader_employee_scope(cursor, conn, assigned_employee_id)
+
+            if denied:
+                cursor.close()
+                conn.close()
+                return denied
 
         try:
             planned_date = validate_date_field(request.form.get("planned_date"), "Planned date")
@@ -6859,6 +9428,13 @@ def telecom_tasks():
                 status,
             ),
         )
+        audit_event(
+            "TELECOM_TASK_CREATED",
+            "telecom_task",
+            du_id,
+            f"Created {task_type} task for {du_id}.",
+            conn=conn,
+        )
         conn.commit()
         cursor.close()
         conn.close()
@@ -6885,6 +9461,8 @@ def telecom_tasks():
     if filters["employee_id"]:
         conditions.append("t.assigned_employee_id=%s")
         params.append(filters["employee_id"])
+
+    add_team_leader_duid_scope(cursor, conditions, params, "t.du_id")
 
     cursor.execute(
         f"""
@@ -6933,8 +9511,8 @@ def telecom_tasks():
 @login_required
 def update_telecom_task_status(task_id):
 
-    if session.get("role") != "admin":
-        return "Access Denied"
+    if not can("manage_tasks"):
+        return access_denied()
 
     status = clean_text(request.form.get("status"))
     return_to = safe_return_path(request.form.get("return_to"), "/telecom_tasks")
@@ -6952,6 +9530,29 @@ def update_telecom_task_status(task_id):
 
     conn = connect_db()
     cursor = conn.cursor()
+    cursor.execute("SELECT du_id, assigned_employee_id FROM telecom_tasks WHERE id=%s", (task_id,))
+    task = row_to_dict(cursor)
+
+    if not task:
+        cursor.close()
+        conn.close()
+        return "Telecom task not found"
+
+    denied = enforce_team_leader_site_scope(cursor, conn, task["du_id"])
+
+    if denied:
+        cursor.close()
+        conn.close()
+        return denied
+
+    if task.get("assigned_employee_id"):
+        denied = enforce_team_leader_employee_scope(cursor, conn, task["assigned_employee_id"])
+
+        if denied:
+            cursor.close()
+            conn.close()
+            return denied
+
     cursor.execute(
         """
         UPDATE telecom_tasks
@@ -6961,6 +9562,13 @@ def update_telecom_task_status(task_id):
         WHERE id=%s
         """,
         (status, completed_date, task_id),
+    )
+    audit_event(
+        "TELECOM_TASK_STATUS_UPDATED",
+        "telecom_task",
+        task_id,
+        f"Updated telecom task status to {status}.",
+        conn=conn,
     )
     conn.commit()
     cursor.close()
@@ -6981,6 +9589,11 @@ def permits():
     cursor = conn.cursor()
 
     if request.method == "POST":
+        if not can("manage_permits"):
+            cursor.close()
+            conn.close()
+            return access_denied()
+
         permit_number = clean_text(request.form.get("permit_number"))
         project_id = clean_text(request.form.get("project_id"))
         try:
@@ -7051,6 +9664,13 @@ def permits():
                 notes,
             ),
         )
+        audit_event(
+            "PERMIT_CREATED",
+            "permit_to_work",
+            permit_number,
+            f"Created permit {permit_number} for {du_id}.",
+            conn=conn,
+        )
         conn.commit()
         cursor.close()
         conn.close()
@@ -7073,6 +9693,8 @@ def permits():
     if filters["status"]:
         conditions.append("ptw.status=%s")
         params.append(filters["status"])
+
+    add_team_leader_duid_scope(cursor, conditions, params, "ptw.du_id")
 
     cursor.execute(
         f"""
@@ -7116,6 +9738,9 @@ def permits():
 @login_required
 def update_permit_status(permit_id):
 
+    if not can("manage_permits"):
+        return access_denied()
+
     status = clean_text(request.form.get("status"))
 
     if status not in PERMIT_STATUSES:
@@ -7130,6 +9755,13 @@ def update_permit_status(permit_id):
         WHERE id=%s
         """,
         (status, permit_id),
+    )
+    audit_event(
+        "PERMIT_STATUS_UPDATED",
+        "permit_to_work",
+        permit_id,
+        f"Updated permit status to {status}.",
+        conn=conn,
     )
     conn.commit()
     cursor.close()
@@ -7150,6 +9782,11 @@ def toolbox_talks():
     cursor = conn.cursor()
 
     if request.method == "POST":
+        if not can("manage_operations"):
+            cursor.close()
+            conn.close()
+            return access_denied()
+
         project_id = clean_text(request.form.get("project_id"))
         try:
             du_id = validate_duid_value(request.form.get("du_id"))
@@ -7157,6 +9794,13 @@ def toolbox_talks():
             cursor.close()
             conn.close()
             return str(exc)
+
+        denied = enforce_team_leader_site_scope(cursor, conn, du_id)
+
+        if denied:
+            cursor.close()
+            conn.close()
+            return denied
 
         topic = clean_text(request.form.get("topic"))
         talk_date = clean_date(request.form.get("date"))
@@ -7168,6 +9812,14 @@ def toolbox_talks():
             cursor.close()
             conn.close()
             return "Invalid DUID"
+
+        for emp_id in employee_ids:
+            denied = enforce_team_leader_employee_scope(cursor, conn, emp_id)
+
+            if denied:
+                cursor.close()
+                conn.close()
+                return denied
 
         cursor.execute(
             """
@@ -7208,13 +9860,24 @@ def toolbox_talks():
                 (toolbox_talk_id, emp_id),
             )
 
+        audit_event(
+            "TOOLBOX_TALK_CREATED",
+            "toolbox_talk",
+            toolbox_talk_id,
+            f"Created toolbox talk for {du_id}.",
+            conn=conn,
+        )
         conn.commit()
         cursor.close()
         conn.close()
         return redirect("/toolbox_talks")
 
+    conditions = ["TRUE"]
+    params = []
+    add_team_leader_duid_scope(cursor, conditions, params, "tt.du_id")
+
     cursor.execute(
-        """
+        f"""
         SELECT tt.id,
                tt.project_id,
                tt.du_id,
@@ -7229,10 +9892,12 @@ def toolbox_talks():
         LEFT JOIN projects p ON tt.project_id = p.id
         LEFT JOIN employees e ON tt.conducted_by = e.id
         LEFT JOIN toolbox_attendance ta ON ta.toolbox_talk_id = tt.id AND ta.attended=TRUE
+        WHERE {' AND '.join(conditions)}
         GROUP BY tt.id, p.project_name, e.first_name, e.last_name
         ORDER BY tt.date DESC, tt.id DESC
         LIMIT 200
-        """
+        """,
+        params,
     )
     talks = rows_to_dicts(cursor)
 
@@ -7261,6 +9926,11 @@ def incidents():
     cursor = conn.cursor()
 
     if request.method == "POST":
+        if not can("manage_incidents"):
+            cursor.close()
+            conn.close()
+            return access_denied()
+
         project_id = clean_text(request.form.get("project_id"))
         try:
             du_id = validate_duid_value(request.form.get("du_id"))
@@ -7268,6 +9938,13 @@ def incidents():
             cursor.close()
             conn.close()
             return str(exc)
+
+        denied = enforce_team_leader_site_scope(cursor, conn, du_id)
+
+        if denied:
+            cursor.close()
+            conn.close()
+            return denied
 
         reported_by = clean_text(request.form.get("reported_by"))
         incident_date = clean_date(request.form.get("incident_date"))
@@ -7286,6 +9963,14 @@ def incidents():
             cursor.close()
             conn.close()
             return "Invalid DUID"
+
+        if reported_by:
+            denied = enforce_team_leader_employee_scope(cursor, conn, reported_by)
+
+            if denied:
+                cursor.close()
+                conn.close()
+                return denied
 
         cursor.execute(
             """
@@ -7342,6 +10027,13 @@ def incidents():
                 (incident_id, file_path, secure_filename(attachment.filename)),
             )
 
+        audit_event(
+            "INCIDENT_CREATED",
+            "incident_report",
+            incident_id,
+            f"Created incident report for {du_id}.",
+            conn=conn,
+        )
         conn.commit()
         cursor.close()
         conn.close()
@@ -7364,6 +10056,8 @@ def incidents():
     if filters["status"]:
         conditions.append("ir.status=%s")
         params.append(filters["status"])
+
+    add_team_leader_duid_scope(cursor, conditions, params, "ir.du_id")
 
     cursor.execute(
         f"""
@@ -7413,6 +10107,9 @@ def incidents():
 @login_required
 def update_incident_status(incident_id):
 
+    if not can("manage_incidents"):
+        return access_denied()
+
     status = clean_text(request.form.get("status"))
 
     if status not in INCIDENT_STATUSES:
@@ -7422,11 +10119,42 @@ def update_incident_status(incident_id):
     cursor = conn.cursor()
     cursor.execute(
         """
+        SELECT id,
+               du_id,
+               status
+        FROM incident_reports
+        WHERE id=%s
+        """,
+        (incident_id,),
+    )
+    incident = row_to_dict(cursor)
+
+    if not incident:
+        cursor.close()
+        conn.close()
+        return "Incident not found"
+
+    denied = enforce_team_leader_site_scope(cursor, conn, incident["du_id"])
+
+    if denied:
+        cursor.close()
+        conn.close()
+        return denied
+
+    cursor.execute(
+        """
         UPDATE incident_reports
         SET status=%s
         WHERE id=%s
         """,
         (status, incident_id),
+    )
+    audit_event(
+        "INCIDENT_STATUS_UPDATED",
+        "incident_report",
+        incident_id,
+        f"Updated incident status to {status}.",
+        conn=conn,
     )
     conn.commit()
     cursor.close()
@@ -7585,7 +10313,7 @@ def fit_image_to_box(image, box):
 
 
 @app.route("/generate_id/<code>/<employee_id>", methods=["GET", "POST"])
-@login_required
+@permission_required("generate_ids")
 def generate_id(code, employee_id):
 
     conn = connect_db()
@@ -7847,6 +10575,12 @@ def generate_id(code, employee_id):
 
         apply_project_workbook_formatting(wb)
         wb.save(excel_path)
+        audit_event(
+            "ID_GENERATED",
+            "employee",
+            employee_id,
+            f"Generated ID card {id_number} for {name}.",
+        )
 
         #################################
         # REDIRECT
@@ -7883,6 +10617,11 @@ def print_id(id_number):
     if safe_id_number != id_number:
         return "Invalid ID Number"
 
+    denied = enforce_team_leader_id_card_scope(safe_id_number)
+
+    if denied:
+        return denied
+
     front_file = "id_cards/" + safe_id_number + "_front.png"
     back_file = "id_cards/" + safe_id_number + "_back.png"
 
@@ -7897,6 +10636,23 @@ def print_id(id_number):
 @app.route("/id_cards/<filename>")
 @login_required
 def id_cards(filename):
+
+    safe_filename = secure_filename(filename)
+
+    if safe_filename != filename:
+        return "Invalid ID card file"
+
+    id_number = ""
+
+    for suffix in ("_front.png", "_back.png"):
+        if filename.endswith(suffix):
+            id_number = filename[: -len(suffix)]
+            break
+
+    denied = enforce_team_leader_id_card_scope(id_number)
+
+    if denied:
+        return denied
 
     return send_from_directory(ID_CARD_DIR, filename)
 
@@ -7942,6 +10698,7 @@ def punchlist():
 
     conn = connect_db()
     cursor = conn.cursor()
+    add_team_leader_duid_scope(cursor, conditions, params, "pi.duid")
     cursor.execute(
         f"""
         {SITE_REFERENCE_CTE}
@@ -8005,7 +10762,7 @@ def punchlist():
 
 
 @app.route("/sites/<path:du_id>/punchlist/new", methods=["GET", "POST"])
-@admin_required
+@permission_required("manage_punchlist")
 def new_punchlist_item(du_id):
 
     du_id = validate_duid_value(du_id)
@@ -8018,9 +10775,28 @@ def new_punchlist_item(du_id):
         conn.close()
         return "Site not found"
 
+    denied = enforce_team_leader_site_scope(cursor, conn, du_id)
+
+    if denied:
+        cursor.close()
+        conn.close()
+        return denied
+
     if request.method == "POST":
         try:
             item_data = collect_punchlist_form_data(cursor, du_id, site)
+            if item_data.get("assigned_employee_id"):
+                denied = enforce_team_leader_employee_scope(
+                    cursor,
+                    conn,
+                    item_data["assigned_employee_id"],
+                )
+
+                if denied:
+                    cursor.close()
+                    conn.close()
+                    return denied
+
             cursor.execute(
                 """
                 INSERT INTO punchlist_items(
@@ -8073,6 +10849,13 @@ def new_punchlist_item(du_id):
             project_key = project_key_for_site_files(cursor, item["project_id"])
             sync_punchlist_files(cursor, item, project_key)
             sync_punchlist_item_to_project_workbook(cursor, item_id)
+            audit_event(
+                "PUNCHLIST_CREATED",
+                "punchlist_item",
+                item_id,
+                f"Created punchlist item for {du_id}.",
+                conn=conn,
+            )
             conn.commit()
         except (ValueError, psycopg2.Error) as exc:
             conn.rollback()
@@ -8123,6 +10906,13 @@ def punchlist_detail(item_id):
         conn.close()
         return "Punchlist item not found"
 
+    denied = enforce_team_leader_site_scope(cursor, conn, item["duid"])
+
+    if denied:
+        cursor.close()
+        conn.close()
+        return denied
+
     site = get_site_by_duid(cursor, item["duid"])
     cursor.execute(
         """
@@ -8159,7 +10949,7 @@ def punchlist_detail(item_id):
 
 
 @app.route("/punchlist/<int:item_id>/edit", methods=["GET", "POST"])
-@admin_required
+@permission_required("manage_punchlist")
 def edit_punchlist_item(item_id):
 
     conn = connect_db()
@@ -8171,11 +10961,30 @@ def edit_punchlist_item(item_id):
         conn.close()
         return "Punchlist item not found"
 
+    denied = enforce_team_leader_site_scope(cursor, conn, item["duid"])
+
+    if denied:
+        cursor.close()
+        conn.close()
+        return denied
+
     site = get_site_by_duid(cursor, item["duid"])
 
     if request.method == "POST":
         try:
             item_data = collect_punchlist_form_data(cursor, item["duid"], site, item)
+            if item_data.get("assigned_employee_id"):
+                denied = enforce_team_leader_employee_scope(
+                    cursor,
+                    conn,
+                    item_data["assigned_employee_id"],
+                )
+
+                if denied:
+                    cursor.close()
+                    conn.close()
+                    return denied
+
             validate_punchlist_transition(item["status"], item_data["status"])
             rectified_date = item.get("rectified_date")
             verified_date = item.get("verified_date")
@@ -8232,6 +11041,13 @@ def edit_punchlist_item(item_id):
             project_key = project_key_for_site_files(cursor, updated_item["project_id"])
             sync_punchlist_files(cursor, updated_item, project_key)
             sync_punchlist_item_to_project_workbook(cursor, item_id)
+            audit_event(
+                "PUNCHLIST_UPDATED",
+                "punchlist_item",
+                item_id,
+                "Updated punchlist item.",
+                conn=conn,
+            )
             conn.commit()
         except (ValueError, psycopg2.Error) as exc:
             conn.rollback()
@@ -8293,13 +11109,24 @@ def punchlist_file(file_id):
     cursor = conn.cursor()
     cursor.execute(
         """
-        SELECT file_path
-        FROM punchlist_files
-        WHERE id=%s
+        SELECT pf.file_path,
+               pi.duid
+        FROM punchlist_files pf
+        JOIN punchlist_items pi ON pi.id = pf.punchlist_item_id
+        WHERE pf.id=%s
         """,
         (file_id,),
     )
     file_record = row_to_dict(cursor)
+
+    if file_record:
+        denied = enforce_team_leader_site_scope(cursor, conn, file_record["duid"])
+
+        if denied:
+            cursor.close()
+            conn.close()
+            return denied
+
     cursor.close()
     conn.close()
 
@@ -8344,6 +11171,7 @@ def pat_history():
 
     conn = connect_db()
     cursor = conn.cursor()
+    add_team_leader_duid_scope(cursor, conditions, params, "pr.duid")
     cursor.execute(
         f"""
         {SITE_REFERENCE_CTE}
@@ -8389,7 +11217,7 @@ def pat_history():
 
 
 @app.route("/sites/<path:du_id>/pat/new", methods=["GET", "POST"])
-@admin_required
+@permission_required("manage_pat")
 def new_pat_record(du_id):
 
     du_id = validate_duid_value(du_id)
@@ -8453,6 +11281,13 @@ def new_pat_record(du_id):
             )
             apply_latest_pat_to_site(cursor, du_id)
             sync_pat_record_to_project_workbook(cursor, pat_id)
+            audit_event(
+                "PAT_CREATED",
+                "pat_record",
+                pat_id,
+                f"Created PAT record for {du_id}.",
+                conn=conn,
+            )
             conn.commit()
         except (ValueError, psycopg2.Error) as exc:
             conn.rollback()
@@ -8487,7 +11322,7 @@ def new_pat_record(du_id):
 
 
 @app.route("/pat/<int:pat_id>/edit", methods=["GET", "POST"])
-@admin_required
+@permission_required("manage_pat")
 def edit_pat_record(pat_id):
 
     conn = connect_db()
@@ -8538,6 +11373,13 @@ def edit_pat_record(pat_id):
             )
             apply_latest_pat_to_site(cursor, record["duid"])
             sync_pat_record_to_project_workbook(cursor, pat_id)
+            audit_event(
+                "PAT_UPDATED",
+                "pat_record",
+                pat_id,
+                "Updated PAT record.",
+                conn=conn,
+            )
             conn.commit()
         except (ValueError, psycopg2.Error) as exc:
             conn.rollback()
@@ -8571,13 +11413,23 @@ def pat_document_file(pat_id):
     cursor = conn.cursor()
     cursor.execute(
         """
-        SELECT document_path
+        SELECT document_path,
+               duid
         FROM pat_records
         WHERE id=%s
         """,
         (pat_id,),
     )
     record = row_to_dict(cursor)
+
+    if record:
+        denied = enforce_team_leader_site_scope(cursor, conn, record["duid"])
+
+        if denied:
+            cursor.close()
+            conn.close()
+            return denied
+
     cursor.close()
     conn.close()
 
@@ -8588,7 +11440,7 @@ def pat_document_file(pat_id):
 
 
 @app.route("/sites/<path:du_id>/acceptance", methods=["POST"])
-@admin_required
+@permission_required("manage_acceptance")
 def site_acceptance_action(du_id):
 
     du_id = validate_duid_value(du_id)
@@ -8659,6 +11511,13 @@ def site_acceptance_action(du_id):
                     acceptance_reference,
                     remarks,
                 ),
+            )
+            audit_event(
+                "SITE_ACCEPTANCE_REJECTED",
+                "telecom_site",
+                du_id,
+                "Rejected site acceptance.",
+                conn=conn,
             )
             conn.commit()
             flash("Site acceptance was marked REJECTED.")
@@ -8738,6 +11597,13 @@ def site_acceptance_action(du_id):
                 override_used,
                 override_reason or None,
             ),
+        )
+        audit_event(
+            "SITE_ACCEPTED",
+            "telecom_site",
+            du_id,
+            "Accepted site and marked it Completed.",
+            conn=conn,
         )
         conn.commit()
         flash("Site accepted and marked Completed.")
@@ -9730,6 +12596,8 @@ def fetch_personnel_report(cursor, filters):
         role_param = "%" + filters["role"] + "%"
         params.extend([role_param, role_param, role_param])
 
+    add_team_leader_employee_scope(cursor, conditions, params, "e.id")
+
     cursor.execute(
         f"""
         SELECT DISTINCT ON (e.id)
@@ -9861,6 +12729,8 @@ def fetch_daily_report(cursor, filters):
         conditions.append("dsl.report_date <= %s")
         params.append(date_to)
 
+    add_team_leader_duid_scope(cursor, conditions, params, "dsl.duid")
+
     cursor.execute(
         f"""
         {SITE_REFERENCE_CTE}
@@ -9989,6 +12859,8 @@ def fetch_punchlist_report(cursor, filters):
     if date_to:
         conditions.append("pi.raised_date <= %s")
         params.append(date_to)
+
+    add_team_leader_duid_scope(cursor, conditions, params, "pi.duid")
 
     cursor.execute(
         f"""
@@ -10125,6 +12997,8 @@ def fetch_pat_acceptance_report(cursor, filters):
     if date_to:
         conditions.append("(pr.pat_date IS NULL OR pr.pat_date <= %s)")
         params.append(date_to)
+
+    add_team_leader_duid_scope(cursor, conditions, params, "COALESCE(pr.duid, sa.duid)")
 
     cursor.execute(
         f"""
@@ -10313,18 +13187,53 @@ def reports_center():
 
     conn = connect_db()
     cursor = conn.cursor()
-    cursor.execute("SELECT COUNT(*) FROM projects")
-    total_projects = cursor.fetchone()[0]
-    cursor.execute("SELECT COUNT(*) FROM telecom_sites")
-    operational_sites = cursor.fetchone()[0]
-    cursor.execute("SELECT COUNT(*) FROM daily_site_logs")
-    daily_reports = cursor.fetchone()[0]
-    cursor.execute("SELECT COUNT(*) FROM punchlist_items WHERE status <> 'CLOSED'")
-    open_punchlists = cursor.fetchone()[0]
-    cursor.execute("SELECT COUNT(*) FROM pat_records")
-    pat_records_count = cursor.fetchone()[0]
-    cursor.execute("SELECT COUNT(*) FROM site_acceptance WHERE acceptance_status='ACCEPTED'")
-    accepted_sites = cursor.fetchone()[0]
+
+    if is_team_leader_role():
+        duids = get_team_leader_duids(cursor)
+
+        if duids:
+            cursor.execute(
+                "SELECT COUNT(DISTINCT project_id) FROM teams WHERE active IS TRUE AND du_id = ANY(%s)",
+                (duids,),
+            )
+            total_projects = cursor.fetchone()[0]
+            cursor.execute("SELECT COUNT(*) FROM telecom_sites WHERE du_id = ANY(%s)", (duids,))
+            operational_sites = cursor.fetchone()[0]
+            cursor.execute("SELECT COUNT(*) FROM daily_site_logs WHERE duid = ANY(%s)", (duids,))
+            daily_reports = cursor.fetchone()[0]
+            cursor.execute(
+                "SELECT COUNT(*) FROM punchlist_items WHERE duid = ANY(%s) AND status <> 'CLOSED'",
+                (duids,),
+            )
+            open_punchlists = cursor.fetchone()[0]
+            cursor.execute("SELECT COUNT(*) FROM pat_records WHERE duid = ANY(%s)", (duids,))
+            pat_records_count = cursor.fetchone()[0]
+            cursor.execute(
+                "SELECT COUNT(*) FROM site_acceptance WHERE duid = ANY(%s) AND acceptance_status='ACCEPTED'",
+                (duids,),
+            )
+            accepted_sites = cursor.fetchone()[0]
+        else:
+            total_projects = 0
+            operational_sites = 0
+            daily_reports = 0
+            open_punchlists = 0
+            pat_records_count = 0
+            accepted_sites = 0
+    else:
+        cursor.execute("SELECT COUNT(*) FROM projects")
+        total_projects = cursor.fetchone()[0]
+        cursor.execute("SELECT COUNT(*) FROM telecom_sites")
+        operational_sites = cursor.fetchone()[0]
+        cursor.execute("SELECT COUNT(*) FROM daily_site_logs")
+        daily_reports = cursor.fetchone()[0]
+        cursor.execute("SELECT COUNT(*) FROM punchlist_items WHERE status <> 'CLOSED'")
+        open_punchlists = cursor.fetchone()[0]
+        cursor.execute("SELECT COUNT(*) FROM pat_records")
+        pat_records_count = cursor.fetchone()[0]
+        cursor.execute("SELECT COUNT(*) FROM site_acceptance WHERE acceptance_status='ACCEPTED'")
+        accepted_sites = cursor.fetchone()[0]
+
     cursor.close()
     conn.close()
 
@@ -10353,9 +13262,18 @@ def site_report_select():
         else:
             return redirect(url_for("site_completion_report", duid=duid))
 
+    if is_team_leader_role():
+        conn = connect_db()
+        cursor = conn.cursor()
+        duids = get_team_leader_duids(cursor)
+        cursor.close()
+        conn.close()
+    else:
+        duids = get_duids_for_select()
+
     return render_template(
         "report_site_select.html",
-        duids=get_duids_for_select(),
+        duids=duids,
     )
 
 
@@ -10365,6 +13283,13 @@ def site_completion_report(duid):
 
     conn = connect_db()
     cursor = conn.cursor()
+    denied = enforce_team_leader_site_scope(cursor, conn, validate_duid_value(duid))
+
+    if denied:
+        cursor.close()
+        conn.close()
+        return denied
+
     data = fetch_site_completion_report(cursor, duid)
     cursor.close()
     conn.close()
@@ -10381,6 +13306,13 @@ def site_completion_report_pdf(duid):
 
     conn = connect_db()
     cursor = conn.cursor()
+    denied = enforce_team_leader_site_scope(cursor, conn, validate_duid_value(duid))
+
+    if denied:
+        cursor.close()
+        conn.close()
+        return denied
+
     data = fetch_site_completion_report(cursor, duid)
     cursor.close()
     conn.close()
@@ -10403,6 +13335,13 @@ def site_completion_report_excel(duid):
 
     conn = connect_db()
     cursor = conn.cursor()
+    denied = enforce_team_leader_site_scope(cursor, conn, validate_duid_value(duid))
+
+    if denied:
+        cursor.close()
+        conn.close()
+        return denied
+
     data = fetch_site_completion_report(cursor, duid)
     cursor.close()
     conn.close()
@@ -10419,6 +13358,9 @@ def site_completion_report_excel(duid):
 @login_required
 def project_report_select():
 
+    if is_team_leader_role():
+        return access_denied("Team Leaders can use site and team reports only.")
+
     project_id = clean_text(request.args.get("project_id"))
 
     if project_id:
@@ -10433,6 +13375,9 @@ def project_report_select():
 @app.route("/reports/project/<int:project_id>")
 @login_required
 def project_management_report(project_id):
+
+    if is_team_leader_role():
+        return access_denied("Team Leaders can use site and team reports only.")
 
     conn = connect_db()
     cursor = conn.cursor()
@@ -10449,6 +13394,9 @@ def project_management_report(project_id):
 @app.route("/reports/project/<int:project_id>/pdf")
 @login_required
 def project_management_report_pdf(project_id):
+
+    if is_team_leader_role():
+        return access_denied("Team Leaders can use site and team reports only.")
 
     conn = connect_db()
     cursor = conn.cursor()
@@ -10476,6 +13424,9 @@ def project_management_report_pdf(project_id):
 @app.route("/reports/project/<int:project_id>/excel")
 @login_required
 def project_management_report_excel(project_id):
+
+    if is_team_leader_role():
+        return access_denied("Team Leaders can use site and team reports only.")
 
     conn = connect_db()
     cursor = conn.cursor()
@@ -10731,6 +13682,13 @@ def site_handover(duid):
 
     conn = connect_db()
     cursor = conn.cursor()
+    denied = enforce_team_leader_site_scope(cursor, conn, validate_duid_value(duid))
+
+    if denied:
+        cursor.close()
+        conn.close()
+        return denied
+
     data = fetch_site_completion_report(cursor, duid)
     cursor.close()
     conn.close()
@@ -10751,6 +13709,13 @@ def site_handover_package(duid):
 
     conn = connect_db()
     cursor = conn.cursor()
+    denied = enforce_team_leader_site_scope(cursor, conn, validate_duid_value(duid))
+
+    if denied:
+        cursor.close()
+        conn.close()
+        return denied
+
     data = fetch_site_completion_report(cursor, duid)
     cursor.close()
     conn.close()
@@ -10803,6 +13768,13 @@ def site_handover_package(duid):
         zip_file.writestr("Document_Index.xlsx", index_xlsx.getvalue())
         zip_file.writestr("README.txt", build_handover_readme(data))
 
+    audit_event(
+        "HANDOVER_PACKAGE_GENERATED",
+        "telecom_site",
+        data["site"]["du_id"],
+        f"Generated {package_mode} handover package.",
+    )
+
     return send_file(zip_path, as_attachment=True, download_name=zip_filename, mimetype="application/zip")
 
 
@@ -10812,7 +13784,7 @@ def site_handover_package(duid):
 
 
 @app.route("/reset_system", methods=["POST"])
-@admin_required
+@permission_required("reset_system")
 def reset_system():
 
     conn = connect_db()
@@ -10859,6 +13831,13 @@ def reset_system():
         table_list = ", ".join(ordered_existing_tables)
         cursor.execute(f"TRUNCATE TABLE {table_list} RESTART IDENTITY CASCADE")
 
+    audit_event(
+        "SYSTEM_RESET",
+        "system",
+        "reset_system",
+        "System reset route executed.",
+        conn=conn,
+    )
     conn.commit()
     cursor.close()
     conn.close()
@@ -10912,6 +13891,14 @@ def reset_system():
 
 @app.route("/logout")
 def logout():
+
+    if session.get("admin"):
+        audit_event(
+            "AUTH_LOGOUT",
+            "admin",
+            session.get("admin_id"),
+            "User logged out.",
+        )
 
     session.clear()
     return redirect("/")

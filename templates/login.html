@@ -26,6 +26,13 @@ width="150">
 
 </center>
 
+{% with messages = get_flashed_messages() %}
+{% if messages %}
+{% for message in messages %}
+<div class="notice">{{ message }}</div>
+{% endfor %}
+{% endif %}
+{% endwith %}
 
 
 <form method="POST">

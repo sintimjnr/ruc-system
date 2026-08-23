@@ -230,6 +230,20 @@ body {
     box-shadow: none;
 }
 
+.checkbox-line {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 12px 0;
+    font-weight: bold;
+    color: #0a2a66;
+}
+
+.checkbox-line input {
+    width: auto;
+    margin: 0;
+}
+
 .dossier-photo {
     margin-bottom: 15px;
 }

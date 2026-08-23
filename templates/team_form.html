@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>{% if team %}Edit Team{% else %}Create Team{% endif %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
+  </head>
+  <body>
+    <div class="topbar">
+      <img class="logo" src="{{ url_for('static', filename='images/ruc_logo.png') }}" />
+      {% if team %}Edit Team{% else %}Create Team{% endif %}
+    </div>
+
+    <div class="menu">
+      <a href="/dashboard">Dashboard</a>
+      <a href="/teams">Teams</a>
+      <a href="/users">User Management</a>
+      <a href="/logout">Logout</a>
+    </div>
+
+    <div class="container">
+      {% with messages = get_flashed_messages() %}
+        {% if messages %}
+          {% for message in messages %}
+            <div class="notice">{{ message }}</div>
+          {% endfor %}
+        {% endif %}
+      {% endwith %}
+
+      <div class="form-box">
+        <h2>{% if team %}Edit Team{% else %}Create Team{% endif %}</h2>
+        <form method="POST">
+          <label>Team Name</label>
+          <input name="name" value="{{ team.name if team else '' }}" required />
+
+          <label>Project</label>
+          <select name="project_id">
+            <option value="">No project selected</option>
+            {% for project in projects %}
+              <option value="{{ project.id }}" {% if team and team.project_id == project.id %}selected{% endif %}>{{ project.project_name }} - {{ project.project_code }}</option>
+            {% endfor %}
+          </select>
+
+          <label>Assigned DUID</label>
+          <select name="du_id">
+            <option value="">No site selected</option>
+            {% for duid in duids %}
+              <option value="{{ duid }}" {% if team and team.du_id == duid %}selected{% endif %}>{{ duid }}</option>
+            {% endfor %}
+          </select>
+
+          <label>Team Leader Account</label>
+          <select name="team_leader_admin_id">
+            <option value="">No Team Leader account</option>
+            {% for leader in team_leaders %}
+              <option value="{{ leader.id }}" {% if team and team.team_leader_admin_id == leader.id %}selected{% endif %}>{{ leader.display_name }} / {{ leader.username }}</option>
+            {% endfor %}
+          </select>
+
+          <label>Team Leader Employee Record</label>
+          <select name="team_leader_employee_id">
+            <option value="">Use linked employee from account</option>
+            {% for emp in employees %}
+              <option value="{{ emp.id }}" {% if team and team.team_leader_employee_id == emp.id %}selected{% endif %}>{{ emp.first_name }} {{ emp.last_name }}{% if emp.assigned_du_id %} - {{ emp.assigned_du_id }}{% endif %}</option>
+            {% endfor %}
+          </select>
+
+          <label class="checkbox-line">
+            <input name="active" type="checkbox" {% if not team or team.active %}checked{% endif %} />
+            Active
+          </label>
+
+          <button type="submit">Save Team</button>
+          <a class="btn" href="{{ url_for('teams') }}">Cancel</a>
+        </form>
+      </div>
+    </div>
+  </body>
+</html>

@@ -101,7 +101,7 @@
             <td>{{ log.file_count }}</td>
             <td>
               <a class="btn-small" href="{{ url_for('daily_log_detail', log_id=log.id) }}">View</a>
-              {% if session.get('role') == 'admin' %}
+              {% if can('manage_operations') %}
                 <a class="btn-small" href="{{ url_for('edit_daily_log', log_id=log.id) }}">Edit</a>
               {% endif %}
             </td>

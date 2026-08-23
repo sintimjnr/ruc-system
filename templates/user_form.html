@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
+    <title>{% if user %}Edit User{% else %}Create User{% endif %}</title>
+  </head>
+  <body>
+    <div class="topbar">
+      <img class="logo" src="{{ url_for('static', filename='images/ruc_logo.png') }}" />
+      RUC Management System
+    </div>
+
+    <div class="menu">
+      <a href="/dashboard">Dashboard</a>
+      <a href="/users">User Management</a>
+      {% if can('manage_teams') %}<a href="/teams">Teams</a>{% endif %}
+      <a href="/logout">Logout</a>
+    </div>
+
+    <div class="container">
+      {% with messages = get_flashed_messages() %}
+        {% if messages %}
+          {% for message in messages %}
+            <div class="notice">{{ message }}</div>
+          {% endfor %}
+        {% endif %}
+      {% endwith %}
+
+      <div class="form-box">
+        <h2>{% if user %}Edit User{% else %}Create User{% endif %}</h2>
+        <form method="POST">
+          {% if not user %}
+            <label>Username</label>
+            <input name="username" required />
+
+            <label>Password</label>
+            <input name="password" type="password" required />
+          {% else %}
+            <label>Username</label>
+            <input value="{{ user.username }}" disabled />
+          {% endif %}
+
+          <label>Role</label>
+          {% if last_active_super_admin %}
+            <input type="hidden" name="role" value="super_admin" />
+            <select disabled>
+              <option>SUPER ADMIN</option>
+            </select>
+            <div class="notice compact-notice">At least one active Super Admin must remain.</div>
+          {% elif current_effective_role != 'super_admin' and user %}
+            <input type="hidden" name="role" value="{{ user.role }}" />
+            <select disabled>
+              <option>{{ role_label(user.role) }}</option>
+            </select>
+          {% else %}
+            <select name="role" required>
+              {% for value, label in roles.items() %}
+                <option value="{{ value }}" {% if user and user.role == value %}selected{% endif %}>{{ label }}</option>
+              {% endfor %}
+            </select>
+          {% endif %}
+
+          <label>Linked Employee</label>
+          <select name="employee_id">
+            <option value="">No linked employee</option>
+            {% for emp in employees %}
+              <option value="{{ emp.id }}" {% if user and user.employee_id == emp.id %}selected{% endif %}>
+                {{ emp.first_name }} {{ emp.last_name }}{% if emp.assigned_du_id %} - {{ emp.assigned_du_id }}{% endif %}
+              </option>
+            {% endfor %}
+          </select>
+
+          <label class="checkbox-line">
+            {% if last_active_super_admin %}
+              <input type="hidden" name="active" value="on" />
+            {% endif %}
+            <input name="active" type="checkbox" {% if not user or user.active %}checked{% endif %} {% if last_active_super_admin %}disabled{% endif %} />
+            Active
+          </label>
+
+          <button type="submit">Save User</button>
+          <a class="btn" href="{{ url_for('users') }}">Cancel</a>
+        </form>
+      </div>
+    </div>
+  </body>
+</html>

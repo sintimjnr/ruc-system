@@ -21,7 +21,7 @@
     </div>
 
     <div class="container">
-      {% if session.get('role') == 'admin' %}
+      {% if can('manage_tasks') %}
         <div class="form-box wide">
           <h2>Create Telecom Task</h2>
           <form method="POST" class="filter-grid">
@@ -121,7 +121,7 @@
             <td>{{ task.completed_date or '-' }}</td>
             <td><span class="status {{ task.status|lower|replace(' ', '-') }}">{{ task.status }}</span></td>
             <td>
-              {% if session.get('role') == 'admin' %}
+              {% if can('manage_tasks') %}
                 <form method="POST" action="/telecom_tasks/{{ task.id }}/status" class="table-form">
                   <select name="status">
                     {% for status in statuses %}

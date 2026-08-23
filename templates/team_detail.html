@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>{{ team.name }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
+  </head>
+  <body>
+    <div class="topbar">
+      <img class="logo" src="{{ url_for('static', filename='images/ruc_logo.png') }}" />
+      {{ team.name }}
+    </div>
+
+    <div class="menu">
+      <a href="/dashboard">Dashboard</a>
+      <a href="/teams">Teams</a>
+      <a href="{{ url_for('edit_team', team_id=team.id) }}">Edit Team</a>
+      <a href="/logout">Logout</a>
+    </div>
+
+    <div class="container">
+      {% with messages = get_flashed_messages() %}
+        {% if messages %}
+          {% for message in messages %}
+            <div class="notice">{{ message }}</div>
+          {% endfor %}
+        {% endif %}
+      {% endwith %}
+
+      <div class="detail-grid">
+        <section class="info-panel">
+          <h2>Team</h2>
+          <dl class="detail-list">
+            <dt>Name</dt>
+            <dd>{{ team.name }}</dd>
+            <dt>Project</dt>
+            <dd>{{ team.project_name or team.project_code or '-' }}</dd>
+            <dt>DUID</dt>
+            <dd>{% if team.du_id %}<a href="{{ url_for('site_detail', du_id=team.du_id) }}">{{ team.du_id }}</a>{% else %}-{% endif %}</dd>
+            <dt>Team Leader</dt>
+            <dd>{{ team.leader_name or '-' }}</dd>
+            <dt>Status</dt>
+            <dd>{{ 'ACTIVE' if team.active else 'INACTIVE' }}</dd>
+          </dl>
+        </section>
+
+        <section class="info-panel">
+          <h2>Add / Transfer Member</h2>
+          <form method="POST" action="{{ url_for('add_team_member', team_id=team.id) }}">
+            <select name="employee_id" required>
+              <option value="">Employee</option>
+              {% for emp in employees %}
+                <option value="{{ emp.id }}">{{ emp.first_name }} {{ emp.last_name }}{% if emp.assigned_du_id %} - {{ emp.assigned_du_id }}{% endif %}</option>
+              {% endfor %}
+            </select>
+            <button type="submit">Add or Transfer</button>
+          </form>
+        </section>
+      </div>
+
+      <h2>Membership History</h2>
+      <table>
+        <tr>
+          <th>Employee</th>
+          <th>Role</th>
+          <th>Project</th>
+          <th>DUID</th>
+          <th>Start</th>
+          <th>End</th>
+          <th>Status</th>
+          <th>Action</th>
+        </tr>
+        {% for membership in memberships %}
+          <tr>
+            <td><a href="{{ url_for('employee_dossier', employee_id=membership.employee_id) }}">{{ membership.full_name }}</a></td>
+            <td>{{ membership.telecom_role or membership.position or '-' }}</td>
+            <td>{{ membership.project_name or membership.project_code or '-' }}</td>
+            <td>{{ membership.assigned_du_id or '-' }}</td>
+            <td>{{ membership.start_at or '-' }}</td>
+            <td>{{ membership.end_at or '-' }}</td>
+            <td>
+              {% if membership.active %}
+                <span class="status valid">ACTIVE</span>
+              {% else %}
+                <span class="status expired">INACTIVE</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if membership.active %}
+                <form class="inline-form" method="POST" action="{{ url_for('end_team_membership', membership_id=membership.id) }}">
+                  <button class="btn-small" type="submit">End</button>
+                </form>
+              {% else %}
+                -
+              {% endif %}
+            </td>
+          </tr>
+        {% else %}
+          <tr>
+            <td colspan="8">No team memberships yet.</td>
+          </tr>
+        {% endfor %}
+      </table>
+    </div>
+  </body>
+</html>

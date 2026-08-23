@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
+    <title>User Management</title>
+  </head>
+  <body>
+    <div class="topbar">
+      <img class="logo" src="{{ url_for('static', filename='images/ruc_logo.png') }}" />
+      RUC Management System
+    </div>
+
+    <div class="menu">
+      <a href="/dashboard">Dashboard</a>
+      {% if can('manage_teams') %}<a href="/teams">Teams</a>{% endif %}
+      {% if can('view_audit_logs') %}<a href="/audit_logs">Audit Log</a>{% endif %}
+      <a href="/logout">Logout</a>
+    </div>
+
+    <div class="container">
+      {% with messages = get_flashed_messages() %}
+        {% if messages %}
+          {% for message in messages %}
+            <div class="notice">{{ message }}</div>
+          {% endfor %}
+        {% endif %}
+      {% endwith %}
+
+      <div class="toolbar">
+        {% if can_create_user %}
+          <a class="btn" href="{{ url_for('new_user') }}">Create User</a>
+        {% endif %}
+        {% if can('view_audit_logs') %}
+          <a class="btn" href="{{ url_for('audit_logs') }}">Audit Log</a>
+        {% endif %}
+      </div>
+
+      <h2>User Management</h2>
+      <table>
+        <tr>
+          <th>Username</th>
+          <th>Linked Person</th>
+          <th>Role</th>
+          <th>Status</th>
+          <th>Created</th>
+          <th>Last Login</th>
+          <th>Actions</th>
+        </tr>
+        {% for user in users %}
+          <tr>
+            <td>{{ user.username }}</td>
+            <td>{{ user.display_name or '-' }}</td>
+            <td>{{ role_label(user.role) }}</td>
+            <td>
+              {% if user.active %}
+                <span class="status valid">ACTIVE</span>
+              {% else %}
+                <span class="status expired">INACTIVE</span>
+              {% endif %}
+            </td>
+            <td>{{ user.created_at or '-' }}</td>
+            <td>{{ user.last_login or '-' }}</td>
+            <td>
+              {% if user.can_manage %}
+                <a class="btn-small" href="{{ url_for('edit_user', user_id=user.id) }}">Edit</a>
+                <a class="btn-small" href="{{ url_for('reset_user_password', user_id=user.id) }}">Password</a>
+                {% if user.is_last_active_super_admin %}
+                  <span class="status valid">Required</span>
+                {% else %}
+                  <form class="inline-form" method="POST" action="{{ url_for('toggle_user', user_id=user.id) }}">
+                    <button class="btn-small" type="submit">
+                      {% if user.active %}Deactivate{% else %}Activate{% endif %}
+                    </button>
+                  </form>
+                {% endif %}
+              {% else %}
+                <span class="muted">No action</span>
+              {% endif %}
+            </td>
+          </tr>
+        {% else %}
+          <tr>
+            <td colspan="7">No users found.</td>
+          </tr>
+        {% endfor %}
+      </table>
+    </div>
+  </body>
+</html>

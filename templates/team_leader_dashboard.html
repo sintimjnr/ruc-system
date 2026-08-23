@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Team Leader Dashboard</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
+  </head>
+  <body>
+    <div class="topbar">
+      <img class="logo" src="{{ url_for('static', filename='images/ruc_logo.png') }}" />
+      Team Leader Dashboard
+    </div>
+
+    <div class="menu">
+      <a href="/team_leader">My Team</a>
+      <a href="/sites">Assigned Sites</a>
+      <a href="/daily_operations">Daily Operations</a>
+      <a href="/telecom_tasks">Tasks</a>
+      <a href="/toolbox_talks">Toolbox Talks</a>
+      <a href="/incidents">Incidents</a>
+      <a href="/punchlist">Punchlist</a>
+      <a href="/pat">PAT</a>
+      <a href="/reports">Reports</a>
+      <a href="/logout">Logout</a>
+    </div>
+
+    <div class="container">
+      {% with messages = get_flashed_messages() %}
+        {% if messages %}
+          {% for message in messages %}
+            <div class="notice">{{ message }}</div>
+          {% endfor %}
+        {% endif %}
+      {% endwith %}
+
+      <div class="summary-grid">
+        <div class="card">Team Members<br /><br /><b>{{ summary.team_members }}</b></div>
+        <div class="card">Present Today<br /><br /><b>{{ summary.present_today }}</b></div>
+        <div class="card">Reports Today<br /><br /><b>{{ summary.reports_today }}</b></div>
+        <div class="card">Open Tasks<br /><br /><b>{{ summary.open_tasks }}</b></div>
+        <div class="card">Open Incidents<br /><br /><b>{{ summary.open_incidents }}</b></div>
+        <div class="card">Open Punchlist<br /><br /><b>{{ summary.open_punchlists }}</b></div>
+      </div>
+
+      <h2>Assigned Sites</h2>
+      <table>
+        <tr>
+          <th>Team</th>
+          <th>Project</th>
+          <th>DUID</th>
+          <th>Site</th>
+          <th>Stage</th>
+          <th>Progress</th>
+          <th>Status</th>
+          <th>Action</th>
+        </tr>
+        {% for team in teams %}
+          <tr>
+            <td>{{ team.name }}</td>
+            <td>{{ team.project_name or team.project_code or '-' }}</td>
+            <td>{{ team.du_id or '-' }}</td>
+            <td>{{ team.display_site_name or '-' }}</td>
+            <td>{{ team.current_stage or '-' }}</td>
+            <td>{{ team.overall_progress or 0 }}%</td>
+            <td>{{ team.overall_status or '-' }}</td>
+            <td>{% if team.du_id %}<a class="btn-small" href="{{ url_for('site_detail', du_id=team.du_id) }}">Open Site</a>{% else %}-{% endif %}</td>
+          </tr>
+        {% else %}
+          <tr>
+            <td colspan="8">No assigned sites yet.</td>
+          </tr>
+        {% endfor %}
+      </table>
+
+      <h2>My Team</h2>
+      <table>
+        <tr>
+          <th>Employee</th>
+          <th>Role</th>
+          <th>DUID</th>
+          <th>Safety</th>
+          <th>ID Card</th>
+          <th>Action</th>
+        </tr>
+        {% for member in members %}
+          <tr>
+            <td>{{ member.full_name }}</td>
+            <td>{{ member.telecom_role or member.position or '-' }}</td>
+            <td>{{ member.assigned_du_id or '-' }}</td>
+            <td><span class="status {{ member.overall_safety_status|lower|replace(' ', '-') }}">{{ member.overall_safety_status }}</span></td>
+            <td>
+              {% if member.id_cards %}
+                <a class="btn-small" href="{{ member.id_cards[0].print_url }}">Preview</a>
+              {% else %}
+                ID card not yet generated.
+              {% endif %}
+            </td>
+            <td><a class="btn-small" href="{{ url_for('team_member_detail', employee_id=member.id) }}">View</a></td>
+          </tr>
+        {% else %}
+          <tr>
+            <td colspan="6">No current team members assigned.</td>
+          </tr>
+        {% endfor %}
+      </table>
+    </div>
+  </body>
+</html>

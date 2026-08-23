@@ -13,15 +13,15 @@
     <div class="menu">
       <a href="/dashboard">Dashboard</a>
       <a href="/sites">Telecom Sites</a>
-      <a href="/site_assignments">Assignments</a>
+      {% if can('manage_assignments') %}<a href="/site_assignments">Assignments</a>{% endif %}
       <a href="/telecom_tasks">Tasks</a>
       <a href="/daily_operations">Daily Operations</a>
       <a href="/reports">Reports</a>
       <a href="/punchlist">Punchlist</a>
       <a href="/pat">PAT</a>
-      <a href="/permits">Permits</a>
+      {% if can('manage_permits') %}<a href="/permits">Permits</a>{% endif %}
       <a href="/incidents">Incidents</a>
-      {% if session.get('role') == 'admin' %}
+      {% if can('manage_sites') %}
         <a href="{{ url_for('edit_site', du_id=site.du_id) }}">Edit Site</a>
       {% endif %}
       <a href="/logout">Logout</a>
@@ -114,14 +114,14 @@
         </section>
       </div>
 
-      {% if not site.has_operational_record and session.get('role') == 'admin' %}
+      {% if not site.has_operational_record and can('manage_sites') %}
         <div class="toolbar">
           <a class="btn" href="{{ url_for('edit_site', du_id=site.du_id) }}">Create Operational Record</a>
         </div>
       {% endif %}
 
       <div class="toolbar">
-        {% if session.get('role') == 'admin' %}
+        {% if can('manage_operations') %}
           {% if today_daily_log %}
             <a class="btn" href="{{ url_for('edit_daily_log', log_id=today_daily_log.id) }}">View/Edit Today's Report</a>
           {% else %}
@@ -154,7 +154,7 @@
           </dl>
           <div class="toolbar">
             <a class="btn" href="{{ url_for('punchlist', duid=site.du_id) }}">View Punchlist</a>
-            {% if session.get('role') == 'admin' %}
+            {% if can('manage_punchlist') %}
               <a class="btn" href="{{ url_for('new_punchlist_item', du_id=site.du_id) }}">Add Punchlist Item</a>
             {% endif %}
           </div>
@@ -204,7 +204,7 @@
           </dl>
           <div class="toolbar">
             <a class="btn" href="{{ url_for('pat_history', duid=site.du_id) }}">View PAT History</a>
-            {% if session.get('role') == 'admin' %}
+            {% if can('manage_pat') %}
               <a class="btn" href="{{ url_for('new_pat_record', du_id=site.du_id) }}">Create PAT Record</a>
             {% endif %}
           </div>
@@ -223,7 +223,7 @@
                 <td>{{ pat.inspector_name or '-' }}</td>
                 <td><span class="status {{ pat.result|lower|replace(' ', '-') }}">{{ pat.result }}</span></td>
                 <td>
-                  {% if session.get('role') == 'admin' %}
+                  {% if can('manage_pat') %}
                     <a class="btn-small" href="{{ url_for('edit_pat_record', pat_id=pat.id) }}">Edit</a>
                   {% else %}
                     -
@@ -266,7 +266,7 @@
               {% endfor %}
             </div>
           {% endif %}
-          {% if session.get('role') == 'admin' %}
+          {% if can('manage_acceptance') %}
             <form method="POST" action="{{ url_for('site_acceptance_action', du_id=site.du_id) }}">
               <input type="hidden" name="project_id" value="{{ site.project_id or '' }}" />
               <input name="acceptance_reference" value="{{ acceptance_info.record.acceptance_reference or '' }}" placeholder="Acceptance Reference" />
@@ -286,7 +286,7 @@
       </div>
 
       <h2>Assigned Personnel</h2>
-      {% if session.get('role') == 'admin' %}
+      {% if can('manage_assignments') %}
         <div class="form-box wide compact-box">
           <form method="POST" action="/site_assignments" class="filter-grid">
             <input type="hidden" name="du_id" value="{{ site.du_id }}" />
@@ -382,7 +382,7 @@
       </table>
 
       <h2>Tasks</h2>
-      {% if session.get('role') == 'admin' %}
+      {% if can('manage_tasks') %}
         <div class="form-box wide compact-box">
           <form method="POST" action="/telecom_tasks" class="filter-grid">
             <input type="hidden" name="du_id" value="{{ site.du_id }}" />
@@ -441,7 +441,7 @@
             <td>{{ task.completed_date or '-' }}</td>
             <td><span class="status {{ task.status|lower|replace(' ', '-') }}">{{ task.status }}</span></td>
             <td>
-              {% if session.get('role') == 'admin' %}
+              {% if can('manage_tasks') %}
                 <form method="POST" action="/telecom_tasks/{{ task.id }}/status" class="table-form">
                   <input type="hidden" name="return_to" value="{{ url_for('site_detail', du_id=site.du_id) }}" />
                   <select name="status">
