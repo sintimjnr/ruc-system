@@ -1,23 +1,10 @@
-<!DOCTYPE html>
-<html>
-  <head>
-    <title>{{ emp.full_name }}</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
-  </head>
-  <body>
-    <div class="topbar">
-      <img class="logo" src="{{ url_for('static', filename='images/ruc_logo.png') }}" />
-      {{ emp.full_name }}
-    </div>
+{% extends "base.html" %}
+{% block active_module %}team_leader{% endblock %}
+{% block page_title %}Team Member Detail{% endblock %}
+{% block page_subtitle %}Team Leader personnel view{% endblock %}
 
-    <div class="menu">
-      <a href="/team_leader">My Team</a>
-      <a href="/daily_operations">Daily Operations</a>
-      <a href="/telecom_tasks">Tasks</a>
-      <a href="/logout">Logout</a>
-    </div>
-
-    <div class="container">
+{% block content %}
+<div class="container">
       <div class="detail-grid">
         <section class="info-panel">
           <h2>Team Member</h2>
@@ -98,5 +85,4 @@
         {% endfor %}
       </table>
     </div>
-  </body>
-</html>
+{% endblock %}

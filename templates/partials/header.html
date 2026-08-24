@@ -1,0 +1,50 @@
+<header class="app-header">
+  <div class="header-left">
+    <button class="icon-button menu-toggle" type="button" data-sidebar-toggle aria-label="Open navigation">
+      <span></span>
+      <span></span>
+      <span></span>
+    </button>
+    <div>
+      <h1>{{ shell_page_title or 'RUC System' }}</h1>
+      {% if shell_page_subtitle %}
+        <p>{{ shell_page_subtitle }}</p>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="header-actions">
+    <label class="theme-control">
+      <span>Theme</span>
+      <select data-theme-select aria-label="Theme preference">
+        <option value="system">System</option>
+        <option value="light">Light</option>
+        <option value="dark">Dark</option>
+      </select>
+    </label>
+
+    <details class="account-menu" data-account-menu>
+      <summary class="account-toggle" data-account-toggle aria-expanded="false" aria-label="Account menu">
+        <span class="profile-avatar">
+          {% if current_profile.avatar_url %}
+            <img src="{{ current_profile.avatar_url }}" alt="" />
+          {% else %}
+            <span>{{ current_profile.initials }}</span>
+          {% endif %}
+        </span>
+        <span class="account-copy">
+          <span class="user-name">{{ current_profile.display_name }}</span>
+          <span class="role-badge">{{ current_profile.role_label }}</span>
+        </span>
+        <span class="account-caret" aria-hidden="true">v</span>
+      </summary>
+
+      <div class="account-dropdown" data-account-dropdown>
+        {% if current_profile.profile_url %}
+          <a href="{{ current_profile.profile_url }}">My Profile</a>
+        {% endif %}
+        <a href="{{ url_for('logout') }}">Sign Out</a>
+      </div>
+    </details>
+  </div>
+</header>

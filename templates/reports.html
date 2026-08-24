@@ -1,25 +1,10 @@
-<!DOCTYPE html>
-<html>
-  <head>
-    <title>Reporting Center</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
-  </head>
-  <body>
-    <div class="topbar">
-      <img class="logo" src="{{ url_for('static', filename='images/ruc_logo.png') }}" />
-      Reporting Center
-    </div>
+{% extends "base.html" %}
+{% block active_module %}reports{% endblock %}
+{% block page_title %}Reporting Center{% endblock %}
+{% block page_subtitle %}Reports and exports{% endblock %}
 
-    <div class="menu">
-      <a href="/dashboard">Dashboard</a>
-      <a href="/sites">Sites</a>
-      <a href="/daily_operations">Daily Operations</a>
-      <a href="/punchlist">Punchlist</a>
-      <a href="/pat">PAT</a>
-      <a href="/logout">Logout</a>
-    </div>
-
-    <div class="container">
+{% block content %}
+<div class="container">
       <div class="summary-grid">
         <div class="card">Projects<br /><br /><b>{{ total_projects }}</b></div>
         <div class="card">Operational Sites<br /><br /><b>{{ operational_sites }}</b></div>
@@ -58,5 +43,4 @@
         </a>
       </div>
     </div>
-  </body>
-</html>
+{% endblock %}

@@ -1,27 +1,10 @@
-<!DOCTYPE html>
-<html>
-  <head>
-    <title>ID Generator</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
-  </head>
+{% extends "base.html" %}
+{% block active_module %}id_management{% endblock %}
+{% block page_title %}ID Management{% endblock %}
+{% block page_subtitle %}Employee ID card workflow{% endblock %}
 
-  <body>
-    <div class="topbar">
-      <img class="logo" src="{{ url_for('static', filename='images/ruc_logo.png') }}" />
-      ID Generator
-    </div>
-
-    <div class="menu">
-      <a href="/dashboard">Dashboard</a>
-      <a href="/create_project">Create Project</a>
-      <a href="/search">Search</a>
-      <a href="/safety">Safety Compliance</a>
-      <a href="/sites">Sites</a>
-      <a href="/id_generator">ID Generator</a>
-      <a href="/logout">Logout</a>
-    </div>
-
-    <div class="container">
+{% block content %}
+<div class="container">
       <h2>Generate Employee ID</h2>
 
       <div class="grid">
@@ -43,5 +26,4 @@
         {% endfor %}
       </div>
     </div>
-  </body>
-</html>
+{% endblock %}

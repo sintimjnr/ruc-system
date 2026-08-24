@@ -384,7 +384,7 @@ def static_files(filename):
         if denied:
             return denied
 
-    if not normalized.startswith(("css/", "images/", "uploads/")):
+    if not normalized.startswith(("css/", "images/", "js/", "uploads/")):
         return "Invalid static path"
 
     return send_from_directory(safe_abs_path("static"), normalized)
@@ -428,6 +428,114 @@ def has_permission(role, permission):
 def can(permission):
 
     return has_permission(session.get("role"), permission)
+
+
+def initials_for_name(name):
+
+    words = [
+        clean_text(part)
+        for part in clean_text(name).replace("_", " ").split()
+        if clean_text(part)
+    ]
+
+    if not words:
+        return "U"
+
+    if len(words) == 1:
+        return words[0][:2].upper()
+
+    return (words[0][0] + words[-1][0]).upper()
+
+
+def current_user_profile():
+
+    profile = {
+        "admin_id": session.get("admin_id"),
+        "username": session.get("admin"),
+        "role": session.get("role"),
+        "role_label": role_label(session.get("role")),
+        "display_name": session.get("admin") or "User",
+        "initials": initials_for_name(session.get("admin") or "User"),
+        "avatar_url": None,
+        "employee_id": session.get("employee_id"),
+        "profile_url": None,
+        "change_password_url": None,
+    }
+
+    admin_id = session.get("admin_id")
+
+    if not admin_id:
+        return profile
+
+    conn = None
+    cursor = None
+
+    try:
+        conn = connect_db()
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT a.id,
+                   a.username,
+                   a.role,
+                   a.active,
+                   a.employee_id,
+                   e.first_name,
+                   e.last_name,
+                   e.photo
+            FROM admins a
+            LEFT JOIN employees e ON a.employee_id = e.id
+            WHERE a.id=%s
+            """,
+            (admin_id,),
+        )
+        account = row_to_dict(cursor)
+
+        if account:
+            display_name = account_display_name(account) or account.get("username")
+            profile.update(
+                {
+                    "admin_id": account.get("id"),
+                    "username": account.get("username"),
+                    "role": account.get("role"),
+                    "role_label": role_label(account.get("role")),
+                    "display_name": display_name,
+                    "initials": initials_for_name(display_name),
+                    "employee_id": account.get("employee_id"),
+                }
+            )
+
+            employee_id = account.get("employee_id")
+            photo = account.get("photo")
+            photo_authorized = bool(employee_id and photo) and (
+                is_super_admin_role(account.get("role"))
+                or is_hr_role(account.get("role"))
+                or (
+                    is_team_leader_role(account.get("role"))
+                    and team_leader_has_employee(cursor, employee_id, admin_id=admin_id)
+                )
+            )
+
+            if photo_authorized:
+                profile["avatar_url"] = url_for(
+                    "employee_file", employee_id=employee_id, file_kind="photo"
+                )
+
+    except Exception:
+        profile["avatar_url"] = None
+
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+
+    try:
+        profile["profile_url"] = url_for("profile")
+    except Exception:
+        profile["profile_url"] = None
+
+    return profile
 
 
 def get_request_ip():
@@ -642,17 +750,38 @@ def super_admin_required(view):
     return role_required("super_admin")(view)
 
 
+def static_asset(filename):
+
+    normalized = filename.replace("\\", "/").lstrip("/")
+
+    try:
+        file_path = safe_abs_path("static", normalized)
+
+        if os.path.isfile(file_path):
+            return url_for("static", filename=normalized, v=int(os.path.getmtime(file_path)))
+
+    except ValueError:
+        pass
+
+    return url_for("static", filename=normalized)
+
+
 @app.context_processor
 def inject_auth_context():
 
+    profile = current_user_profile()
+
     return {
         "current_username": session.get("admin"),
+        "current_admin_id": session.get("admin_id"),
         "current_role": session.get("role"),
         "current_effective_role": current_effective_role(),
         "current_role_label": role_label(session.get("role")),
+        "current_profile": profile,
         "role_label": role_label,
         "effective_role": effective_role,
         "can": can,
+        "static_asset": static_asset,
         "ROLE_LABELS": ROLE_LABELS,
         "ROLE_FORM_LABELS": ROLE_FORM_LABELS,
     }
@@ -4938,6 +5067,76 @@ def dashboard():
     )
 
 
+@app.route("/projects")
+@permission_required("manage_projects")
+def projects_workspace():
+
+    filters = {"search": clean_text(request.args.get("search"))}
+    conditions = ["TRUE"]
+    params = []
+
+    if filters["search"]:
+        conditions.append(
+            """
+            (
+                p.project_code ILIKE %s
+                OR p.project_name ILIKE %s
+                OR p.company ILIKE %s
+                OR p.region ILIKE %s
+            )
+            """
+        )
+        search_term = f"%{filters['search']}%"
+        params.extend([search_term, search_term, search_term, search_term])
+
+    conn = connect_db()
+    cursor = conn.cursor()
+    cursor.execute(
+        f"""
+        SELECT p.id,
+               p.project_code,
+               p.project_name,
+               p.company,
+               p.region,
+               p.date_created,
+               COUNT(DISTINCT e.id) AS employee_count,
+               COUNT(DISTINCT ts.id) AS site_count,
+               COALESCE(ROUND(AVG(ts.overall_progress))::int, 0) AS average_progress
+        FROM projects p
+        LEFT JOIN employees e ON e.project_id = p.id
+        LEFT JOIN telecom_sites ts ON ts.project_id = p.id
+        WHERE {' AND '.join(conditions)}
+        GROUP BY p.id, p.project_code, p.project_name, p.company, p.region, p.date_created
+        ORDER BY p.date_created DESC, p.id DESC
+        """,
+        params,
+    )
+    project_rows = rows_to_dicts(cursor)
+
+    cursor.execute("SELECT COUNT(*) FROM projects")
+    total_projects = cursor.fetchone()[0]
+
+    cursor.execute("SELECT COUNT(*) FROM employees")
+    total_employees = cursor.fetchone()[0]
+
+    cursor.execute("SELECT COUNT(*) FROM telecom_sites")
+    total_sites = cursor.fetchone()[0]
+
+    cursor.close()
+    conn.close()
+
+    return render_template(
+        "projects.html",
+        projects=project_rows,
+        filters=filters,
+        summary={
+            "total_projects": total_projects,
+            "total_employees": total_employees,
+            "total_sites": total_sites,
+        },
+    )
+
+
 #############################################
 # PHASE 7 USER MANAGEMENT AND AUDIT LOGS
 #############################################
@@ -5066,6 +5265,27 @@ def available_user_roles():
         return {"team_leader": ROLE_FORM_LABELS["team_leader"]}
 
     return {}
+
+
+@app.route("/profile")
+@login_required
+def profile():
+
+    conn = connect_db()
+    cursor = conn.cursor()
+    user = get_admin_account(cursor, session.get("admin_id"))
+    cursor.close()
+    conn.close()
+
+    if not user:
+        flash("Profile not found.")
+        return redirect(url_for("dashboard"))
+
+    return render_template(
+        "profile.html",
+        user=user,
+        display_name=account_display_name(user),
+    )
 
 
 @app.route("/users")

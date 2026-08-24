@@ -1,24 +1,10 @@
-<!DOCTYPE html>
-<html>
-  <head>
-    <title>{% if mode == 'edit' %}Edit{% else %}New{% endif %} Daily Report</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
-  </head>
-  <body>
-    <div class="topbar">
-      <img class="logo" src="{{ url_for('static', filename='images/ruc_logo.png') }}" />
-      {% if mode == 'edit' %}Edit{% else %}New{% endif %} Daily Report
-    </div>
+{% extends "base.html" %}
+{% block active_module %}daily_operations{% endblock %}
+{% block page_title %}Daily Report{% endblock %}
+{% block page_subtitle %}Create or edit daily site activity{% endblock %}
 
-    <div class="menu">
-      <a href="/dashboard">Dashboard</a>
-      <a href="/daily_operations">Daily Operations</a>
-      <a href="{{ url_for('site_detail', du_id=site.du_id) }}">Site Detail</a>
-      <a href="/sites">Sites</a>
-      <a href="/logout">Logout</a>
-    </div>
-
-    <div class="container">
+{% block content %}
+<div class="container">
       <div class="site-heading">
         <div>
           <h1>{{ site.du_id }}</h1>
@@ -29,16 +15,7 @@
           <span class="status {{ site.overall_status|lower|replace(' ', '-') }}">{{ site.overall_status }}</span>
         </div>
       </div>
-
-      {% with messages = get_flashed_messages() %}
-        {% if messages %}
-          {% for message in messages %}
-            <div class="notice">{{ message }}</div>
-          {% endfor %}
-        {% endif %}
-      {% endwith %}
-
-      <form method="POST" enctype="multipart/form-data">
+<form method="POST" enctype="multipart/form-data">
         <div class="form-box wide">
           <h2>Report</h2>
           <div class="filter-grid">
@@ -181,5 +158,4 @@
         </div>
       </form>
     </div>
-  </body>
-</html>
+{% endblock %}

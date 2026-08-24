@@ -1,0 +1,242 @@
+<aside class="app-sidebar" aria-label="Primary navigation">
+  <div class="sidebar-brand">
+    <img class="sidebar-logo" src="{{ url_for('static', filename='images/ruc_logo.png') }}" alt="RUC logo" />
+    <div>
+      <strong>RUC SYSTEM</strong>
+      <span>Local Operations</span>
+    </div>
+    <button class="icon-button sidebar-collapse" type="button" data-sidebar-collapse aria-label="Collapse sidebar">
+      <span></span>
+      <span></span>
+    </button>
+  </div>
+
+  <nav class="sidebar-nav">
+    {% if current_effective_role == 'team_leader' %}
+      <div class="nav-section">
+        <span class="nav-section-title">MAIN</span>
+        <a class="nav-link {% if shell_active_module == 'team_leader' %}is-active{% endif %}" href="{{ url_for('team_leader_dashboard') }}">
+          <span class="nav-icon">MW</span><span class="nav-text">My Work</span>
+        </a>
+      </div>
+
+      <div class="nav-section">
+        <span class="nav-section-title">FIELD OPERATIONS</span>
+        <a class="nav-link {% if shell_active_module == 'sites' %}is-active{% endif %}" href="{{ url_for('sites') }}">
+          <span class="nav-icon">ST</span><span class="nav-text">My Sites</span>
+        </a>
+        <a class="nav-link {% if shell_active_module == 'daily_operations' %}is-active{% endif %}" href="{{ url_for('daily_operations') }}">
+          <span class="nav-icon">DO</span><span class="nav-text">Daily Reports</span>
+        </a>
+        {% if can('manage_tasks') %}
+          <a class="nav-link {% if shell_active_module == 'tasks' %}is-active{% endif %}" href="{{ url_for('telecom_tasks') }}">
+            <span class="nav-icon">TK</span><span class="nav-text">Tasks</span>
+          </a>
+        {% endif %}
+        {% if can('manage_operations') %}
+          <a class="nav-link {% if shell_active_module == 'toolbox' %}is-active{% endif %}" href="{{ url_for('toolbox_talks') }}">
+            <span class="nav-icon">TB</span><span class="nav-text">Toolbox Talks</span>
+          </a>
+        {% endif %}
+        {% if can('manage_incidents') %}
+          <a class="nav-link {% if shell_active_module == 'incidents' %}is-active{% endif %}" href="{{ url_for('incidents') }}">
+            <span class="nav-icon">IN</span><span class="nav-text">Incidents</span>
+          </a>
+        {% endif %}
+        {% if can('manage_punchlist') %}
+          <a class="nav-link {% if shell_active_module == 'punchlist' %}is-active{% endif %}" href="{{ url_for('punchlist') }}">
+            <span class="nav-icon">PL</span><span class="nav-text">Punchlist</span>
+          </a>
+        {% endif %}
+        {% if can('view_pat') or can('manage_pat') %}
+          <a class="nav-link {% if shell_active_module == 'pat' %}is-active{% endif %}" href="{{ url_for('pat_history') }}">
+            <span class="nav-icon">PA</span><span class="nav-text">PAT</span>
+          </a>
+        {% endif %}
+      </div>
+
+      <div class="nav-section">
+        <span class="nav-section-title">TEAM</span>
+        <a class="nav-link" href="{{ url_for('team_leader_dashboard') }}#my-team">
+          <span class="nav-icon">MY</span><span class="nav-text">My Team</span>
+        </a>
+        <a class="nav-link {% if shell_active_module == 'safety' %}is-active{% endif %}" href="{{ url_for('safety_compliance') }}">
+          <span class="nav-icon">SF</span><span class="nav-text">Safety Status</span>
+        </a>
+      </div>
+
+      <div class="nav-section">
+        <span class="nav-section-title">REPORTS</span>
+        <a class="nav-link {% if shell_active_module == 'reports' %}is-active{% endif %}" href="{{ url_for('reports_center') }}">
+          <span class="nav-icon">RP</span><span class="nav-text">Authorized Reports</span>
+        </a>
+      </div>
+    {% elif current_effective_role == 'hr' %}
+      <div class="nav-section">
+        <span class="nav-section-title">MAIN</span>
+        <a class="nav-link {% if shell_active_module == 'dashboard' %}is-active{% endif %}" href="{{ url_for('dashboard') }}">
+          <span class="nav-icon">DB</span><span class="nav-text">Dashboard</span>
+        </a>
+      </div>
+
+      <div class="nav-section">
+        <span class="nav-section-title">PEOPLE &amp; SAFETY</span>
+        <a class="nav-link {% if shell_active_module == 'employees' %}is-active{% endif %}" href="{{ url_for('search') }}">
+          <span class="nav-icon">EM</span><span class="nav-text">Employees</span>
+        </a>
+        <a class="nav-link {% if shell_active_module == 'safety' %}is-active{% endif %}" href="{{ url_for('safety_compliance') }}">
+          <span class="nav-icon">SF</span><span class="nav-text">Safety Compliance</span>
+        </a>
+        {% if can('manage_safety') %}
+          <a class="nav-link {% if shell_active_module == 'safety_documents' %}is-active{% endif %}" href="{{ url_for('safety_documents') }}">
+            <span class="nav-icon">SD</span><span class="nav-text">Safety Documents</span>
+          </a>
+        {% endif %}
+        {% if can('generate_ids') %}
+          <a class="nav-link {% if shell_active_module == 'id_management' %}is-active{% endif %}" href="{{ url_for('id_generator') }}">
+            <span class="nav-icon">ID</span><span class="nav-text">ID Management</span>
+          </a>
+        {% endif %}
+      </div>
+
+      <div class="nav-section">
+        <span class="nav-section-title">REPORTS</span>
+        {% if can('export_reports') %}
+          <a class="nav-link {% if shell_active_module == 'reports' %}is-active{% endif %}" href="{{ url_for('reports_center') }}">
+            <span class="nav-icon">RP</span><span class="nav-text">Reporting Center</span>
+          </a>
+        {% endif %}
+      </div>
+
+      {% if can('manage_team_leader_accounts') %}
+        <div class="nav-section">
+          <span class="nav-section-title">ADMINISTRATION</span>
+          <a class="nav-link {% if shell_active_module == 'users' %}is-active{% endif %}" href="{{ url_for('users') }}">
+            <span class="nav-icon">UM</span><span class="nav-text">Team Leader Accounts</span>
+          </a>
+        </div>
+      {% endif %}
+    {% else %}
+      <div class="nav-section">
+        <span class="nav-section-title">MAIN</span>
+        <a class="nav-link {% if shell_active_module == 'dashboard' %}is-active{% endif %}" href="{{ url_for('dashboard') }}">
+          <span class="nav-icon">DB</span><span class="nav-text">Dashboard</span>
+        </a>
+      </div>
+
+      <div class="nav-section">
+        <span class="nav-section-title">OPERATIONS</span>
+        {% if can('manage_projects') %}
+          <a class="nav-link {% if shell_active_module == 'projects' %}is-active{% endif %}" href="{{ url_for('projects_workspace') }}">
+            <span class="nav-icon">PR</span><span class="nav-text">Projects</span>
+          </a>
+        {% endif %}
+        <a class="nav-link {% if shell_active_module == 'sites' %}is-active{% endif %}" href="{{ url_for('sites') }}">
+          <span class="nav-icon">ST</span><span class="nav-text">Sites</span>
+        </a>
+        <a class="nav-link {% if shell_active_module == 'daily_operations' %}is-active{% endif %}" href="{{ url_for('daily_operations') }}">
+          <span class="nav-icon">DO</span><span class="nav-text">Daily Operations</span>
+        </a>
+        {% if can('manage_tasks') %}
+          <a class="nav-link {% if shell_active_module == 'tasks' %}is-active{% endif %}" href="{{ url_for('telecom_tasks') }}">
+            <span class="nav-icon">TK</span><span class="nav-text">Tasks</span>
+          </a>
+        {% endif %}
+        {% if can('manage_permits') %}
+          <a class="nav-link {% if shell_active_module == 'permits' %}is-active{% endif %}" href="{{ url_for('permits') }}">
+            <span class="nav-icon">PT</span><span class="nav-text">Permits</span>
+          </a>
+        {% endif %}
+        {% if can('manage_operations') %}
+          <a class="nav-link {% if shell_active_module == 'toolbox' %}is-active{% endif %}" href="{{ url_for('toolbox_talks') }}">
+            <span class="nav-icon">TB</span><span class="nav-text">Toolbox Talks</span>
+          </a>
+        {% endif %}
+        {% if can('manage_incidents') %}
+          <a class="nav-link {% if shell_active_module == 'incidents' %}is-active{% endif %}" href="{{ url_for('incidents') }}">
+            <span class="nav-icon">IN</span><span class="nav-text">Incidents</span>
+          </a>
+        {% endif %}
+      </div>
+
+      <div class="nav-section">
+        <span class="nav-section-title">PEOPLE &amp; SAFETY</span>
+        <a class="nav-link {% if shell_active_module == 'employees' %}is-active{% endif %}" href="{{ url_for('search') }}">
+          <span class="nav-icon">EM</span><span class="nav-text">Employees</span>
+        </a>
+        {% if can('manage_teams') %}
+          <a class="nav-link {% if shell_active_module == 'teams' %}is-active{% endif %}" href="{{ url_for('teams') }}">
+            <span class="nav-icon">TM</span><span class="nav-text">Teams</span>
+          </a>
+        {% endif %}
+        {% if can('manage_assignments') %}
+          <a class="nav-link {% if shell_active_module == 'assignments' %}is-active{% endif %}" href="{{ url_for('site_assignments') }}">
+            <span class="nav-icon">AS</span><span class="nav-text">Assignments</span>
+          </a>
+        {% endif %}
+        <a class="nav-link {% if shell_active_module == 'safety' %}is-active{% endif %}" href="{{ url_for('safety_compliance') }}">
+          <span class="nav-icon">SF</span><span class="nav-text">Safety Compliance</span>
+        </a>
+        {% if can('manage_safety') %}
+          <a class="nav-link {% if shell_active_module == 'safety_documents' %}is-active{% endif %}" href="{{ url_for('safety_documents') }}">
+            <span class="nav-icon">SD</span><span class="nav-text">Safety Documents</span>
+          </a>
+        {% endif %}
+        {% if can('generate_ids') %}
+          <a class="nav-link {% if shell_active_module == 'id_management' %}is-active{% endif %}" href="{{ url_for('id_generator') }}">
+            <span class="nav-icon">ID</span><span class="nav-text">ID Management</span>
+          </a>
+        {% endif %}
+      </div>
+
+      <div class="nav-section">
+        <span class="nav-section-title">QUALITY &amp; HANDOVER</span>
+        {% if can('manage_punchlist') or can('view_pat') %}
+          <a class="nav-link {% if shell_active_module == 'punchlist' %}is-active{% endif %}" href="{{ url_for('punchlist') }}">
+            <span class="nav-icon">PL</span><span class="nav-text">Punchlist</span>
+          </a>
+        {% endif %}
+        {% if can('manage_pat') or can('view_pat') %}
+          <a class="nav-link {% if shell_active_module == 'pat' %}is-active{% endif %}" href="{{ url_for('pat_history') }}">
+            <span class="nav-icon">PA</span><span class="nav-text">PAT</span>
+          </a>
+        {% endif %}
+        {% if can('export_reports') %}
+          <a class="nav-link {% if shell_active_module == 'handover' %}is-active{% endif %}" href="{{ url_for('pat_acceptance_report') }}">
+            <span class="nav-icon">HO</span><span class="nav-text">Acceptance / Handover</span>
+          </a>
+        {% endif %}
+      </div>
+
+      <div class="nav-section">
+        <span class="nav-section-title">REPORTS</span>
+        {% if can('export_reports') %}
+          <a class="nav-link {% if shell_active_module == 'reports' %}is-active{% endif %}" href="{{ url_for('reports_center') }}">
+            <span class="nav-icon">RP</span><span class="nav-text">Reporting Center</span>
+          </a>
+        {% endif %}
+      </div>
+
+      {% if can('manage_users') or can('manage_team_leader_accounts') or can('view_audit_logs') %}
+        <div class="nav-section">
+          <span class="nav-section-title">ADMINISTRATION</span>
+          {% if can('manage_users') or can('manage_team_leader_accounts') %}
+            <a class="nav-link {% if shell_active_module == 'users' %}is-active{% endif %}" href="{{ url_for('users') }}">
+              <span class="nav-icon">UM</span><span class="nav-text">User Management</span>
+            </a>
+          {% endif %}
+        </div>
+      {% endif %}
+    {% endif %}
+
+    {% if can('reset_system') %}
+      <div class="nav-section danger-section">
+        <span class="nav-section-title">DANGER AREA</span>
+        <form method="POST" action="{{ url_for('reset_system') }}" onsubmit="return confirm('Reset project, employee, upload, ID, and operational records?')">
+          <button class="nav-danger" type="submit">Reset System</button>
+        </form>
+      </div>
+    {% endif %}
+  </nav>
+
+</aside>

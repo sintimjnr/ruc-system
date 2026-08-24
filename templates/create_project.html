@@ -1,39 +1,10 @@
-<!DOCTYPE html>
-<html>
+{% extends "base.html" %}
+{% block active_module %}projects{% endblock %}
+{% block page_title %}Create Project{% endblock %}
+{% block page_subtitle %}Project setup{% endblock %}
 
-<head>
-
-<link rel="stylesheet"
-href="{{ url_for('static',filename='css/style.css') }}">
-
-</head>
-
-
-<body>
-
-
-<div class="topbar">
-
-<img class="logo"
-src="{{ url_for('static',filename='images/ruc_logo.png') }}">
-
-RUC Management System
-
-</div>
-
-
-<div class="menu">
-
-<a href="/dashboard">Dashboard</a>
-<a href="/create_project">Create Project</a>
-<a href="/search">Search</a>
-<a href="/id_generator">ID Generator</a>
-<a href="/logout">Logout</a>
-
-</div>
-
-
-
+{% block content %}
+    <div class="container narrow-workspace">
 <div class="form-box">
 
 <h2>Create Project</h2>
@@ -64,8 +35,5 @@ Create Project
 
 
 </div>
-
-
-</body>
-
-</html>
+    </div>
+{% endblock %}

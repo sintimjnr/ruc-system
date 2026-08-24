@@ -1,0 +1,76 @@
+{% set shell_active_module %}{% block active_module %}{% endblock %}{% endset %}
+{% set shell_page_title %}{% block page_title %}RUC System{% endblock %}{% endset %}
+{% set shell_page_subtitle %}{% block page_subtitle %}{% endblock %}{% endset %}
+{% set shell_active_module = shell_active_module|trim %}
+{% set shell_page_title = shell_page_title|striptags|trim %}
+{% set shell_page_subtitle = shell_page_subtitle|striptags|trim %}
+<!DOCTYPE html>
+<html lang="en" data-theme="system">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <script>
+      ;(function () {
+        var THEME_KEY = 'ruc-theme'
+        var allowedThemes = ['system', 'light', 'dark']
+
+        function normalizeTheme(theme) {
+          return allowedThemes.indexOf(theme) === -1 ? 'system' : theme
+        }
+
+        function getCookieTheme() {
+          var match = document.cookie.match(new RegExp('(?:^|; )' + THEME_KEY + '=([^;]*)'))
+          return match ? decodeURIComponent(match[1]) : null
+        }
+
+        function getStoredTheme() {
+          var storedTheme = null
+
+          try {
+            storedTheme = window.localStorage ? window.localStorage.getItem(THEME_KEY) : null
+          } catch (error) {
+            storedTheme = null
+          }
+
+          return normalizeTheme(storedTheme || getCookieTheme() || 'system')
+        }
+
+        function getSystemTheme() {
+          return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+        }
+
+        try {
+          var theme = getStoredTheme()
+          document.documentElement.setAttribute('data-theme', theme)
+          document.documentElement.setAttribute('data-system-theme', getSystemTheme())
+        } catch (error) {
+          document.documentElement.setAttribute('data-theme', 'system')
+          document.documentElement.setAttribute('data-system-theme', 'light')
+        }
+      })()
+    </script>
+    <link rel="stylesheet" href="{{ static_asset('css/style.css') }}" />
+    <title>{{ shell_page_title or 'RUC System' }}</title>
+    {% block extra_css %}{% endblock %}
+  </head>
+  <body class="app-shell">
+    <div class="app-layout">
+      {% include "partials/sidebar.html" %}
+
+      <div class="app-main">
+        {% include "partials/header.html" %}
+
+        <main class="app-content" id="main-content">
+          {% include "partials/flash.html" %}
+          {% block toolbar %}{% endblock %}
+          {% block content %}{% endblock %}
+        </main>
+      </div>
+    </div>
+
+    <div class="sidebar-backdrop" data-sidebar-close></div>
+
+    <script src="{{ static_asset('js/theme.js') }}"></script>
+    {% block extra_js %}{% endblock %}
+  </body>
+</html>

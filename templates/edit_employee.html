@@ -1,25 +1,10 @@
-<!DOCTYPE html>
-<html>
-  <head>
-    <title>Edit Employee</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
-  </head>
+{% extends "base.html" %}
+{% block active_module %}employees{% endblock %}
+{% block page_title %}Edit Employee{% endblock %}
+{% block page_subtitle %}Personnel record{% endblock %}
 
-  <body>
-    <div class="topbar">
-      <img class="logo" src="{{ url_for('static', filename='images/ruc_logo.png') }}" />
-      Edit Employee
-    </div>
-
-    <div class="menu">
-      <a href="/dashboard">Dashboard</a>
-      <a href="/search">Search</a>
-      <a href="/safety">Safety Compliance</a>
-      <a href="/id_generator">ID Generator</a>
-      <a href="/logout">Logout</a>
-    </div>
-
-    <div class="container">
+{% block content %}
+<div class="container">
       <div class="form-box wide">
         <h2>{{ emp.first_name }} {{ emp.last_name }}</h2>
         <p class="muted">Project: {{ emp.project_name or '-' }} - {{ emp.project_code or '-' }}</p>
@@ -115,5 +100,4 @@
         </form>
       </div>
     </div>
-  </body>
-</html>
+{% endblock %}

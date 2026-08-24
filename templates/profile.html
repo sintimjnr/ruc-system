@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block active_module %}profile{% endblock %}
+{% block page_title %}My Profile{% endblock %}
+{% block page_subtitle %}Signed-in account identity{% endblock %}
+
+{% block content %}
+    <div class="container narrow-workspace">
+      <div class="profile-panel">
+        <div class="profile-avatar large">
+          {% if current_profile.avatar_url %}
+            <img src="{{ current_profile.avatar_url }}" alt="" />
+          {% else %}
+            <span>{{ current_profile.initials }}</span>
+          {% endif %}
+        </div>
+        <div>
+          <h2>{{ display_name }}</h2>
+          <span class="role-badge">{{ role_label(user.role) }}</span>
+        </div>
+      </div>
+
+      <div class="info-panel">
+        <h2>Account Details</h2>
+        <dl class="detail-list">
+          <dt>Username</dt>
+          <dd>{{ user.username }}</dd>
+
+          <dt>Role</dt>
+          <dd>{{ role_label(user.role) }}</dd>
+
+          <dt>Status</dt>
+          <dd>
+            {% if user.active %}
+              <span class="status valid">ACTIVE</span>
+            {% else %}
+              <span class="status expired">INACTIVE</span>
+            {% endif %}
+          </dd>
+
+          <dt>Linked Employee</dt>
+          <dd>
+            {% if user.employee_id %}
+              {{ display_name }}
+              <br />
+              <a class="btn-small" href="{{ url_for('employee_dossier', employee_id=user.employee_id) }}">Open Employee Record</a>
+            {% else %}
+              <span class="muted">No linked employee record.</span>
+            {% endif %}
+          </dd>
+
+          <dt>Last Login</dt>
+          <dd>{{ user.last_login or '-' }}</dd>
+        </dl>
+      </div>
+    </div>
+{% endblock %}

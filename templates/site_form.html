@@ -1,24 +1,10 @@
-<!DOCTYPE html>
-<html>
-  <head>
-    <title>{% if mode == 'new' %}Register Site{% else %}Edit Site{% endif %}</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
-  </head>
-  <body>
-    <div class="topbar">
-      <img class="logo" src="{{ url_for('static', filename='images/ruc_logo.png') }}" />
-      {% if mode == 'new' %}Register Operational Site{% else %}Edit Operational Site{% endif %}
-    </div>
+{% extends "base.html" %}
+{% block active_module %}sites{% endblock %}
+{% block page_title %}Site Registration{% endblock %}
+{% block page_subtitle %}Operational site details{% endblock %}
 
-    <div class="menu">
-      <a href="/dashboard">Dashboard</a>
-      <a href="/sites">Telecom Sites</a>
-      <a href="/site_assignments">Assignments</a>
-      <a href="/telecom_tasks">Tasks</a>
-      <a href="/logout">Logout</a>
-    </div>
-
-    <div class="container">
+{% block content %}
+<div class="container">
       <div class="detail-grid">
         <section class="info-panel">
           <h2>Tracker / Reference Data</h2>
@@ -107,5 +93,4 @@
         </section>
       </div>
     </div>
-  </body>
-</html>
+{% endblock %}

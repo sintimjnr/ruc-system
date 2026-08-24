@@ -1,26 +1,10 @@
-<!DOCTYPE html>
-<html>
-  <head>
-    <title>Personnel Dossier</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
-  </head>
-  <body>
-    <div class="topbar">
-      <img class="logo" src="{{ url_for('static', filename='images/ruc_logo.png') }}" />
-      Personnel Dossier
-    </div>
+{% extends "base.html" %}
+{% block active_module %}employees{% endblock %}
+{% block page_title %}Employee Dossier{% endblock %}
+{% block page_subtitle %}Personnel, safety, and documents{% endblock %}
 
-    <div class="menu">
-      <a href="/dashboard">Dashboard</a>
-      <a href="/search">Personnel</a>
-      <a href="/safety">Safety Compliance</a>
-      <a href="/sites">Telecom Sites</a>
-      <a href="/daily_operations">Daily Operations</a>
-      <a href="/id_generator">ID Generator</a>
-      <a href="/logout">Logout</a>
-    </div>
-
-    <div class="container">
+{% block content %}
+<div class="container">
       <div class="site-heading">
         <div>
           <h1>{{ emp.full_name }}</h1>
@@ -250,5 +234,4 @@
         {% endif %}
       </div>
     </div>
-  </body>
-</html>
+{% endblock %}

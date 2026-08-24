@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% block active_module %}projects{% endblock %}
+{% block page_title %}Projects{% endblock %}
+{% block page_subtitle %}Project management workspace{% endblock %}
+
+{% block content %}
+    <div class="container data-workspace">
+      <div class="summary-grid">
+        <div class="card">Projects<br /><br /><b>{{ summary.total_projects }}</b></div>
+        <div class="card">Telecom Sites<br /><br /><b>{{ summary.total_sites }}</b></div>
+        <div class="card">Employees<br /><br /><b>{{ summary.total_employees }}</b></div>
+      </div>
+
+      <div class="toolbar">
+        {% if can('manage_projects') %}
+          <a class="btn" href="{{ url_for('create_project') }}">Create Project</a>
+        {% endif %}
+      </div>
+
+      <div class="form-box wide">
+        <h2>Project Search</h2>
+        <form method="GET" action="{{ url_for('projects_workspace') }}" class="filter-grid">
+          <input name="search" value="{{ filters.search }}" placeholder="Project code, name, company, or region" />
+          <button type="submit">Search Projects</button>
+        </form>
+      </div>
+
+      <h2>Project Register</h2>
+      <table>
+        <tr>
+          <th>Project Code</th>
+          <th>Project Name</th>
+          <th>Company</th>
+          <th>Region</th>
+          <th>Sites</th>
+          <th>Employees</th>
+          <th>Progress</th>
+          <th>Created</th>
+          <th>Actions</th>
+        </tr>
+        {% for project in projects %}
+          <tr>
+            <td><strong>{{ project.project_code }}</strong></td>
+            <td>{{ project.project_name }}</td>
+            <td>{{ project.company or '-' }}</td>
+            <td>{{ project.region or '-' }}</td>
+            <td>{{ project.site_count }}</td>
+            <td>{{ project.employee_count }}</td>
+            <td>{{ project.average_progress }}%</td>
+            <td>{{ project.date_created or '-' }}</td>
+            <td>
+              {% if can('manage_personnel') %}
+                <a class="btn-small" href="{{ url_for('form', code=project.project_code) }}" target="_blank">Employee Form</a>
+                <button class="btn-small" type="button" onclick="copyProjectLink('{{ project.project_code }}')">Copy Link</button>
+              {% endif %}
+              {% if can('view_project_workbooks') %}
+                <a class="btn-small" href="{{ url_for('open_excel', code=project.project_code) }}">Workbook</a>
+              {% endif %}
+              {% if can('delete_projects') %}
+                <form class="inline-form" method="POST" action="{{ url_for('delete_project', code=project.project_code) }}" onsubmit="return confirm('Delete this project and its Excel file?')">
+                  <button class="btn-small delete" type="submit">Delete</button>
+                </form>
+              {% endif %}
+            </td>
+          </tr>
+        {% else %}
+          <tr>
+            <td colspan="9">No projects found.</td>
+          </tr>
+        {% endfor %}
+      </table>
+    </div>
+{% endblock %}
+
+{% block extra_js %}
+    <script>
+      function copyProjectLink(projectCode) {
+        const link = window.location.origin + '/form/' + projectCode
+
+        navigator.clipboard
+          .writeText(link)
+          .then(() => {
+            alert('Project link copied successfully!')
+          })
+          .catch(() => {
+            alert('Failed to copy link.')
+          })
+      }
+    </script>
+{% endblock %}

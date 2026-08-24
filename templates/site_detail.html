@@ -1,33 +1,10 @@
-<!DOCTYPE html>
-<html>
-  <head>
-    <title>Site {{ site.du_id }}</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
-  </head>
-  <body>
-    <div class="topbar">
-      <img class="logo" src="{{ url_for('static', filename='images/ruc_logo.png') }}" />
-      Site {{ site.du_id }}
-    </div>
+{% extends "base.html" %}
+{% block active_module %}sites{% endblock %}
+{% block page_title %}Site {{ site.du_id }}{% endblock %}
+{% block page_subtitle %}Operational site detail{% endblock %}
 
-    <div class="menu">
-      <a href="/dashboard">Dashboard</a>
-      <a href="/sites">Telecom Sites</a>
-      {% if can('manage_assignments') %}<a href="/site_assignments">Assignments</a>{% endif %}
-      <a href="/telecom_tasks">Tasks</a>
-      <a href="/daily_operations">Daily Operations</a>
-      <a href="/reports">Reports</a>
-      <a href="/punchlist">Punchlist</a>
-      <a href="/pat">PAT</a>
-      {% if can('manage_permits') %}<a href="/permits">Permits</a>{% endif %}
-      <a href="/incidents">Incidents</a>
-      {% if can('manage_sites') %}
-        <a href="{{ url_for('edit_site', du_id=site.du_id) }}">Edit Site</a>
-      {% endif %}
-      <a href="/logout">Logout</a>
-    </div>
-
-    <div class="container">
+{% block content %}
+<div class="container">
       <div class="site-heading">
         <div>
           <h1>{{ site.du_id }}</h1>
@@ -41,16 +18,7 @@
           <span class="status {{ acceptance_info.display_status|lower|replace(' ', '-') }}">Acceptance {{ acceptance_info.display_status }}</span>
         </div>
       </div>
-
-      {% with messages = get_flashed_messages() %}
-        {% if messages %}
-          {% for message in messages %}
-            <div class="notice">{{ message }}</div>
-          {% endfor %}
-        {% endif %}
-      {% endwith %}
-
-      <div class="detail-grid">
+<div class="detail-grid">
         <section class="info-panel">
           <h2>Site Information</h2>
           <dl class="detail-list">
@@ -502,5 +470,4 @@
         </section>
       </div>
     </div>
-  </body>
-</html>
+{% endblock %}

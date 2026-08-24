@@ -1,32 +1,11 @@
-<!DOCTYPE html>
-<html>
-  <head>
-    <title>{{ team.name }}</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
-  </head>
-  <body>
-    <div class="topbar">
-      <img class="logo" src="{{ url_for('static', filename='images/ruc_logo.png') }}" />
-      {{ team.name }}
-    </div>
+{% extends "base.html" %}
+{% block active_module %}teams{% endblock %}
+{% block page_title %}Team Detail{% endblock %}
+{% block page_subtitle %}Team membership{% endblock %}
 
-    <div class="menu">
-      <a href="/dashboard">Dashboard</a>
-      <a href="/teams">Teams</a>
-      <a href="{{ url_for('edit_team', team_id=team.id) }}">Edit Team</a>
-      <a href="/logout">Logout</a>
-    </div>
-
-    <div class="container">
-      {% with messages = get_flashed_messages() %}
-        {% if messages %}
-          {% for message in messages %}
-            <div class="notice">{{ message }}</div>
-          {% endfor %}
-        {% endif %}
-      {% endwith %}
-
-      <div class="detail-grid">
+{% block content %}
+<div class="container">
+<div class="detail-grid">
         <section class="info-panel">
           <h2>Team</h2>
           <dl class="detail-list">
@@ -101,5 +80,4 @@
         {% endfor %}
       </table>
     </div>
-  </body>
-</html>
+{% endblock %}

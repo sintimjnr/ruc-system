@@ -1,27 +1,10 @@
-<!DOCTYPE html>
-<html>
-  <head>
-    <title>Safety Documents</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
-  </head>
-  <body>
-    <div class="topbar">
-      <img class="logo" src="{{ url_for('static', filename='images/ruc_logo.png') }}" />
-      Safety Documents
-    </div>
+{% extends "base.html" %}
+{% block active_module %}safety_documents{% endblock %}
+{% block page_title %}Safety Documents{% endblock %}
+{% block page_subtitle %}Document register{% endblock %}
 
-    <div class="menu">
-      <a href="/dashboard">Dashboard</a>
-      <a href="/search">Personnel</a>
-      <a href="/safety">Safety Compliance</a>
-      <a href="/sites">Sites</a>
-      <a href="/telecom_tasks">Tasks</a>
-      <a href="/permits">Permits</a>
-      <a href="/incidents">Incidents</a>
-      <a href="/logout">Logout</a>
-    </div>
-
-    <div class="container">
+{% block content %}
+<div class="container">
       {% if can('manage_safety') %}
         <div class="form-box wide">
           <h2>Add Safety Document</h2>
@@ -120,5 +103,4 @@
         {% endfor %}
       </table>
     </div>
-  </body>
-</html>
+{% endblock %}

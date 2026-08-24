@@ -1,36 +1,10 @@
-<!DOCTYPE html>
-<html>
-  <head>
-    <title>Team Leader Dashboard</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
-  </head>
-  <body>
-    <div class="topbar">
-      <img class="logo" src="{{ url_for('static', filename='images/ruc_logo.png') }}" />
-      Team Leader Dashboard
-    </div>
+{% extends "base.html" %}
+{% block active_module %}team_leader{% endblock %}
+{% block page_title %}My Work{% endblock %}
+{% block page_subtitle %}Team Leader dashboard{% endblock %}
 
-    <div class="menu">
-      <a href="/team_leader">My Team</a>
-      <a href="/sites">Assigned Sites</a>
-      <a href="/daily_operations">Daily Operations</a>
-      <a href="/telecom_tasks">Tasks</a>
-      <a href="/toolbox_talks">Toolbox Talks</a>
-      <a href="/incidents">Incidents</a>
-      <a href="/punchlist">Punchlist</a>
-      <a href="/pat">PAT</a>
-      <a href="/reports">Reports</a>
-      <a href="/logout">Logout</a>
-    </div>
-
+{% block content %}
     <div class="container">
-      {% with messages = get_flashed_messages() %}
-        {% if messages %}
-          {% for message in messages %}
-            <div class="notice">{{ message }}</div>
-          {% endfor %}
-        {% endif %}
-      {% endwith %}
 
       <div class="summary-grid">
         <div class="card">Team Members<br /><br /><b>{{ summary.team_members }}</b></div>
@@ -41,7 +15,7 @@
         <div class="card">Open Punchlist<br /><br /><b>{{ summary.open_punchlists }}</b></div>
       </div>
 
-      <h2>Assigned Sites</h2>
+      <h2 id="assigned-sites">Assigned Sites</h2>
       <table>
         <tr>
           <th>Team</th>
@@ -71,7 +45,7 @@
         {% endfor %}
       </table>
 
-      <h2>My Team</h2>
+      <h2 id="my-team">My Team</h2>
       <table>
         <tr>
           <th>Employee</th>
@@ -103,5 +77,4 @@
         {% endfor %}
       </table>
     </div>
-  </body>
-</html>
+{% endblock %}

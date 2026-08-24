@@ -1,54 +1,10 @@
-<!DOCTYPE html>
-<html>
-  <head>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
-    <title>RUC System</title>
-  </head>
+{% extends "base.html" %}
+{% block active_module %}dashboard{% endblock %}
+{% block page_title %}Dashboard{% endblock %}
+{% block page_subtitle %}RUC System overview{% endblock %}
 
-  <body>
-    <div class="topbar">
-      <img class="logo" src="{{ url_for('static', filename='images/ruc_logo.png') }}" />
-      RUC Management System
-    </div>
-
-    <div class="menu">
-      <a href="/dashboard">Dashboard</a>
-      {% if can('manage_projects') %}<a href="/create_project">Create Project</a>{% endif %}
-      <a href="/search">Search</a>
-      <a href="/safety">Safety Compliance</a>
-      <a href="/sites">Sites</a>
-      <a href="/daily_operations">Daily Operations</a>
-      <a href="/reports">Reports</a>
-      <a href="/punchlist">Punchlist</a>
-      <a href="/pat">PAT</a>
-      {% if can('manage_safety') %}<a href="/safety_documents">Safety Documents</a>{% endif %}
-      {% if can('manage_assignments') %}<a href="/site_assignments">Assignments</a>{% endif %}
-      {% if can('manage_teams') %}<a href="/teams">Teams</a>{% endif %}
-      {% if can('manage_tasks') %}<a href="/telecom_tasks">Tasks</a>{% endif %}
-      {% if can('manage_permits') %}<a href="/permits">Permits</a>{% endif %}
-      {% if can('manage_operations') %}<a href="/toolbox_talks">Toolbox Talks</a>{% endif %}
-      {% if can('manage_incidents') %}<a href="/incidents">Incidents</a>{% endif %}
-      {% if can('generate_ids') %}<a href="/id_generator">ID Generator</a>{% endif %}
-      {% if can('manage_users') or can('manage_team_leader_accounts') %}<a href="/users">Users</a>{% endif %}
-      {% if can('view_audit_logs') %}<a href="/audit_logs">Audit Log</a>{% endif %}
-      <a href="/logout">Logout</a>
-
-      {% if can('reset_system') %}
-      <form class="inline-form" method="POST" action="/reset_system" onsubmit="return confirm('Reset project, employee, upload, ID, and operational records?')">
-        <button class="btn danger" type="submit">Reset System</button>
-      </form>
-      {% endif %}
-    </div>
-
-    <div class="container">
-      {% with messages = get_flashed_messages() %}
-        {% if messages %}
-          {% for message in messages %}
-            <div class="notice">{{ message }}</div>
-          {% endfor %}
-        {% endif %}
-      {% endwith %}
-
+{% block content %}
+    <div class="container data-workspace dashboard-workspace">
       <div class="summary-grid">
         <div class="card">Projects<br /><br /><b>{{ total_projects }}</b></div>
         <div class="card">Telecom Sites<br /><br /><b>{{ total_telecom_sites }}</b></div>
@@ -79,6 +35,9 @@
       </div>
 
       <div class="toolbar">
+        {% if can('manage_projects') %}
+        <a class="btn" href="{{ url_for('projects_workspace') }}">Projects Workspace</a>
+        {% endif %}
         <a class="btn" href="/master_tracker" target="_blank">MASTER TRACKER</a>
         {% if can('manage_master_tracker') %}
         <a class="btn" href="/upload_master_tracker">Upload Updated Master Tracker</a>
@@ -87,7 +46,7 @@
         <a class="btn" href="/reports">Reporting Center</a>
       </div>
 
-      <div class="form-box wide">
+      <div class="form-box wide dashboard-filter-panel">
         <h2>Dashboard Filters</h2>
         <form method="GET" action="/dashboard" class="filter-grid">
           <select name="du_id">
@@ -135,39 +94,6 @@
           <button type="submit">Apply Filters</button>
         </form>
       </div>
-
-      <h2>Projects</h2>
-
-      <table>
-        <tr>
-          <th>Project</th>
-          <th>Region</th>
-          <th>Company</th>
-          <th>Actions</th>
-        </tr>
-
-        {% for project in projects %}
-          <tr>
-            <td>{{ project.project_name }}</td>
-            <td>{{ project.region }}</td>
-            <td>{{ project.company }}</td>
-            <td>
-              {% if can('manage_personnel') %}
-              <a class="btn" href="/form/{{ project.project_code }}" target="_blank">FORM</a>
-              {% endif %}
-              <a class="btn" href="/open_excel/{{ project.project_code }}">EXCEL</a>
-              {% if can('delete_projects') %}
-              <form class="inline-form" method="POST" action="/delete_project/{{ project.project_code }}" onsubmit="return confirm('Delete this project and its Excel file?')">
-                <button class="btn delete" type="submit">DELETE</button>
-              </form>
-              {% endif %}
-              {% if can('manage_personnel') %}
-              <button class="btn-small" onclick="copyProjectLink('{{ project.project_code }}')">Copy</button>
-              {% endif %}
-            </td>
-          </tr>
-        {% endfor %}
-      </table>
 
       <div class="dashboard-panels">
         <section>
@@ -343,20 +269,4 @@
         </section>
       </div>
     </div>
-
-    <script>
-      function copyProjectLink(projectCode) {
-        const link = window.location.origin + '/form/' + projectCode
-
-        navigator.clipboard
-          .writeText(link)
-          .then(() => {
-            alert('Project link copied successfully!')
-          })
-          .catch(() => {
-            alert('Failed to copy link.')
-          })
-      }
-    </script>
-  </body>
-</html>
+{% endblock %}

@@ -1,32 +1,11 @@
-<!DOCTYPE html>
-<html>
-  <head>
-    <title>{% if team %}Edit Team{% else %}Create Team{% endif %}</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
-  </head>
-  <body>
-    <div class="topbar">
-      <img class="logo" src="{{ url_for('static', filename='images/ruc_logo.png') }}" />
-      {% if team %}Edit Team{% else %}Create Team{% endif %}
-    </div>
+{% extends "base.html" %}
+{% block active_module %}teams{% endblock %}
+{% block page_title %}Team Form{% endblock %}
+{% block page_subtitle %}Create or edit team{% endblock %}
 
-    <div class="menu">
-      <a href="/dashboard">Dashboard</a>
-      <a href="/teams">Teams</a>
-      <a href="/users">User Management</a>
-      <a href="/logout">Logout</a>
-    </div>
-
-    <div class="container">
-      {% with messages = get_flashed_messages() %}
-        {% if messages %}
-          {% for message in messages %}
-            <div class="notice">{{ message }}</div>
-          {% endfor %}
-        {% endif %}
-      {% endwith %}
-
-      <div class="form-box">
+{% block content %}
+<div class="container">
+<div class="form-box">
         <h2>{% if team %}Edit Team{% else %}Create Team{% endif %}</h2>
         <form method="POST">
           <label>Team Name</label>
@@ -74,5 +53,4 @@
         </form>
       </div>
     </div>
-  </body>
-</html>
+{% endblock %}

@@ -1,23 +1,10 @@
-<!DOCTYPE html>
-<html>
-  <head>
-    <title>Assignment Safety Warning</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
-  </head>
-  <body>
-    <div class="topbar">
-      <img class="logo" src="{{ url_for('static', filename='images/ruc_logo.png') }}" />
-      Assignment Safety Warning
-    </div>
+{% extends "base.html" %}
+{% block active_module %}assignments{% endblock %}
+{% block page_title %}Assignment Warning{% endblock %}
+{% block page_subtitle %}{% endblock %}
 
-    <div class="menu">
-      <a href="/dashboard">Dashboard</a>
-      <a href="/site_assignments">Assignments</a>
-      <a href="/safety">Safety Compliance</a>
-      <a href="/logout">Logout</a>
-    </div>
-
-    <div class="container">
+{% block content %}
+<div class="container">
       <div class="notice danger">
         This worker is not safety cleared. You may continue, but the assignment should be reviewed before field deployment.
       </div>
@@ -66,5 +53,4 @@
         </section>
       </div>
     </div>
-  </body>
-</html>
+{% endblock %}

@@ -1,21 +1,10 @@
-<!DOCTYPE html>
-<html>
-  <head>
-    <title>Project Report {{ project.project_code }}</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
-  </head>
-  <body>
-    <div class="topbar">
-      <img class="logo" src="{{ url_for('static', filename='images/ruc_logo.png') }}" />
-      Project Management Report
-    </div>
-    <div class="menu">
-      <a href="/dashboard">Dashboard</a>
-      <a href="/reports">Reports</a>
-      <a href="/sites">Sites</a>
-      <a href="/logout">Logout</a>
-    </div>
-    <div class="container report-page">
+{% extends "base.html" %}
+{% block active_module %}reports{% endblock %}
+{% block page_title %}Project Management Report{% endblock %}
+{% block page_subtitle %}Reporting Center{% endblock %}
+
+{% block content %}
+<div class="container report-page">
       <div class="site-heading">
         <div>
           <h1>{{ project.project_name }}</h1>
@@ -89,5 +78,4 @@
         {% endfor %}
       </table>
     </div>
-  </body>
-</html>
+{% endblock %}

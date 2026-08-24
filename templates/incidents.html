@@ -1,25 +1,10 @@
-<!DOCTYPE html>
-<html>
-  <head>
-    <title>Incident Reporting</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
-  </head>
-  <body>
-    <div class="topbar">
-      <img class="logo" src="{{ url_for('static', filename='images/ruc_logo.png') }}" />
-      Incident Reporting
-    </div>
+{% extends "base.html" %}
+{% block active_module %}incidents{% endblock %}
+{% block page_title %}Incidents{% endblock %}
+{% block page_subtitle %}Incident reporting{% endblock %}
 
-    <div class="menu">
-      <a href="/dashboard">Dashboard</a>
-      <a href="/sites">Sites</a>
-      <a href="/telecom_tasks">Tasks</a>
-      <a href="/permits">Permits</a>
-      <a href="/toolbox_talks">Toolbox Talks</a>
-      <a href="/logout">Logout</a>
-    </div>
-
-    <div class="container">
+{% block content %}
+<div class="container">
       <div class="form-box wide">
         <h2>Report Incident</h2>
         <form method="POST" enctype="multipart/form-data" class="filter-grid">
@@ -122,5 +107,4 @@
         {% endfor %}
       </table>
     </div>
-  </body>
-</html>
+{% endblock %}

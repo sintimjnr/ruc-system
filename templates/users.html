@@ -1,37 +1,17 @@
-<!DOCTYPE html>
-<html>
-  <head>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
-    <title>User Management</title>
-  </head>
-  <body>
-    <div class="topbar">
-      <img class="logo" src="{{ url_for('static', filename='images/ruc_logo.png') }}" />
-      RUC Management System
-    </div>
+{% extends "base.html" %}
+{% block active_module %}users{% endblock %}
+{% block page_title %}User Management{% endblock %}
+{% block page_subtitle %}Accounts and access control{% endblock %}
 
-    <div class="menu">
-      <a href="/dashboard">Dashboard</a>
-      {% if can('manage_teams') %}<a href="/teams">Teams</a>{% endif %}
-      {% if can('view_audit_logs') %}<a href="/audit_logs">Audit Log</a>{% endif %}
-      <a href="/logout">Logout</a>
-    </div>
-
+{% block content %}
     <div class="container">
-      {% with messages = get_flashed_messages() %}
-        {% if messages %}
-          {% for message in messages %}
-            <div class="notice">{{ message }}</div>
-          {% endfor %}
-        {% endif %}
-      {% endwith %}
 
       <div class="toolbar">
         {% if can_create_user %}
           <a class="btn" href="{{ url_for('new_user') }}">Create User</a>
         {% endif %}
         {% if can('view_audit_logs') %}
-          <a class="btn" href="{{ url_for('audit_logs') }}">Audit Log</a>
+          <a class="btn" href="{{ url_for('audit_logs') }}">View Audit Activity</a>
         {% endif %}
       </div>
 
@@ -85,5 +65,4 @@
         {% endfor %}
       </table>
     </div>
-  </body>
-</html>
+{% endblock %}

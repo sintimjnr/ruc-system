@@ -1,35 +1,12 @@
-<!DOCTYPE html>
-<html>
-  <head>
-    <title>Generate ID</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
-  </head>
+{% extends "base.html" %}
+{% block active_module %}id_management{% endblock %}
+{% block page_title %}Generate ID{% endblock %}
+{% block page_subtitle %}Employee ID card generation{% endblock %}
 
-  <body>
-    <div class="topbar">
-      <img class="logo" src="{{ url_for('static', filename='images/ruc_logo.png') }}" />
-      Generate ID
-    </div>
-
-    <div class="menu">
-      <a href="/dashboard">Dashboard</a>
-      <a href="/create_project">Create Project</a>
-      <a href="/search">Search</a>
-      <a href="/safety">Safety Compliance</a>
-      <a href="/id_generator">ID Generator</a>
-      <a href="/logout">Logout</a>
-    </div>
-
-    <div class="container">
+{% block content %}
+<div class="container">
       <div class="form-card">
-        {% with messages = get_flashed_messages() %}
-          {% if messages %}
-            {% for message in messages %}
-              <div class="notice">{{ message }}</div>
-            {% endfor %}
-          {% endif %}
-        {% endwith %}
-        <h2>{{ emp.first_name }} {{ emp.last_name }}</h2>
+<h2>{{ emp.first_name }} {{ emp.last_name }}</h2>
         <p>Employee ID: {{ emp.id }}</p>
         <p>Role: {{ emp.telecom_role or emp.position }}</p>
         <p>DUID: {{ emp.assigned_du_id or '-' }}</p>
@@ -54,5 +31,4 @@
         </form>
       </div>
     </div>
-  </body>
-</html>
+{% endblock %}
