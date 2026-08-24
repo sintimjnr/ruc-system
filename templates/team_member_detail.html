@@ -13,7 +13,7 @@
             <dd>{{ emp.full_name }}</dd>
             <dt>Position</dt>
             <dd>{{ emp.position or '-' }}</dd>
-            <dt>Telecom Role</dt>
+            <dt>Site / Telecom Role</dt>
             <dd>{{ emp.telecom_role or '-' }}</dd>
             <dt>Project</dt>
             <dd>{{ emp.project_name or emp.project_code or '-' }}</dd>
@@ -29,7 +29,11 @@
           {% if id_cards %}
             {% for card in id_cards %}
               <p>
-                {{ card.id_number }} / {{ card.expiry or '-' }}
+                <span class="status {{ 'valid' if card.is_current_data else 'missing' }}">{{ card.status_label }}</span>
+                {{ card.id_number }} / {{ card.expiry or '-' }} / DUID {{ card.duid or '-' }}
+                {% if not card.is_current_data and card.current_duid %}
+                  <span class="muted">Current DUID: {{ card.current_duid }}</span>
+                {% endif %}
                 <a class="btn-small" href="{{ card.print_url }}">Preview</a>
                 <a class="btn-small" href="{{ card.front_url }}" target="_blank">Front</a>
                 <a class="btn-small" href="{{ card.back_url }}" target="_blank">Back</a>

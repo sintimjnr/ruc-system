@@ -23,7 +23,7 @@
           <select name="reported_by">
             <option value="">Reported By</option>
             {% for emp in employees %}
-              <option value="{{ emp.id }}">{{ emp.first_name }} {{ emp.last_name }}</option>
+              <option value="{{ emp.id }}">{{ full_employee_name(emp) }}</option>
             {% endfor %}
           </select>
           <input type="date" name="incident_date" required />

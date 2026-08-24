@@ -63,7 +63,12 @@
             <td><span class="status {{ member.overall_safety_status|lower|replace(' ', '-') }}">{{ member.overall_safety_status }}</span></td>
             <td>
               {% if member.id_cards %}
-                <a class="btn-small" href="{{ member.id_cards[0].print_url }}">Preview</a>
+                {% set card = member.id_cards[0] %}
+                <span class="status {{ 'valid' if card.is_current_data else 'missing' }}">{{ 'Current' if card.is_current_data else 'Historical' }}</span>
+                <a class="btn-small" href="{{ card.print_url }}">{{ 'Preview' if card.is_current_data else 'Preview History' }}</a>
+                {% if not card.is_current_data %}
+                  <div class="muted">No current card found for {{ member.assigned_du_id or '-' }}.</div>
+                {% endif %}
               {% else %}
                 ID card not yet generated.
               {% endif %}

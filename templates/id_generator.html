@@ -13,7 +13,7 @@
             {% if emp.photo %}
               <img class="photo" src="{{ url_for('employee_file', employee_id=emp.id, file_kind='photo') }}" />
             {% endif %}
-            <h3>{{ emp.first_name }} {{ emp.last_name }}</h3>
+            <h3>{{ full_employee_name(emp) }}</h3>
             <p>{{ emp.telecom_role or emp.position }}</p>
             <p>DUID: {{ emp.assigned_du_id or '-' }}</p>
             <span class="status {{ emp.overall_safety_status|lower|replace(' ', '-') }}">{{ emp.overall_safety_status }}</span>

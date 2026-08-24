@@ -39,7 +39,7 @@
           <select name="team_leader_employee_id">
             <option value="">Use linked employee from account</option>
             {% for emp in employees %}
-              <option value="{{ emp.id }}" {% if team and team.team_leader_employee_id == emp.id %}selected{% endif %}>{{ emp.first_name }} {{ emp.last_name }}{% if emp.assigned_du_id %} - {{ emp.assigned_du_id }}{% endif %}</option>
+              <option value="{{ emp.id }}" {% if team and team.team_leader_employee_id == emp.id %}selected{% endif %}>{{ full_employee_name(emp) }}{% if emp.assigned_du_id %} - {{ emp.assigned_du_id }}{% endif %}</option>
             {% endfor %}
           </select>
 

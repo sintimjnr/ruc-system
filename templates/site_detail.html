@@ -268,7 +268,7 @@
             <select name="employee_id" required>
               <option value="">Employee</option>
               {% for emp in employees %}
-                <option value="{{ emp.id }}">{{ emp.first_name }} {{ emp.last_name }}</option>
+                <option value="{{ emp.id }}">{{ full_employee_name(emp) }}</option>
               {% endfor %}
             </select>
             <input name="role" placeholder="Role" />
@@ -375,7 +375,7 @@
             <select name="assigned_employee_id">
               <option value="">Assigned Employee</option>
               {% for emp in employees %}
-                <option value="{{ emp.id }}">{{ emp.first_name }} {{ emp.last_name }}</option>
+                <option value="{{ emp.id }}">{{ full_employee_name(emp) }}</option>
               {% endfor %}
             </select>
             <input type="date" name="planned_date" />

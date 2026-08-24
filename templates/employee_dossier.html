@@ -35,6 +35,8 @@
             <dd>{{ emp.id }}</dd>
             <dt>First Name</dt>
             <dd>{{ emp.first_name or '-' }}</dd>
+            <dt>Middle / Other Name</dt>
+            <dd>{{ emp.middle_name or '-' }}</dd>
             <dt>Last Name</dt>
             <dd>{{ emp.last_name or '-' }}</dd>
             <dt>Full Name</dt>
@@ -45,7 +47,7 @@
             <dd>{{ emp.mobile or '-' }}</dd>
             <dt>Position</dt>
             <dd>{{ emp.position or '-' }}</dd>
-            <dt>Telecom Role</dt>
+            <dt>Site / Telecom Role</dt>
             <dd>{{ emp.telecom_role or emp.position or '-' }}</dd>
           </dl>
         </section>

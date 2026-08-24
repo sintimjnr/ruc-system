@@ -1,12 +1,15 @@
 {% extends "base.html" %}
 {% block active_module %}users{% endblock %}
-{% block page_title %}User Form{% endblock %}
-{% block page_subtitle %}Create or edit user account{% endblock %}
+{% block page_title %}{% if user %}Edit User Account{% else %}Create User Account{% endif %}{% endblock %}
+{% block page_subtitle %}Login access for existing RUC personnel{% endblock %}
 
 {% block content %}
 <div class="container">
 <div class="form-box">
-        <h2>{% if user %}Edit User{% else %}Create User{% endif %}</h2>
+        <h2>{% if user %}Edit User Account{% else %}Create User Account{% endif %}</h2>
+        <div class="notice compact-notice">
+          This creates or updates a login account only. Employee personal details, project/DUID assignment, official photo, safety documents, and dossiers stay in Employee Registration and Employees.
+        </div>
         <form method="POST">
           {% if not user %}
             <label>Username</label>
@@ -40,11 +43,18 @@
           {% endif %}
 
           <label>Linked Employee</label>
+          <p class="muted">Team Leader accounts must be linked to an existing registered employee. Super Admin and HR links are optional.</p>
           <select name="employee_id">
             <option value="">No linked employee</option>
             {% for emp in employees %}
-              <option value="{{ emp.id }}" {% if user and user.employee_id == emp.id %}selected{% endif %}>
-                {{ emp.first_name }} {{ emp.last_name }}{% if emp.assigned_du_id %} - {{ emp.assigned_du_id }}{% endif %}
+              {% set linked_elsewhere = emp.active_account_id and (not user or user.employee_id != emp.id) %}
+              <option value="{{ emp.id }}" {% if user and user.employee_id == emp.id %}selected{% endif %} {% if linked_elsewhere %}disabled{% endif %}>
+                {{ full_employee_name(emp) }}
+                - Employee #{{ emp.id }}
+                {% if emp.project_name %} - {{ emp.project_name }}{% if emp.project_code %} ({{ emp.project_code }}){% endif %}{% endif %}
+                {% if emp.assigned_du_id %} - DUID {{ emp.assigned_du_id }}{% endif %}
+                {% if emp.telecom_role or emp.position %} - {{ emp.telecom_role or emp.position }}{% endif %}
+                {% if linked_elsewhere %} - already linked to active account {{ emp.active_account_username }}{% endif %}
               </option>
             {% endfor %}
           </select>

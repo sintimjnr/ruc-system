@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block active_module %}users{% endblock %}
 {% block page_title %}User Management{% endblock %}
-{% block page_subtitle %}Accounts and access control{% endblock %}
+{% block page_subtitle %}Login accounts and access control{% endblock %}
 
 {% block content %}
     <div class="container">
@@ -16,6 +16,9 @@
       </div>
 
       <h2>User Management</h2>
+      <div class="notice compact-notice">
+        User Management creates login access only. Employee personal details, project assignment, safety documents, photos, and ID-card data remain managed from Employee Registration and Employees.
+      </div>
       <table>
         <tr>
           <th>Username</th>
@@ -29,7 +32,15 @@
         {% for user in users %}
           <tr>
             <td>{{ user.username }}</td>
-            <td>{{ user.display_name or '-' }}</td>
+            <td>
+              {% if user.linked_employee_name %}
+                {{ user.linked_employee_name }}
+                <br />
+                <span class="muted">Employee #{{ user.employee_id }}</span>
+              {% else %}
+                <span class="muted">No linked employee</span>
+              {% endif %}
+            </td>
             <td>{{ role_label(user.role) }}</td>
             <td>
               {% if user.active %}

@@ -6,13 +6,14 @@
 {% block content %}
 <div class="container">
       <div class="form-box wide">
-        <h2>{{ emp.first_name }} {{ emp.last_name }}</h2>
+        <h2>{{ full_employee_name(emp) }}</h2>
         <p class="muted">Project: {{ emp.project_name or '-' }} - {{ emp.project_code or '-' }}</p>
 
         <form method="POST" enctype="multipart/form-data">
           <h3>Basic Information</h3>
           <div class="form-grid">
             <input name="first_name" value="{{ emp.first_name or '' }}" placeholder="First Name" required />
+            <input name="middle_name" value="{{ emp.middle_name or '' }}" placeholder="Middle / Other Name" />
             <input name="last_name" value="{{ emp.last_name or '' }}" placeholder="Last Name" required />
             <input name="position" value="{{ emp.position or '' }}" placeholder="Position" required />
             <input name="email" value="{{ emp.email or '' }}" placeholder="Email" />
@@ -20,8 +21,9 @@
           </div>
 
           <h3>Telecom Assignment</h3>
+          <p class="muted">Position is the employee designation. Site / Telecom Role is the worker's role for site operations.</p>
           <div class="form-grid">
-            <input name="telecom_role" value="{{ emp.telecom_role or '' }}" placeholder="Telecom Role" />
+            <input name="telecom_role" value="{{ emp.telecom_role or '' }}" placeholder="Site / Telecom Role" />
             <select name="assigned_du_id">
               <option value="">Assigned DUID</option>
               {% for duid in duids %}

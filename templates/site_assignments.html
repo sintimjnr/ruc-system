@@ -18,7 +18,7 @@
             <select name="employee_id" required>
               <option value="">Employee</option>
               {% for emp in employees %}
-                <option value="{{ emp.id }}">{{ emp.first_name }} {{ emp.last_name }}</option>
+                <option value="{{ emp.id }}">{{ full_employee_name(emp) }}</option>
               {% endfor %}
             </select>
             <select name="du_id" required>

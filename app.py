@@ -447,6 +447,21 @@ def initials_for_name(name):
     return (words[0][0] + words[-1][0]).upper()
 
 
+def compose_person_name(first_name, middle_name=None, last_name=None):
+
+    return clean_text(
+        " ".join(
+            part
+            for part in (
+                clean_text(first_name),
+                clean_text(middle_name),
+                clean_text(last_name),
+            )
+            if part
+        )
+    )
+
+
 def current_user_profile():
 
     profile = {
@@ -481,6 +496,7 @@ def current_user_profile():
                    a.active,
                    a.employee_id,
                    e.first_name,
+                   e.middle_name,
                    e.last_name,
                    e.photo
             FROM admins a
@@ -782,6 +798,7 @@ def inject_auth_context():
         "effective_role": effective_role,
         "can": can,
         "static_asset": static_asset,
+        "full_employee_name": full_employee_name,
         "ROLE_LABELS": ROLE_LABELS,
         "ROLE_FORM_LABELS": ROLE_FORM_LABELS,
     }
@@ -1297,18 +1314,10 @@ def get_employees_for_select():
     where_sql = ""
 
     if is_team_leader_role():
-        team_ids = get_team_leader_team_ids(cursor)
-        if team_ids:
-            where_sql = """
-            WHERE EXISTS (
-                SELECT 1
-                FROM team_memberships tm
-                WHERE tm.employee_id = employees.id
-                  AND tm.active IS TRUE
-                  AND tm.team_id = ANY(%s)
-            )
-            """
-            params.append(team_ids)
+        employee_ids = get_team_leader_employee_ids(cursor)
+        if employee_ids:
+            where_sql = "WHERE employees.id = ANY(%s)"
+            params.append(employee_ids)
         else:
             where_sql = "WHERE FALSE"
 
@@ -1316,13 +1325,14 @@ def get_employees_for_select():
         f"""
         SELECT id,
                first_name,
+               middle_name,
                last_name,
                position,
                telecom_role,
                assigned_du_id
         FROM employees
         {where_sql}
-        ORDER BY first_name, last_name, id
+        ORDER BY first_name, middle_name, last_name, id
         """,
         params,
     )
@@ -1334,9 +1344,35 @@ def get_employees_for_select():
 
 def full_employee_name(emp):
 
-    return clean_text(
-        clean_text(emp.get("first_name")) + " " + clean_text(emp.get("last_name"))
+    if not emp:
+        return ""
+
+    return compose_person_name(
+        emp.get("first_name"),
+        emp.get("middle_name"),
+        emp.get("last_name"),
     )
+
+
+def get_team_leader_linked_employee_id(cursor, admin_id=None):
+
+    admin_id = admin_id or session.get("admin_id")
+
+    if not admin_id:
+        return None
+
+    cursor.execute(
+        """
+        SELECT employee_id
+        FROM admins
+        WHERE id=%s
+          AND active IS TRUE
+          AND role='team_leader'
+        """,
+        (admin_id,),
+    )
+    row = cursor.fetchone()
+    return row[0] if row else None
 
 
 def stored_file_display_name(path_or_name):
@@ -1684,6 +1720,7 @@ def get_employee_detail(cursor, employee_id):
         SELECT e.id,
                e.project_id,
                e.first_name,
+               e.middle_name,
                e.last_name,
                e.position,
                e.email,
@@ -1776,9 +1813,10 @@ def get_team_leader_duids(cursor, admin_id=None):
 def get_team_leader_employee_ids(cursor, admin_id=None):
 
     team_ids = get_team_leader_team_ids(cursor, admin_id=admin_id)
+    linked_employee_id = get_team_leader_linked_employee_id(cursor, admin_id=admin_id)
 
     if not team_ids:
-        return []
+        return [linked_employee_id] if linked_employee_id else []
 
     cursor.execute(
         """
@@ -1790,7 +1828,12 @@ def get_team_leader_employee_ids(cursor, admin_id=None):
         """,
         (team_ids,),
     )
-    return [row[0] for row in cursor.fetchall()]
+    employee_ids = [row[0] for row in cursor.fetchall()]
+
+    if linked_employee_id and linked_employee_id not in employee_ids:
+        employee_ids.append(linked_employee_id)
+
+    return employee_ids
 
 
 def team_leader_has_site(cursor, du_id, admin_id=None):
@@ -1813,6 +1856,11 @@ def team_leader_has_site(cursor, du_id, admin_id=None):
 
 
 def team_leader_has_employee(cursor, employee_id, admin_id=None):
+
+    linked_employee_id = get_team_leader_linked_employee_id(cursor, admin_id=admin_id)
+
+    if linked_employee_id and str(linked_employee_id) == str(employee_id):
+        return True
 
     cursor.execute(
         """
@@ -2386,6 +2434,7 @@ def get_daily_attendance_people(cursor, duid, daily_log_id=None):
                 SELECT DISTINCT ON (e.id)
                        e.id,
                        e.first_name,
+                                              e.middle_name,
                        e.last_name,
                        e.position,
                        e.telecom_role,
@@ -2426,6 +2475,7 @@ def get_daily_attendance_people(cursor, duid, daily_log_id=None):
                 SELECT DISTINCT ON (e.id)
                        e.id,
                        e.first_name,
+                                              e.middle_name,
                        e.last_name,
                        e.position,
                        e.telecom_role,
@@ -2463,6 +2513,7 @@ def get_daily_attendance_people(cursor, duid, daily_log_id=None):
             SELECT DISTINCT ON (e.id)
                    e.id,
                    e.first_name,
+                                      e.middle_name,
                    e.last_name,
                    e.position,
                    e.telecom_role,
@@ -2498,6 +2549,7 @@ def get_daily_attendance_people(cursor, duid, daily_log_id=None):
             """
             SELECT e.id,
                    e.first_name,
+                                      e.middle_name,
                    e.last_name,
                    e.position,
                    e.telecom_role,
@@ -2574,6 +2626,7 @@ def sync_daily_attendance(cursor, daily_log_id, duid):
             """
             SELECT id,
                    first_name,
+                                      middle_name,
                    last_name,
                    position,
                    telecom_role,
@@ -2843,6 +2896,7 @@ def sync_daily_log_to_project_workbook(cursor, daily_log_id):
                da.safety_status_snapshot,
                da.remarks,
                e.first_name,
+                              e.middle_name,
                e.last_name
         FROM daily_attendance da
         LEFT JOIN employees e ON da.employee_id = e.id
@@ -3001,6 +3055,7 @@ def get_punchlist_item(cursor, item_id):
                p.project_name,
                p.project_code,
                e.first_name,
+                              e.middle_name,
                e.last_name
         FROM punchlist_items pi
         LEFT JOIN projects p ON pi.project_id = p.id
@@ -3024,6 +3079,7 @@ def get_punchlist_people(cursor, duid, project_id=None):
         SELECT DISTINCT ON (e.id)
                e.id,
                e.first_name,
+                              e.middle_name,
                e.last_name,
                e.position,
                e.telecom_role,
@@ -4047,6 +4103,42 @@ def apply_project_workbook_formatting(wb):
                     )
 
 
+def apply_daily_operations_export_formatting(ws):
+
+    widths = {
+        "A": 16,
+        "B": 14,
+        "C": 34,
+        "D": 20,
+        "E": 20,
+        "F": 20,
+        "G": 46,
+        "H": 24,
+        "I": 46,
+        "J": 46,
+        "K": 24,
+        "L": 18,
+        "M": 22,
+    }
+    wrapped_columns = {"C", "G", "H", "I", "J", "K"}
+
+    apply_project_sheet_formatting(
+        ws,
+        fixed_widths=widths,
+        wrapped_columns=wrapped_columns,
+    )
+
+    ws.auto_filter.ref = ws.dimensions
+
+    for row in ws.iter_rows(min_row=2):
+        if row[0].value not in (None, ""):
+            row[0].number_format = "yyyy-mm-dd"
+            row[0].alignment = Alignment(horizontal="left", vertical="top")
+
+        for cell in (row[4], row[5], row[11], row[12]):
+            cell.alignment = Alignment(horizontal="center", vertical="top")
+
+
 def ensure_access_info_headers(ws):
 
     yellow = PatternFill(start_color="FFFF00", fill_type="solid")
@@ -4079,9 +4171,7 @@ def write_access_info_row(wb, project, employee, old_name=None):
     ws = wb["ACCESS INFO"]
     ensure_access_info_headers(ws)
 
-    full_name = clean_text(
-        clean_text(employee.get("first_name")) + " " + clean_text(employee.get("last_name"))
-    )
+    full_name = full_employee_name(employee)
     target_name = clean_text(old_name or full_name)
     row = None
 
@@ -4163,9 +4253,7 @@ def update_master_tracker_safety(employee):
 
     ws.cell(row=row, column=1).value = du_id
     ws.cell(row=row, column=2).value = employee_id
-    ws.cell(row=row, column=3).value = clean_text(
-        clean_text(employee.get("first_name")) + " " + clean_text(employee.get("last_name"))
-    )
+    ws.cell(row=row, column=3).value = full_employee_name(employee)
     ws.cell(row=row, column=4).value = employee.get("telecom_role", "")
     ws.cell(row=row, column=5).value = employee.get("project_id", "")
     ws.cell(row=row, column=6).value = employee.get("nbi_expiry_date", "")
@@ -4615,6 +4703,7 @@ def dashboard():
         """
         SELECT id,
                first_name,
+                              middle_name,
                last_name,
                project_id,
                position,
@@ -4953,6 +5042,7 @@ def dashboard():
                t.status,
                t.planned_date,
                e.first_name,
+                              e.middle_name,
                e.last_name
         FROM telecom_tasks t
         LEFT JOIN employees e ON t.assigned_employee_id = e.id
@@ -5590,6 +5680,7 @@ def get_admin_account(cursor, admin_id):
                a.deactivated_by_admin_id,
                a.status_changed_at,
                e.first_name,
+               e.middle_name,
                e.last_name
         FROM admins a
         LEFT JOIN employees e ON a.employee_id = e.id
@@ -5604,6 +5695,114 @@ def account_display_name(account):
 
     employee_name = full_employee_name(account) if account else ""
     return employee_name or clean_text(account.get("username") if account else "")
+
+
+def get_employees_for_account_select(exclude_admin_id=None):
+
+    conn = connect_db()
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        SELECT e.id,
+               e.first_name,
+               e.middle_name,
+               e.last_name,
+               e.position,
+               e.telecom_role,
+               e.assigned_du_id,
+               p.project_name,
+               p.project_code,
+               active_account.id AS active_account_id,
+               active_account.username AS active_account_username
+        FROM employees e
+        LEFT JOIN projects p ON e.project_id = p.id
+        LEFT JOIN admins active_account
+          ON active_account.employee_id = e.id
+         AND active_account.active IS TRUE
+         AND (%s IS NULL OR active_account.id <> %s)
+        ORDER BY e.first_name, e.middle_name, e.last_name, e.id
+        """,
+        (exclude_admin_id, exclude_admin_id),
+    )
+    employees = rows_to_dicts(cursor)
+    cursor.close()
+    conn.close()
+    return employees
+
+
+def active_account_for_employee(cursor, employee_id, exclude_admin_id=None):
+
+    if not employee_id:
+        return None
+
+    conditions = ["employee_id=%s", "active IS TRUE"]
+    params = [employee_id]
+
+    if exclude_admin_id:
+        conditions.append("id<>%s")
+        params.append(exclude_admin_id)
+
+    cursor.execute(
+        f"""
+        SELECT id, username, role, active, employee_id
+        FROM admins
+        WHERE {' AND '.join(conditions)}
+        ORDER BY id
+        LIMIT 1
+        """,
+        params,
+    )
+    return row_to_dict(cursor)
+
+
+def validate_admin_employee_link(cursor, role, active, employee_id, exclude_admin_id=None):
+
+    normalized_role = effective_role(role)
+
+    if normalized_role == "team_leader" and not employee_id:
+        return "Team Leader login accounts must be linked to an existing registered employee."
+
+    if not employee_id:
+        return None
+
+    if not str(employee_id).isdigit():
+        return "Linked employee not found."
+
+    cursor.execute(
+        """
+        SELECT id
+        FROM employees
+        WHERE id=%s
+        """,
+        (employee_id,),
+    )
+
+    if not cursor.fetchone():
+        return "Linked employee not found."
+
+    if active:
+        linked_account = active_account_for_employee(
+            cursor, employee_id, exclude_admin_id=exclude_admin_id
+        )
+        if linked_account:
+            return (
+                "That employee is already linked to active account "
+                f"{linked_account['username']}. Deactivate or unlink that account first."
+            )
+
+    return None
+
+
+def audit_user_employee_link_denied(cursor, conn, target_admin_id, description):
+
+    audit_event(
+        "USER_EMPLOYEE_LINK_DENIED",
+        "admin",
+        target_admin_id,
+        description,
+        conn=conn,
+    )
+    conn.commit()
 
 
 def can_hr_manage_team_leader_account(account):
@@ -5692,6 +5891,7 @@ def users():
                    a.created_by_admin_id,
                    a.activated_by_admin_id,
                    e.first_name,
+                   e.middle_name,
                    e.last_name
             FROM admins a
             LEFT JOIN employees e ON a.employee_id = e.id
@@ -5712,6 +5912,7 @@ def users():
                    a.created_by_admin_id,
                    a.activated_by_admin_id,
                    e.first_name,
+                   e.middle_name,
                    e.last_name
             FROM admins a
             LEFT JOIN employees e ON a.employee_id = e.id
@@ -5729,6 +5930,9 @@ def users():
 
     for admin_user in admin_users:
         admin_user["display_name"] = account_display_name(admin_user)
+        admin_user["linked_employee_name"] = (
+            full_employee_name(admin_user) if admin_user.get("employee_id") else ""
+        )
         admin_user["effective_role"] = effective_role(admin_user.get("role"))
         admin_user["can_manage"] = can_current_user_manage_account(admin_user)
         admin_user["is_last_active_super_admin"] = (
@@ -5762,24 +5966,24 @@ def new_user():
                 "user_form.html",
                 user=None,
                 roles=roles,
-                employees=get_employees_for_select(),
+                employees=get_employees_for_account_select(),
             )
 
         conn = connect_db()
         cursor = conn.cursor()
 
-        if employee_id:
-            cursor.execute("SELECT 1 FROM employees WHERE id=%s", (employee_id,))
-            if not cursor.fetchone():
-                cursor.close()
-                conn.close()
-                flash("Linked employee not found.")
-                return render_template(
-                    "user_form.html",
-                    user=None,
-                    roles=roles,
-                    employees=get_employees_for_select(),
-                )
+        link_error = validate_admin_employee_link(cursor, role, active, employee_id)
+        if link_error:
+            audit_user_employee_link_denied(cursor, conn, None, link_error)
+            cursor.close()
+            conn.close()
+            flash(link_error)
+            return render_template(
+                "user_form.html",
+                user=None,
+                roles=roles,
+                employees=get_employees_for_account_select(),
+            )
 
         try:
             cursor.execute(
@@ -5815,7 +6019,10 @@ def new_user():
                 "TEAM_LEADER_ACCOUNT_CREATED" if role == "team_leader" else "USER_CREATED",
                 "admin",
                 new_admin_id,
-                f"Created user {username} with role {role_label(role)}.",
+                (
+                    f"Created user {username} with role {role_label(role)}; "
+                    f"employee_id={employee_id or 'none'}."
+                ),
                 conn=conn,
             )
             conn.commit()
@@ -5834,7 +6041,7 @@ def new_user():
         "user_form.html",
         user=None,
         roles=roles,
-        employees=get_employees_for_select(),
+        employees=get_employees_for_account_select(),
     )
 
 
@@ -5881,7 +6088,7 @@ def edit_user(user_id):
                 "user_form.html",
                 user=user,
                 roles=roles,
-                employees=get_employees_for_select(),
+                employees=get_employees_for_account_select(exclude_admin_id=user_id),
                 last_active_super_admin=last_active_super_admin,
             )
 
@@ -5894,23 +6101,29 @@ def edit_user(user_id):
                 "user_form.html",
                 user=user,
                 roles=roles,
-                employees=get_employees_for_select(),
+                employees=get_employees_for_account_select(exclude_admin_id=user_id),
                 last_active_super_admin=True,
             )
 
-        if employee_id:
-            cursor.execute("SELECT 1 FROM employees WHERE id=%s", (employee_id,))
-            if not cursor.fetchone():
-                cursor.close()
-                conn.close()
-                flash("Linked employee not found.")
-                return render_template(
-                    "user_form.html",
-                    user=user,
-                    roles=roles,
-                    employees=get_employees_for_select(),
-                    last_active_super_admin=last_active_super_admin,
-                )
+        link_error = validate_admin_employee_link(
+            cursor,
+            role,
+            active,
+            employee_id,
+            exclude_admin_id=user_id,
+        )
+        if link_error:
+            audit_user_employee_link_denied(cursor, conn, user_id, link_error)
+            cursor.close()
+            conn.close()
+            flash(link_error)
+            return render_template(
+                "user_form.html",
+                user=user,
+                roles=roles,
+                employees=get_employees_for_account_select(exclude_admin_id=user_id),
+                last_active_super_admin=last_active_super_admin,
+            )
 
         activated_by_admin_id = user.get("activated_by_admin_id")
         deactivated_by_admin_id = user.get("deactivated_by_admin_id")
@@ -5950,7 +6163,11 @@ def edit_user(user_id):
             "USER_UPDATED",
             "admin",
             user_id,
-            f"Updated user {user['username']} to role {role_label(role)}; active={active}.",
+            (
+                f"Updated user {user['username']} to role {role_label(role)}; "
+                f"active={active}; employee_id {user.get('employee_id') or 'none'} "
+                f"-> {employee_id or 'none'}."
+            ),
             conn=conn,
         )
         conn.commit()
@@ -5966,7 +6183,7 @@ def edit_user(user_id):
         "user_form.html",
         user=user,
         roles=roles,
-        employees=get_employees_for_select(),
+        employees=get_employees_for_account_select(exclude_admin_id=user_id),
         last_active_super_admin=last_active_super_admin,
     )
 
@@ -6060,6 +6277,20 @@ def toggle_user(user_id):
             flash(LAST_SUPER_ADMIN_MESSAGE)
             return redirect(url_for("users"))
 
+    link_error = validate_admin_employee_link(
+        cursor,
+        user.get("role"),
+        new_active,
+        user.get("employee_id"),
+        exclude_admin_id=user_id,
+    )
+    if link_error:
+        audit_user_employee_link_denied(cursor, conn, user_id, link_error)
+        cursor.close()
+        conn.close()
+        flash(link_error)
+        return redirect(url_for("users"))
+
     cursor.execute(
         """
         UPDATE admins
@@ -6109,6 +6340,7 @@ def get_team_leader_accounts_for_select():
                a.username,
                a.employee_id,
                e.first_name,
+                              e.middle_name,
                e.last_name
         FROM admins a
         LEFT JOIN employees e ON a.employee_id = e.id
@@ -6145,6 +6377,7 @@ def get_team_detail(cursor, team_id):
                p.project_code,
                a.username AS team_leader_username,
                ae.first_name AS leader_first_name,
+               ae.middle_name AS leader_middle_name,
                ae.last_name AS leader_last_name
         FROM teams t
         LEFT JOIN projects p ON t.project_id = p.id
@@ -6160,6 +6393,7 @@ def get_team_detail(cursor, team_id):
         team["leader_name"] = full_employee_name(
             {
                 "first_name": team.get("leader_first_name"),
+                "middle_name": team.get("leader_middle_name"),
                 "last_name": team.get("leader_last_name"),
             }
         ) or team.get("team_leader_username")
@@ -6239,6 +6473,7 @@ def teams():
                p.project_code,
                a.username AS team_leader_username,
                ae.first_name AS leader_first_name,
+               ae.middle_name AS leader_middle_name,
                ae.last_name AS leader_last_name,
                COUNT(tm.id) FILTER (WHERE tm.active IS TRUE) AS active_members,
                COUNT(tm.id) AS historical_memberships
@@ -6247,7 +6482,7 @@ def teams():
         LEFT JOIN admins a ON t.team_leader_admin_id = a.id
         LEFT JOIN employees ae ON COALESCE(t.team_leader_employee_id, a.employee_id) = ae.id
         LEFT JOIN team_memberships tm ON tm.team_id = t.id
-        GROUP BY t.id, p.project_name, p.project_code, a.username, ae.first_name, ae.last_name
+        GROUP BY t.id, p.project_name, p.project_code, a.username, ae.first_name, ae.middle_name, ae.last_name
         ORDER BY t.active DESC, t.updated_at DESC, t.id DESC
         """
     )
@@ -6259,6 +6494,7 @@ def teams():
         team["leader_name"] = full_employee_name(
             {
                 "first_name": team.get("leader_first_name"),
+                "middle_name": team.get("leader_middle_name"),
                 "last_name": team.get("leader_last_name"),
             }
         ) or team.get("team_leader_username")
@@ -6353,6 +6589,7 @@ def team_detail(team_id):
                tm.active,
                tm.assigned_by_admin_id,
                e.first_name,
+                              e.middle_name,
                e.last_name,
                e.position,
                e.telecom_role,
@@ -6492,6 +6729,12 @@ def add_team_member(team_id):
     existing_membership = row_to_dict(cursor)
     was_transfer = bool(existing_membership and existing_membership["team_id"] != team_id)
 
+    if existing_membership and existing_membership["team_id"] == team_id:
+        cursor.close()
+        conn.close()
+        flash("This employee is already an active member of this team.")
+        return redirect(url_for("team_detail", team_id=team_id))
+
     try:
         cursor.execute(
             """
@@ -6609,55 +6852,87 @@ def end_team_membership(membership_id):
     return redirect(url_for("team_detail", team_id=membership["team_id"]))
 
 
-def find_generated_id_cards_for_employee(employee_id):
+def current_id_card_duid_for_employee(employee_id):
 
-    cards = []
+    if not employee_id:
+        return ""
 
-    if not os.path.isdir(EXCEL_DIR):
-        return cards
+    conn = connect_db()
+    cursor = conn.cursor()
 
-    for filename in os.listdir(EXCEL_DIR):
-        if not filename.lower().endswith(".xlsx"):
-            continue
+    cursor.execute(
+        """
+        SELECT id, assigned_du_id
+        FROM employees
+        WHERE id=%s
+        """,
+        (employee_id,),
+    )
+    employee = row_to_dict(cursor)
 
-        workbook_path = os.path.join(EXCEL_DIR, filename)
+    if employee:
+        current_duid = authoritative_employee_duid(cursor, employee)
+    else:
+        current_duid = ""
 
-        try:
-            wb = load_workbook(workbook_path, data_only=True, read_only=False)
-        except Exception:
-            continue
-
-        if "ID" not in wb.sheetnames:
-            continue
-
-        ws = wb["ID"]
-
-        for row in ws.iter_rows(min_row=2, values_only=True):
-            id_number = clean_text(row[1] if len(row) > 1 else "")
-            row_employee_id = row[4] if len(row) > 4 else None
-
-            if not id_number or clean_text(row_employee_id) != clean_text(employee_id):
-                continue
-
-            safe_id = secure_filename(id_number)
-            front_path = os.path.join(ID_CARD_DIR, safe_id + "_front.png")
-            back_path = os.path.join(ID_CARD_DIR, safe_id + "_back.png")
-
-            if os.path.exists(front_path) and os.path.exists(back_path):
-                cards.append(
-                    {
-                        "id_number": id_number,
-                        "expiry": row[2] if len(row) > 2 else "",
-                        "print_url": url_for("print_id", id_number=safe_id),
-                        "front_url": url_for("id_cards", filename=safe_id + "_front.png"),
-                        "back_url": url_for("id_cards", filename=safe_id + "_back.png"),
-                    }
-                )
-
-    return cards
+    cursor.close()
+    conn.close()
+    return current_duid
 
 
-def employee_id_for_id_card_number(id_number):
+def build_id_card_metadata(
+    id_number,
+    expiry,
+    employee_id,
+    telecom_role,
+    duid,
+    safety_status,
+    workbook_name,
+    row_index,
+    current_duid=None,
+):
+
+    safe_id = secure_filename(id_number)
+    front_filename = safe_id + "_front.png"
+    back_filename = safe_id + "_back.png"
+    front_path = os.path.join(ID_CARD_DIR, front_filename)
+    back_path = os.path.join(ID_CARD_DIR, back_filename)
+    files_exist = os.path.exists(front_path) and os.path.exists(back_path)
+    generated_at = None
+
+    if files_exist:
+        generated_at = datetime.fromtimestamp(
+            max(os.path.getmtime(front_path), os.path.getmtime(back_path))
+        )
+
+    current_duid = clean_text(current_duid)
+    card_duid = clean_text(duid)
+    is_current = bool(current_duid and card_duid == current_duid)
+
+    return {
+        "id_number": id_number,
+        "safe_id": safe_id,
+        "expiry": expiry,
+        "employee_id": employee_id,
+        "telecom_role": telecom_role,
+        "duid": card_duid,
+        "current_duid": current_duid,
+        "safety_status": safety_status,
+        "workbook_name": workbook_name,
+        "row_index": row_index,
+        "front_filename": front_filename,
+        "back_filename": back_filename,
+        "front_path": front_path,
+        "back_path": back_path,
+        "files_exist": files_exist,
+        "generated_at": generated_at,
+        "generated_at_display": generated_at.strftime("%Y-%m-%d %H:%M") if generated_at else "",
+        "is_current_data": is_current,
+        "status_label": "Current ID Card" if is_current else "Historical ID Card",
+    }
+
+
+def generated_id_card_metadata(id_number):
 
     clean_id_number = clean_text(id_number)
 
@@ -6680,14 +6955,92 @@ def employee_id_for_id_card_number(id_number):
 
         ws = wb["ID"]
 
-        for row in ws.iter_rows(min_row=2, values_only=True):
+        for row_index, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
             row_id_number = clean_text(row[1] if len(row) > 1 else "")
             row_employee_id = row[4] if len(row) > 4 else None
 
             if row_id_number == clean_id_number and row_employee_id:
-                return row_employee_id
+                current_duid = current_id_card_duid_for_employee(row_employee_id)
+                return build_id_card_metadata(
+                    row_id_number,
+                    row[2] if len(row) > 2 else "",
+                    row_employee_id,
+                    row[5] if len(row) > 5 else "",
+                    row[6] if len(row) > 6 else "",
+                    row[7] if len(row) > 7 else "",
+                    filename,
+                    row_index,
+                    current_duid=current_duid,
+                )
 
     return None
+
+
+def find_generated_id_cards_for_employee(employee_id):
+
+    cards = []
+
+    if not os.path.isdir(EXCEL_DIR):
+        return cards
+
+    current_duid = current_id_card_duid_for_employee(employee_id)
+
+    for filename in os.listdir(EXCEL_DIR):
+        if not filename.lower().endswith(".xlsx"):
+            continue
+
+        workbook_path = os.path.join(EXCEL_DIR, filename)
+
+        try:
+            wb = load_workbook(workbook_path, data_only=True, read_only=False)
+        except Exception:
+            continue
+
+        if "ID" not in wb.sheetnames:
+            continue
+
+        ws = wb["ID"]
+
+        for row_index, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
+            id_number = clean_text(row[1] if len(row) > 1 else "")
+            row_employee_id = row[4] if len(row) > 4 else None
+
+            if not id_number or clean_text(row_employee_id) != clean_text(employee_id):
+                continue
+
+            card = build_id_card_metadata(
+                id_number,
+                row[2] if len(row) > 2 else "",
+                row_employee_id,
+                row[5] if len(row) > 5 else "",
+                row[6] if len(row) > 6 else "",
+                row[7] if len(row) > 7 else "",
+                filename,
+                row_index,
+                current_duid=current_duid,
+            )
+
+            if card["files_exist"]:
+                card["print_url"] = url_for("print_id", id_number=card["safe_id"])
+                card["front_url"] = url_for("id_cards", filename=card["front_filename"])
+                card["back_url"] = url_for("id_cards", filename=card["back_filename"])
+                cards.append(card)
+
+    cards.sort(
+        key=lambda card: (
+            not card["is_current_data"],
+            -(card["generated_at"].timestamp() if card["generated_at"] else 0),
+            card["workbook_name"],
+            -card["row_index"],
+        )
+    )
+    return cards
+
+
+def employee_id_for_id_card_number(id_number):
+
+    card = generated_id_card_metadata(id_number)
+    return card["employee_id"] if card else None
 
 
 def enforce_team_leader_id_card_scope(id_number):
@@ -6755,6 +7108,7 @@ def team_leader_dashboard():
             SELECT e.id,
                    e.project_id,
                    e.first_name,
+                                      e.middle_name,
                    e.last_name,
                    e.position,
                    e.telecom_role,
@@ -7007,6 +7361,7 @@ def search():
             """
             (
                 e.first_name ILIKE %s
+                OR e.middle_name ILIKE %s
                 OR e.last_name ILIKE %s
                 OR e.email ILIKE %s
                 OR e.mobile ILIKE %s
@@ -7014,7 +7369,7 @@ def search():
             """
         )
         keyword = "%" + filters["search"] + "%"
-        params.extend([keyword, keyword, keyword, keyword])
+        params.extend([keyword, keyword, keyword, keyword, keyword])
 
     if filters["employee_id"]:
         conditions.append("CAST(e.id AS TEXT)=%s")
@@ -7039,6 +7394,7 @@ def search():
         SELECT e.id,
                e.project_id,
                e.first_name,
+               e.middle_name,
                e.last_name,
                e.position,
                e.telecom_role,
@@ -7057,7 +7413,7 @@ def search():
         FROM employees e
         LEFT JOIN projects p ON e.project_id = p.id
         WHERE {' AND '.join(conditions)}
-        ORDER BY e.first_name, e.last_name, e.id
+        ORDER BY e.first_name, e.middle_name, e.last_name, e.id
         """,
         params,
     )
@@ -7142,6 +7498,7 @@ def edit_employee(emp_id):
         SELECT e.id,
                e.project_id,
                e.first_name,
+               e.middle_name,
                e.last_name,
                e.position,
                e.email,
@@ -7189,11 +7546,10 @@ def edit_employee(emp_id):
 
     if request.method == "POST":
 
-        old_name = clean_text(
-            clean_text(emp.get("first_name")) + " " + clean_text(emp.get("last_name"))
-        )
+        old_name = full_employee_name(emp)
 
         first_name = clean_text(request.form.get("first_name"))
+        middle_name = clean_text(request.form.get("middle_name")) or None
         last_name = clean_text(request.form.get("last_name"))
         position = clean_text(request.form.get("position"))
         email = clean_text(request.form.get("email"))
@@ -7307,6 +7663,7 @@ def edit_employee(emp_id):
             """
             UPDATE employees
             SET first_name=%s,
+                middle_name=%s,
                 last_name=%s,
                 position=%s,
                 email=%s,
@@ -7338,6 +7695,7 @@ def edit_employee(emp_id):
             """,
             (
                 first_name,
+                middle_name,
                 last_name,
                 position,
                 email,
@@ -7412,7 +7770,7 @@ def edit_employee(emp_id):
             "EMPLOYEE_UPDATED",
             "employee",
             emp_id,
-            f"Updated employee {first_name} {last_name}.",
+            f"Updated employee {compose_person_name(first_name, middle_name, last_name)}.",
             conn=conn,
         )
 
@@ -7422,6 +7780,7 @@ def edit_employee(emp_id):
             "id": int(emp_id),
             "project_id": emp["project_id"],
             "first_name": first_name,
+            "middle_name": middle_name,
             "last_name": last_name,
             "position": position,
             "email": email,
@@ -7562,6 +7921,7 @@ def form(code):
 
         # TEXT DATA
         first_name = clean_text(request.form.get("first_name"))
+        middle_name = clean_text(request.form.get("middle_name")) or None
         last_name = clean_text(request.form.get("last_name"))
         position = clean_text(request.form.get("position"))
         email = clean_text(request.form.get("email"))
@@ -7596,7 +7956,7 @@ def form(code):
             conn.close()
             return str(exc)
 
-        full_name = first_name + " " + last_name
+        full_name = compose_person_name(first_name, middle_name, last_name)
 
         if not duid_exists(cursor, assigned_du_id):
             cursor.close()
@@ -7667,6 +8027,7 @@ def form(code):
         INSERT INTO employees(
         project_id,
         first_name,
+        middle_name,
         last_name,
         position,
         email,
@@ -7692,12 +8053,13 @@ def form(code):
         first_aid_issue_date,
         first_aid_expiry_date
         )
-        VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+        VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
         RETURNING id
         """,
             (
                 project["id"],
                 first_name,
+                middle_name,
                 last_name,
                 position,
                 email,
@@ -7823,6 +8185,7 @@ def form(code):
             "id": employee_id,
             "project_id": project["id"],
             "first_name": first_name,
+            "middle_name": middle_name,
             "last_name": last_name,
             "position": position,
             "email": email,
@@ -8033,6 +8396,7 @@ def id_generator():
         """
         SELECT e.id,
                e.first_name,
+                              e.middle_name,
                e.last_name,
                e.position,
                e.photo,
@@ -8277,6 +8641,7 @@ def safety_compliance():
         SELECT e.id,
                e.project_id,
                e.first_name,
+                              e.middle_name,
                e.last_name,
                e.position,
                e.telecom_role,
@@ -8516,6 +8881,7 @@ def safety_documents():
                sd.created_at,
                sd.updated_at,
                e.first_name,
+                              e.middle_name,
                e.last_name,
                p.project_name,
                p.project_code
@@ -8823,6 +9189,7 @@ def site_detail(du_id):
                p.project_name,
                p.project_code,
                e.first_name,
+                              e.middle_name,
                e.last_name,
                e.position,
                e.telecom_role,
@@ -8863,6 +9230,7 @@ def site_detail(du_id):
                t.updated_at,
                p.project_name,
                e.first_name,
+                              e.middle_name,
                e.last_name
         FROM telecom_tasks t
         LEFT JOIN projects p ON t.project_id = p.id
@@ -8969,6 +9337,7 @@ def site_detail(du_id):
                pi.verified_date,
                pi.verified_by,
                e.first_name,
+                              e.middle_name,
                e.last_name
         FROM punchlist_items pi
         LEFT JOIN employees e ON pi.assigned_employee_id = e.id
@@ -9285,6 +9654,8 @@ def daily_operations_export():
             ]
         )
 
+    apply_daily_operations_export_formatting(ws)
+
     output = BytesIO()
     wb.save(output)
     output.seek(0)
@@ -9500,6 +9871,7 @@ def daily_log_detail(log_id):
                da.safety_status_snapshot,
                da.remarks,
                e.first_name,
+                              e.middle_name,
                e.last_name,
                e.position,
                e.telecom_role
@@ -9900,6 +10272,7 @@ def site_assignments():
                p.project_name,
                p.project_code,
                e.first_name,
+                              e.middle_name,
                e.last_name
         FROM site_assignments sa
         LEFT JOIN projects p ON sa.project_id = p.id
@@ -10082,6 +10455,7 @@ def telecom_tasks():
                t.created_at,
                p.project_name,
                e.first_name,
+                              e.middle_name,
                e.last_name
         FROM telecom_tasks t
         LEFT JOIN projects p ON t.project_id = p.id
@@ -10489,6 +10863,7 @@ def toolbox_talks():
                tt.notes,
                p.project_name,
                e.first_name AS conducted_first_name,
+                              e.middle_name AS conducted_middle_name,
                e.last_name AS conducted_last_name,
                COUNT(ta.employee_id) AS attendees
         FROM toolbox_talks tt
@@ -10496,7 +10871,7 @@ def toolbox_talks():
         LEFT JOIN employees e ON tt.conducted_by = e.id
         LEFT JOIN toolbox_attendance ta ON ta.toolbox_talk_id = tt.id AND ta.attended=TRUE
         WHERE {' AND '.join(conditions)}
-        GROUP BY tt.id, p.project_name, e.first_name, e.last_name
+        GROUP BY tt.id, p.project_name, e.first_name, e.middle_name, e.last_name
         ORDER BY tt.date DESC, tt.id DESC
         LIMIT 200
         """,
@@ -10676,6 +11051,7 @@ def incidents():
                ir.status,
                p.project_name,
                e.first_name,
+                              e.middle_name,
                e.last_name,
                COUNT(ia.id) AS attachments
         FROM incident_reports ir
@@ -10683,7 +11059,7 @@ def incidents():
         LEFT JOIN employees e ON ir.reported_by = e.id
         LEFT JOIN incident_attachments ia ON ia.incident_report_id = ir.id
         WHERE {' AND '.join(conditions)}
-        GROUP BY ir.id, p.project_name, e.first_name, e.last_name
+        GROUP BY ir.id, p.project_name, e.first_name, e.middle_name, e.last_name
         ORDER BY ir.created_at DESC, ir.id DESC
         LIMIT 200
         """,
@@ -10915,6 +11291,36 @@ def fit_image_to_box(image, box):
     return image.crop(crop).resize((target_width, target_height), resample)
 
 
+def authoritative_employee_duid(cursor, employee):
+
+    assigned_du_id = clean_text(employee.get("assigned_du_id"))
+
+    if assigned_du_id:
+        return assigned_du_id
+
+    cursor.execute(
+        """
+        SELECT du_id
+        FROM site_assignments
+        WHERE employee_id=%s
+          AND assignment_status='ACTIVE'
+          AND du_id IS NOT NULL
+          AND TRIM(du_id) <> ''
+        ORDER BY start_date DESC NULLS LAST,
+                 created_at DESC NULLS LAST,
+                 id DESC
+        LIMIT 1
+        """,
+        (employee.get("id"),),
+    )
+    row = cursor.fetchone()
+
+    if row and clean_text(row[0]):
+        return clean_text(row[0])
+
+    return "UNASSIGNED"
+
+
 @app.route("/generate_id/<code>/<employee_id>", methods=["GET", "POST"])
 @permission_required("generate_ids")
 def generate_id(code, employee_id):
@@ -10931,6 +11337,7 @@ def generate_id(code, employee_id):
         SELECT e.id,
                e.project_id,
                e.first_name,
+                              e.middle_name,
                e.last_name,
                e.position,
                e.telecom_role,
@@ -10959,12 +11366,11 @@ def generate_id(code, employee_id):
 
     emp.update(safety_summary_from_employee(emp))
 
-    name = clean_text(
-        clean_text(emp.get("first_name")) + " " + clean_text(emp.get("last_name"))
-    )
+    name = full_employee_name(emp)
     position = emp["position"]
     telecom_role = emp.get("telecom_role") or position
-    assigned_du_id = emp.get("assigned_du_id") or "UNASSIGNED"
+    assigned_du_id = authoritative_employee_duid(cursor, emp)
+    emp["display_duid"] = assigned_du_id
 
     if not emp.get("project_code"):
         cursor.close()
@@ -11119,18 +11525,18 @@ def generate_id(code, employee_id):
         #################################
 
         draw_fitted_text(draw_back, name, (126, 189, 442, 214), 18, 11, bold=True, align="left")
-        draw_wrapped_text(draw_back, address, (144, 217, 442, 264), 17, 11, max_lines=2)
+        draw_wrapped_text(draw_back, address, (144, 217, 442, 260), 14, 8, max_lines=3)
         draw_fitted_text(
             draw_back,
             contact_number,
-            (218, 270, 442, 294),
-            17,
-            11,
+            (218, 263, 442, 284),
+            16,
+            10,
             align="left",
         )
-        draw_fitted_text(draw_back, "DUID: " + assigned_du_id, (60, 298, 435, 320), 14, 10)
-        draw_fitted_text(draw_back, "ID No: " + id_number, (70, 584, 425, 607), 16, 10)
-        draw_fitted_text(draw_back, "EXPIRY: " + expiry, (70, 610, 425, 635), 18, 11, bold=True)
+        draw_fitted_text(draw_back, "DUID: " + assigned_du_id, (70, 287, 425, 306), 13, 9)
+        draw_fitted_text(draw_back, "ID No: " + id_number, (70, 574, 425, 598), 15, 10)
+        draw_fitted_text(draw_back, "EXPIRY: " + expiry, (70, 604, 425, 630), 17, 11, bold=True)
 
         #################################
         # SAVE ID CARDS
@@ -11220,6 +11626,11 @@ def print_id(id_number):
     if safe_id_number != id_number:
         return "Invalid ID Number"
 
+    card = generated_id_card_metadata(safe_id_number)
+
+    if not card or not card["files_exist"]:
+        return "ID card not found"
+
     denied = enforce_team_leader_id_card_scope(safe_id_number)
 
     if denied:
@@ -11228,7 +11639,12 @@ def print_id(id_number):
     front_file = "id_cards/" + safe_id_number + "_front.png"
     back_file = "id_cards/" + safe_id_number + "_back.png"
 
-    return render_template("print_id.html", front=front_file, back=back_file)
+    return render_template(
+        "print_id.html",
+        front=front_file,
+        back=back_file,
+        card=card,
+    )
 
 
 #############################################
@@ -11323,6 +11739,7 @@ def punchlist():
                p.project_name,
                p.project_code,
                e.first_name,
+                              e.middle_name,
                e.last_name,
                COALESCE(g.site_name, g.sitename, g.globe_du_name, pr.planning_du_name) AS display_site_name
         FROM punchlist_items pi
@@ -12495,6 +12912,7 @@ def fetch_site_completion_report(cursor, duid):
                p.project_name,
                p.project_code,
                e.first_name,
+                              e.middle_name,
                e.last_name,
                e.position,
                e.telecom_role,
@@ -12590,6 +13008,7 @@ def fetch_site_completion_report(cursor, duid):
                pi.verified_date,
                pi.verified_by,
                e.first_name,
+                              e.middle_name,
                e.last_name
         FROM punchlist_items pi
         LEFT JOIN employees e ON pi.assigned_employee_id=e.id
@@ -12679,6 +13098,7 @@ def fetch_site_completion_report(cursor, duid):
                sd.original_filename,
                sd.document_type,
                e.first_name,
+                              e.middle_name,
                e.last_name
         FROM safety_documents sd
         JOIN employees e ON e.id=sd.employee_id
@@ -12994,6 +13414,7 @@ def fetch_project_management_report(cursor, project_id):
         """
         SELECT e.id,
                e.first_name,
+                              e.middle_name,
                e.last_name,
                e.position,
                e.telecom_role,
@@ -13207,6 +13628,7 @@ def fetch_personnel_report(cursor, filters):
                e.id,
                e.project_id,
                e.first_name,
+                              e.middle_name,
                e.last_name,
                e.position,
                e.telecom_role,
@@ -13484,6 +13906,7 @@ def fetch_punchlist_report(cursor, filters):
                p.project_name,
                p.project_code,
                e.first_name,
+                              e.middle_name,
                e.last_name,
                COALESCE(g.site_name, g.sitename, g.globe_du_name, pr.planning_du_name) AS display_site_name
         FROM punchlist_items pi

@@ -26,7 +26,7 @@
             {% endfor %}
           </select>
 
-          <input name="role" value="{{ filters.role }}" placeholder="Role" />
+          <input name="role" value="{{ filters.role }}" placeholder="Position or Site / Telecom Role" />
 
           <select name="nbi_status">
             <option value="">NBI Status</option>
@@ -67,7 +67,7 @@
           <th>ID</th>
           <th>Name</th>
           <th>Position</th>
-          <th>Role</th>
+          <th>Site / Telecom Role</th>
           <th>DUID</th>
           <th>Email</th>
           <th>Mobile</th>
@@ -79,7 +79,7 @@
         {% for emp in employees %}
           <tr>
             <td>{{ emp.id }}</td>
-            <td>{{ emp.first_name }} {{ emp.last_name }}</td>
+            <td>{{ full_employee_name(emp) }}</td>
             <td>{{ emp.position }}</td>
             <td>{{ emp.telecom_role or '-' }}</td>
             <td>{{ emp.assigned_du_id or '-' }}</td>

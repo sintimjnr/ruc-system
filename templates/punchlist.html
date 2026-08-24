@@ -35,7 +35,7 @@
           <select name="assigned_employee_id">
             <option value="">Any Responsible Person</option>
             {% for emp in employees %}
-              <option value="{{ emp.id }}" {% if filters.assigned_employee_id == emp.id|string %}selected{% endif %}>{{ emp.first_name }} {{ emp.last_name }}</option>
+              <option value="{{ emp.id }}" {% if filters.assigned_employee_id == emp.id|string %}selected{% endif %}>{{ full_employee_name(emp) }}</option>
             {% endfor %}
           </select>
           <button type="submit">Filter Punchlist</button>

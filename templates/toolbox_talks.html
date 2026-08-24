@@ -25,7 +25,7 @@
           <select name="conducted_by">
             <option value="">Conducted By</option>
             {% for emp in employees %}
-              <option value="{{ emp.id }}">{{ emp.first_name }} {{ emp.last_name }}</option>
+              <option value="{{ emp.id }}">{{ full_employee_name(emp) }}</option>
             {% endfor %}
           </select>
           <textarea name="notes" placeholder="Notes"></textarea>
@@ -35,7 +35,7 @@
             {% for emp in employees %}
               <label>
                 <input type="checkbox" name="employee_ids" value="{{ emp.id }}" />
-                {{ emp.first_name }} {{ emp.last_name }}{% if emp.assigned_du_id %} - {{ emp.assigned_du_id }}{% endif %}
+                {{ full_employee_name(emp) }}{% if emp.assigned_du_id %} - {{ emp.assigned_du_id }}{% endif %}
               </label>
             {% endfor %}
           </div>

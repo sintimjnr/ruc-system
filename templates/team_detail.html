@@ -28,7 +28,7 @@
             <select name="employee_id" required>
               <option value="">Employee</option>
               {% for emp in employees %}
-                <option value="{{ emp.id }}">{{ emp.first_name }} {{ emp.last_name }}{% if emp.assigned_du_id %} - {{ emp.assigned_du_id }}{% endif %}</option>
+                <option value="{{ emp.id }}">{{ full_employee_name(emp) }}{% if emp.assigned_du_id %} - {{ emp.assigned_du_id }}{% endif %}</option>
               {% endfor %}
             </select>
             <button type="submit">Add or Transfer</button>

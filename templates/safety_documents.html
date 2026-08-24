@@ -12,7 +12,7 @@
             <select name="employee_id" required>
               <option value="">Employee</option>
               {% for emp in employees %}
-                <option value="{{ emp.id }}">{{ emp.first_name }} {{ emp.last_name }}</option>
+                <option value="{{ emp.id }}">{{ full_employee_name(emp) }}</option>
               {% endfor %}
             </select>
             <select name="project_id">
@@ -48,7 +48,7 @@
           <select name="employee_id">
             <option value="">All Employees</option>
             {% for emp in employees %}
-              <option value="{{ emp.id }}" {% if filters.employee_id == emp.id|string %}selected{% endif %}>{{ emp.first_name }} {{ emp.last_name }}</option>
+              <option value="{{ emp.id }}" {% if filters.employee_id == emp.id|string %}selected{% endif %}>{{ full_employee_name(emp) }}</option>
             {% endfor %}
           </select>
           <select name="document_type">

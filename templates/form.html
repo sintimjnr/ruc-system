@@ -31,6 +31,7 @@
 
           <div class="form-grid">
             <input type="text" name="first_name" placeholder="First Name" required />
+            <input type="text" name="middle_name" placeholder="Middle / Other Name" />
             <input type="text" name="last_name" placeholder="Last Name" required />
             <select name="position" required>
               <option value="">Select Position</option>
@@ -42,8 +43,9 @@
           </div>
 
           <h3>Telecom Assignment</h3>
+          <p class="muted">Position is the employee designation. Site / Telecom Role is the worker's role for site operations.</p>
           <div class="form-grid">
-            <input type="text" name="telecom_role" placeholder="Telecom Role" />
+            <input type="text" name="telecom_role" placeholder="Site / Telecom Role" />
             <select name="assigned_du_id">
               <option value="">Assigned DUID</option>
               {% for duid in duids %}

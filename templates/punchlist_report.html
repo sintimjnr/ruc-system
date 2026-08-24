@@ -13,7 +13,7 @@
           <select name="duid"><option value="">All DUIDs</option>{% for duid in duids %}<option value="{{ duid }}" {% if filters.duid == duid %}selected{% endif %}>{{ duid }}</option>{% endfor %}</select>
           <select name="priority"><option value="">Any Priority</option>{% for priority in priorities %}<option value="{{ priority }}" {% if filters.priority == priority %}selected{% endif %}>{{ priority }}</option>{% endfor %}</select>
           <select name="status"><option value="">Any Status</option>{% for status in statuses %}<option value="{{ status }}" {% if filters.status == status %}selected{% endif %}>{{ status }}</option>{% endfor %}</select>
-          <select name="assigned_employee_id"><option value="">Any Employee</option>{% for emp in employees %}<option value="{{ emp.id }}" {% if filters.assigned_employee_id == emp.id|string %}selected{% endif %}>{{ emp.first_name }} {{ emp.last_name }}</option>{% endfor %}</select>
+          <select name="assigned_employee_id"><option value="">Any Employee</option>{% for emp in employees %}<option value="{{ emp.id }}" {% if filters.assigned_employee_id == emp.id|string %}selected{% endif %}>{{ full_employee_name(emp) }}</option>{% endfor %}</select>
           <input type="date" name="date_from" value="{{ filters.date_from }}" />
           <input type="date" name="date_to" value="{{ filters.date_to }}" />
           <button type="submit">Filter</button>
