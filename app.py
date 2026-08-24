@@ -1319,8 +1319,7 @@ def get_employees_for_select():
                last_name,
                position,
                telecom_role,
-               assigned_du_id,
-               project_id
+               assigned_du_id
         FROM employees
         {where_sql}
         ORDER BY first_name, last_name, id
@@ -4503,6 +4502,86 @@ def login():
 #############################################
 
 
+def dashboard_tone(label):
+
+    label = clean_text(label).upper()
+
+    if label in {
+        "BLOCKED",
+        "FAILED",
+        "EXPIRED",
+        "MISSING",
+        "CRITICAL",
+        "HIGH",
+        "NOT READY",
+        "OPEN",
+    }:
+        return "danger"
+
+    if label in {
+        "PENDING",
+        "IN PROGRESS",
+        "ON HOLD",
+        "EXPIRING SOON",
+        "PASSED WITH PUNCHLIST",
+        "RECTIFIED",
+    }:
+        return "warning"
+
+    if label in {"VALID", "COMPLETED", "PASSED", "READY", "ACCEPTED", "CLOSED"}:
+        return "success"
+
+    return "primary"
+
+
+def dashboard_add_percentages(rows, count_key="count"):
+
+    total = sum(int(row.get(count_key) or 0) for row in rows)
+
+    for row in rows:
+        count = int(row.get(count_key) or 0)
+        row["percent"] = round((count / total) * 100, 1) if total else 0
+
+    return rows
+
+
+def dashboard_distribution_from_counts(counts):
+
+    rows = [
+        {"label": label, "count": count, "tone": dashboard_tone(label)}
+        for label, count in counts.items()
+        if count
+    ]
+    rows.sort(key=lambda row: (-row["count"], row["label"]))
+    return dashboard_add_percentages(rows)
+
+
+def dashboard_distribution_from_rows(rows, key, fallback="Unspecified"):
+
+    counts = {}
+
+    for row in rows:
+        label = clean_text(row.get(key)) or fallback
+        counts[label] = counts.get(label, 0) + 1
+
+    return dashboard_distribution_from_counts(counts)
+
+
+def dashboard_number(value):
+
+    try:
+        return float(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def dashboard_count_label(count, singular, plural=None):
+
+    count = int(count or 0)
+    label = singular if count == 1 else (plural or singular + "s")
+    return f"{count} {label}"
+
+
 @app.route("/dashboard")
 @login_required
 def dashboard():
@@ -4514,13 +4593,13 @@ def dashboard():
     cursor = conn.cursor()
 
     filters = {
-        "du_id": clean_text(request.args.get("du_id")),
         "project_id": clean_text(request.args.get("project_id")),
-        "employee_id": clean_text(request.args.get("employee_id")),
-        "safety_status": clean_text(request.args.get("safety_status")),
-        "task_status": clean_text(request.args.get("task_status")),
-        "permit_status": clean_text(request.args.get("permit_status")),
+        "towerco": clean_text(request.args.get("towerco")),
+        "region": clean_text(request.args.get("region")),
     }
+
+    if filters["project_id"] and not filters["project_id"].isdigit():
+        filters["project_id"] = ""
 
     cursor.execute(
         """
@@ -4530,69 +4609,14 @@ def dashboard():
         """
     )
     projects = rows_to_dicts(cursor)
-
-    cursor.execute("SELECT COUNT(*) FROM projects")
-    total_projects = cursor.fetchone()[0]
-
-    cursor.execute("SELECT COUNT(*) FROM employees")
-    total_employees = cursor.fetchone()[0]
-
-    cursor.execute(
-        """
-        SELECT COUNT(DISTINCT du_id)
-        FROM (
-            SELECT du_id FROM globe_nlz
-            UNION
-            SELECT du_id FROM planning_reference
-            UNION
-            SELECT du_id FROM telecom_sites
-        ) all_duids
-        WHERE du_id IS NOT NULL
-          AND TRIM(du_id) <> ''
-        """
-    )
-    total_telecom_sites = cursor.fetchone()[0]
-
-    cursor.execute(
-        """
-        SELECT
-            COUNT(*) FILTER (WHERE overall_status='Active') AS active_sites,
-            COUNT(*) FILTER (WHERE overall_status='Completed') AS completed_sites,
-            COUNT(*) FILTER (WHERE overall_status IN ('On Hold','Blocked')) AS attention_sites
-        FROM telecom_sites
-        """
-    )
-    site_status_counts = cursor.fetchone()
-    active_sites = site_status_counts[0] or 0
-    completed_sites = site_status_counts[1] or 0
-    attention_sites = site_status_counts[2] or 0
-
-    cursor.execute(
-        """
-        SELECT COALESCE(ROUND(AVG(overall_progress)::numeric, 1), 0)
-        FROM telecom_sites
-        """
-    )
-    average_site_progress = cursor.fetchone()[0] or 0
-
-    cursor.execute(
-        f"""
-        {SITE_REFERENCE_CTE}
-        SELECT COALESCE(ts.current_stage, 'Planning') AS current_stage,
-               COUNT(*) AS site_count
-        FROM all_duids d
-        LEFT JOIN telecom_sites ts ON ts.du_id = d.du_id
-        GROUP BY COALESCE(ts.current_stage, 'Planning')
-        ORDER BY site_count DESC, current_stage
-        """
-    )
-    sites_by_stage = rows_to_dicts(cursor)
+    total_projects = len(projects)
 
     cursor.execute(
         """
         SELECT id,
                first_name,
                last_name,
+               project_id,
                position,
                telecom_role,
                assigned_du_id,
@@ -4607,24 +4631,18 @@ def dashboard():
         """
     )
     employees = rows_to_dicts(cursor)
+    total_employees = len(employees)
 
-    safety_compliant_workers = 0
     expiring_certificates = 0
-    expired_certificates = 0
     missing_certificates = 0
 
     for emp in employees:
         emp.update(safety_summary_from_employee(emp))
         emp["full_name"] = full_employee_name(emp)
 
-        if emp["overall_safety_status"] in ("VALID", "EXPIRING SOON"):
-            safety_compliant_workers += 1
-
         for key in ("nbi_status", "wah_status", "first_aid_status"):
             if emp[key] == "EXPIRING SOON":
                 expiring_certificates += 1
-            elif emp[key] == "EXPIRED":
-                expired_certificates += 1
             elif emp[key] == "MISSING":
                 missing_certificates += 1
 
@@ -4641,231 +4659,290 @@ def dashboard():
         )
     )
 
-    filtered_safety_employees = employees
-
-    if filters["employee_id"]:
-        filtered_safety_employees = [
-            emp for emp in filtered_safety_employees if str(emp["id"]) == filters["employee_id"]
-        ]
-
-    if filters["du_id"]:
-        filtered_safety_employees = [
-            emp
-            for emp in filtered_safety_employees
-            if clean_text(emp.get("assigned_du_id")) == filters["du_id"]
-        ]
-
-    if filters["safety_status"]:
-        filtered_safety_employees = [
-            emp
-            for emp in filtered_safety_employees
-            if emp["overall_safety_status"] == filters["safety_status"]
-        ]
-
     cursor.execute(
         """
-        SELECT COUNT(*)
-        FROM telecom_tasks
-        WHERE status NOT IN ('COMPLETED','CLOSED','CANCELLED')
+        SELECT DISTINCT towerco
+        FROM globe_nlz
+        WHERE towerco IS NOT NULL
+          AND TRIM(towerco) <> ''
+        ORDER BY towerco
         """
     )
-    open_telecom_tasks = cursor.fetchone()[0]
+    towercos = [row[0] for row in cursor.fetchall()]
 
     cursor.execute(
         """
-        SELECT COUNT(*)
-        FROM permit_to_work
-        WHERE status='ACTIVE'
-          AND (valid_until IS NULL OR valid_until >= CURRENT_DATE)
-        """
-    )
-    active_permits = cursor.fetchone()[0]
-
-    cursor.execute(
-        """
-        SELECT COUNT(*)
-        FROM incident_reports
-        WHERE status NOT IN ('CLOSED','RESOLVED','CANCELLED')
-        """
-    )
-    open_incidents = cursor.fetchone()[0]
-
-    cursor.execute(
-        """
-        SELECT COUNT(*)
-        FROM daily_site_logs
-        WHERE report_date=CURRENT_DATE
-        """
-    )
-    reports_today = cursor.fetchone()[0]
-
-    cursor.execute(
-        """
-        SELECT COUNT(DISTINCT duid)
-        FROM daily_site_logs
-        WHERE report_date=CURRENT_DATE
-        """
-    )
-    active_sites_today = cursor.fetchone()[0]
-
-    cursor.execute(
-        """
-        SELECT COUNT(*)
-        FROM daily_attendance da
-        JOIN daily_site_logs dsl ON da.daily_log_id = dsl.id
-        WHERE dsl.report_date=CURRENT_DATE
-          AND da.attendance_status IN ('Present','Late')
-        """
-    )
-    personnel_present_today = cursor.fetchone()[0]
-
-    cursor.execute(
-        """
-        SELECT COUNT(DISTINCT duid)
-        FROM daily_site_logs
-        WHERE report_date=CURRENT_DATE
-          AND (
-              COALESCE(TRIM(blockers), '') <> ''
-              OR COALESCE(TRIM(blocker_category), '') <> ''
-          )
-        """
-    )
-    sites_with_blockers = cursor.fetchone()[0]
-
-    cursor.execute(
-        """
-        SELECT COUNT(DISTINCT duid)
-        FROM daily_site_logs
-        WHERE updated_at::date=CURRENT_DATE
-        """
-    )
-    sites_updated_today = cursor.fetchone()[0]
-
-    cursor.execute(
-        """
-        SELECT COUNT(DISTINCT duid)
-        FROM punchlist_items
-        WHERE status <> 'CLOSED'
-        """
-    )
-    sites_with_open_punchlists = cursor.fetchone()[0]
-
-    cursor.execute(
-        """
-        SELECT COUNT(*)
-        FROM punchlist_items
-        WHERE priority='CRITICAL'
-          AND status = ANY(%s)
-        """,
-        (PUNCHLIST_UNRESOLVED_STATUSES,),
-    )
-    critical_punchlist_items = cursor.fetchone()[0]
-
-    cursor.execute(
-        f"""
-        {SITE_REFERENCE_CTE},
-        latest_pat AS (
-            SELECT DISTINCT ON (duid)
-                   duid,
-                   result
-            FROM pat_records
-            ORDER BY duid, pat_date DESC, created_at DESC, id DESC
-        )
-        SELECT COUNT(*)
-        FROM all_duids d
-        LEFT JOIN latest_pat lp ON lp.duid = d.du_id
-        WHERE COALESCE(lp.result, 'PENDING') = 'PENDING'
-        """
-    )
-    sites_awaiting_pat = cursor.fetchone()[0]
-
-    cursor.execute(
-        """
-        SELECT COUNT(*)
+        SELECT DISTINCT cleaned_region AS region_name
         FROM (
-            SELECT DISTINCT ON (duid)
-                   duid,
-                   result
-            FROM pat_records
-            ORDER BY duid, pat_date DESC, created_at DESC, id DESC
-        ) latest_pat
-        WHERE result='FAILED'
+            SELECT NULLIF(TRIM(REPLACE(region_name, CHR(160), '')), '') AS cleaned_region
+            FROM (
+                SELECT province AS region_name FROM globe_nlz
+                UNION
+                SELECT mdb_province AS region_name FROM planning_reference
+                UNION
+                SELECT territory AS region_name FROM planning_reference
+                UNION
+                SELECT region AS region_name FROM projects
+            ) raw_regions
+        ) regions
+        WHERE cleaned_region IS NOT NULL
+        ORDER BY cleaned_region
         """
     )
-    pat_failed = cursor.fetchone()[0]
+    regions = [row[0] for row in cursor.fetchall()]
 
-    cursor.execute(
-        f"""
-        {SITE_REFERENCE_CTE},
-        latest_pat AS (
-            SELECT DISTINCT ON (duid)
-                   duid,
-                   result
-            FROM pat_records
-            ORDER BY duid, pat_date DESC, created_at DESC, id DESC
-        ),
-        punchlist_counts AS (
-            SELECT duid,
-                   COUNT(*) FILTER (WHERE status = ANY(%s)) AS unresolved_count,
-                   COUNT(*) FILTER (
-                       WHERE priority IN ('CRITICAL','HIGH')
-                         AND status = ANY(%s)
-                   ) AS blocking_count
-            FROM punchlist_items
-            GROUP BY duid
-        )
-        SELECT COUNT(*)
-        FROM all_duids d
-        JOIN latest_pat lp ON lp.duid = d.du_id
-        LEFT JOIN punchlist_counts pc ON pc.duid = d.du_id
-        LEFT JOIN site_acceptance sa ON sa.duid = d.du_id
-        WHERE lp.result IN ('PASSED','PASSED WITH PUNCHLIST')
-          AND COALESCE(pc.blocking_count, 0) = 0
-          AND (
-              COALESCE(pc.unresolved_count, 0) = 0
-              OR lp.result = 'PASSED WITH PUNCHLIST'
-          )
-          AND COALESCE(sa.acceptance_status, '') <> 'ACCEPTED'
-        """,
-        (PUNCHLIST_UNRESOLVED_STATUSES, PUNCHLIST_UNRESOLVED_STATUSES),
-    )
-    sites_ready_for_acceptance = cursor.fetchone()[0]
-
-    cursor.execute(
-        """
-        SELECT COUNT(DISTINCT duid)
-        FROM (
-            SELECT duid
-            FROM site_acceptance
-            WHERE acceptance_status='ACCEPTED'
-            UNION
-            SELECT du_id AS duid
-            FROM telecom_sites
-            WHERE overall_status='Completed'
-               OR current_stage='Completed'
-        ) accepted_sites
-        """
-    )
-    accepted_completed_sites = cursor.fetchone()[0]
-
-    task_conditions = ["TRUE"]
-    task_params = []
+    dashboard_site_conditions = ["TRUE"]
+    dashboard_site_params = []
 
     if filters["project_id"]:
-        task_conditions.append("t.project_id=%s")
-        task_params.append(filters["project_id"])
+        dashboard_site_conditions.append(
+            """
+            (
+                ts.project_id = %s
+                OR EXISTS (
+                    SELECT 1
+                    FROM site_assignments sx
+                    WHERE sx.du_id = d.du_id
+                      AND sx.project_id = %s
+                )
+            )
+            """
+        )
+        dashboard_site_params.extend([filters["project_id"], filters["project_id"]])
 
-    if filters["du_id"]:
-        task_conditions.append("t.du_id=%s")
-        task_params.append(filters["du_id"])
+    if filters["towerco"]:
+        dashboard_site_conditions.append("g.towerco=%s")
+        dashboard_site_params.append(filters["towerco"])
 
-    if filters["employee_id"]:
-        task_conditions.append("t.assigned_employee_id=%s")
-        task_params.append(filters["employee_id"])
+    if filters["region"]:
+        dashboard_site_conditions.append(
+            "COALESCE(g.province, pr.mdb_province, pr.territory, '') ILIKE %s"
+        )
+        dashboard_site_params.append("%" + filters["region"] + "%")
 
-    if filters["task_status"]:
-        task_conditions.append("t.status=%s")
-        task_params.append(filters["task_status"])
+    cursor.execute(
+        f"""
+        {SITE_REFERENCE_CTE}
+        {SITE_SELECT_COLUMNS},
+               COALESCE(task_counts.open_tasks, 0) AS open_tasks,
+               COALESCE(task_counts.high_priority_open_tasks, 0) AS high_priority_open_tasks,
+               COALESCE(permit_counts.active_permits, 0) AS active_permits,
+               COALESCE(incident_counts.open_incidents, 0) AS open_incidents,
+               COALESCE(punchlist_counts.open_punchlists, 0) AS open_punchlists,
+               COALESCE(punchlist_counts.critical_open, 0) AS critical_punchlists,
+               COALESCE(latest_pat.result, ts.pat_status, 'PENDING') AS latest_pat_result,
+               COALESCE(acceptance.acceptance_status, 'NOT READY') AS acceptance_status,
+               latest_daily.report_date AS latest_report_date,
+               latest_daily.blocker_category AS latest_blocker_category,
+               latest_daily.blockers AS latest_blockers
+        {SITE_FROM_JOINS}
+        LEFT JOIN (
+            SELECT du_id,
+                   COUNT(*) FILTER (WHERE status NOT IN ('COMPLETED','CLOSED','CANCELLED')) AS open_tasks,
+                   COUNT(*) FILTER (
+                       WHERE status NOT IN ('COMPLETED','CLOSED','CANCELLED')
+                         AND priority IN ('HIGH','URGENT')
+                   ) AS high_priority_open_tasks
+            FROM telecom_tasks
+            GROUP BY du_id
+        ) task_counts ON task_counts.du_id = d.du_id
+        LEFT JOIN (
+            SELECT du_id, COUNT(*) AS active_permits
+            FROM permit_to_work
+            WHERE status='ACTIVE'
+              AND (valid_until IS NULL OR valid_until >= CURRENT_DATE)
+            GROUP BY du_id
+        ) permit_counts ON permit_counts.du_id = d.du_id
+        LEFT JOIN (
+            SELECT du_id, COUNT(*) AS open_incidents
+            FROM incident_reports
+            WHERE status NOT IN ('CLOSED','RESOLVED','CANCELLED')
+            GROUP BY du_id
+        ) incident_counts ON incident_counts.du_id = d.du_id
+        LEFT JOIN (
+            SELECT duid AS du_id,
+                   COUNT(*) FILTER (WHERE status <> 'CLOSED') AS open_punchlists,
+                   COUNT(*) FILTER (
+                       WHERE priority='CRITICAL'
+                         AND status = ANY(%s)
+                   ) AS critical_open
+            FROM punchlist_items
+            GROUP BY duid
+        ) punchlist_counts ON punchlist_counts.du_id = d.du_id
+        LEFT JOIN (
+            SELECT DISTINCT ON (duid)
+                   duid AS du_id,
+                   result
+            FROM pat_records
+            ORDER BY duid, pat_date DESC, created_at DESC, id DESC
+        ) latest_pat ON latest_pat.du_id = d.du_id
+        LEFT JOIN site_acceptance acceptance ON acceptance.duid = d.du_id
+        LEFT JOIN (
+            SELECT DISTINCT ON (duid)
+                   duid AS du_id,
+                   report_date,
+                   blocker_category,
+                   blockers
+            FROM daily_site_logs
+            ORDER BY duid, report_date DESC, created_at DESC, id DESC
+        ) latest_daily ON latest_daily.du_id = d.du_id
+        WHERE {' AND '.join(dashboard_site_conditions)}
+        ORDER BY d.du_id
+        """,
+        [PUNCHLIST_UNRESOLVED_STATUSES] + dashboard_site_params,
+    )
+    dashboard_site_rows = rows_to_dicts(cursor)
+
+    for site in dashboard_site_rows:
+        decorate_site_row(site)
+
+    dashboard_site_duids = [
+        site["du_id"] for site in dashboard_site_rows if site.get("du_id")
+    ]
+    dashboard_site_filter_active = bool(
+        filters["project_id"] or filters["towerco"] or filters["region"]
+    )
+    dashboard_project_ids = {
+        site.get("project_id") for site in dashboard_site_rows if site.get("project_id")
+    }
+    dashboard_project_scope_count = total_projects
+
+    if dashboard_site_filter_active:
+        if filters["project_id"]:
+            dashboard_project_scope_count = 1 if any(
+                str(project.get("id")) == filters["project_id"] for project in projects
+            ) else 0
+        else:
+            dashboard_project_scope_count = len(dashboard_project_ids)
+
+    dashboard_total_telecom_sites = len(dashboard_site_rows)
+    dashboard_active_sites = len(
+        [
+            site
+            for site in dashboard_site_rows
+            if clean_text(site.get("overall_status")) == "Active"
+        ]
+    )
+    dashboard_completed_sites = len(
+        [
+            site
+            for site in dashboard_site_rows
+            if clean_text(site.get("overall_status")) == "Completed"
+            or clean_text(site.get("current_stage")) == "Completed"
+        ]
+    )
+    dashboard_sites_by_stage = dashboard_distribution_from_rows(
+        dashboard_site_rows, "current_stage", "Planning"
+    )
+    active_permits = sum(int(site.get("active_permits") or 0) for site in dashboard_site_rows)
+    open_incidents = sum(int(site.get("open_incidents") or 0) for site in dashboard_site_rows)
+
+    dashboard_safety_employees = employees
+
+    if filters["project_id"]:
+        dashboard_safety_employees = [
+            emp
+            for emp in dashboard_safety_employees
+            if str(emp.get("project_id") or "") == filters["project_id"]
+            or clean_text(emp.get("assigned_du_id")) in dashboard_site_duids
+        ]
+    elif filters["towerco"] or filters["region"]:
+        dashboard_safety_employees = [
+            emp
+            for emp in dashboard_safety_employees
+            if clean_text(emp.get("assigned_du_id")) in dashboard_site_duids
+        ]
+
+    dashboard_employee_count = len(dashboard_safety_employees)
+    dashboard_safety_counts = {
+        "VALID": 0,
+        "EXPIRING SOON": 0,
+        "EXPIRED": 0,
+        "MISSING": 0,
+    }
+
+    for emp in dashboard_safety_employees:
+        dashboard_safety_counts[emp["overall_safety_status"]] = (
+            dashboard_safety_counts.get(emp["overall_safety_status"], 0) + 1
+        )
+
+    dashboard_safety_distribution = dashboard_distribution_from_counts(
+        dashboard_safety_counts
+    )
+    dashboard_safety_compliant_workers = dashboard_safety_counts["VALID"]
+    dashboard_safety_attention_workers = (
+        dashboard_safety_counts["EXPIRING SOON"]
+        + dashboard_safety_counts["EXPIRED"]
+        + dashboard_safety_counts["MISSING"]
+    )
+
+    def dashboard_scope_conditions(alias, project_column=None, duid_column=None):
+
+        conditions = ["TRUE"]
+        params = []
+        duid_column = duid_column or f"{alias}.du_id"
+
+        if filters["towerco"] or filters["region"]:
+            if dashboard_site_duids:
+                conditions.append(f"{duid_column} = ANY(%s)")
+                params.append(dashboard_site_duids)
+            else:
+                conditions.append("FALSE")
+        elif filters["project_id"] and project_column:
+            if dashboard_site_duids:
+                conditions.append(f"({project_column}=%s OR {duid_column} = ANY(%s))")
+                params.extend([filters["project_id"], dashboard_site_duids])
+            else:
+                conditions.append(f"{project_column}=%s")
+                params.append(filters["project_id"])
+        elif filters["project_id"]:
+            if dashboard_site_duids:
+                conditions.append(f"{duid_column} = ANY(%s)")
+                params.append(dashboard_site_duids)
+            else:
+                conditions.append("FALSE")
+
+        return conditions, params
+
+    dashboard_task_conditions, dashboard_task_params = dashboard_scope_conditions(
+        "t", project_column="t.project_id", duid_column="t.du_id"
+    )
+    cursor.execute(
+        f"""
+        SELECT COALESCE(NULLIF(TRIM(t.status), ''), 'Unspecified') AS label,
+               COUNT(*) AS count,
+               COUNT(*) FILTER (
+                   WHERE t.status NOT IN ('COMPLETED','CLOSED','CANCELLED')
+               ) AS open_count,
+               COUNT(*) FILTER (
+                   WHERE t.status NOT IN ('COMPLETED','CLOSED','CANCELLED')
+                     AND t.priority IN ('HIGH','URGENT')
+               ) AS high_priority_open_count
+        FROM telecom_tasks t
+        WHERE {' AND '.join(dashboard_task_conditions)}
+        GROUP BY COALESCE(NULLIF(TRIM(t.status), ''), 'Unspecified')
+        ORDER BY count DESC, label
+        """,
+        dashboard_task_params,
+    )
+    dashboard_task_status_rows = rows_to_dicts(cursor)
+    dashboard_open_telecom_tasks = sum(
+        int(row.get("open_count") or 0) for row in dashboard_task_status_rows
+    )
+    dashboard_high_priority_open_tasks = sum(
+        int(row.get("high_priority_open_count") or 0)
+        for row in dashboard_task_status_rows
+    )
+    dashboard_task_status_distribution = dashboard_add_percentages(
+        [
+            {
+                "label": row["label"],
+                "count": row["count"],
+                "tone": dashboard_tone(row["label"]),
+            }
+            for row in dashboard_task_status_rows
+        ]
+    )
 
     cursor.execute(
         f"""
@@ -4875,86 +4952,75 @@ def dashboard():
                t.priority,
                t.status,
                t.planned_date,
-               p.project_name,
                e.first_name,
                e.last_name
         FROM telecom_tasks t
-        LEFT JOIN projects p ON t.project_id = p.id
         LEFT JOIN employees e ON t.assigned_employee_id = e.id
-        WHERE {' AND '.join(task_conditions)}
-        ORDER BY t.created_at DESC, t.id DESC
-        LIMIT 10
+        WHERE {' AND '.join(dashboard_task_conditions)}
+          AND t.status NOT IN ('COMPLETED','CLOSED','CANCELLED')
+        ORDER BY
+            CASE t.priority
+                WHEN 'URGENT' THEN 0
+                WHEN 'HIGH' THEN 1
+                WHEN 'MEDIUM' THEN 2
+                ELSE 3
+            END,
+            t.planned_date ASC NULLS LAST,
+            t.created_at DESC,
+            t.id DESC
+        LIMIT 5
         """,
-        task_params,
+        dashboard_task_params,
     )
-    recent_tasks = rows_to_dicts(cursor)
+    dashboard_priority_tasks = rows_to_dicts(cursor)
 
-    permit_conditions = ["TRUE"]
-    permit_params = []
-
-    if filters["project_id"]:
-        permit_conditions.append("ptw.project_id=%s")
-        permit_params.append(filters["project_id"])
-
-    if filters["du_id"]:
-        permit_conditions.append("ptw.du_id=%s")
-        permit_params.append(filters["du_id"])
-
-    if filters["permit_status"]:
-        permit_conditions.append("ptw.status=%s")
-        permit_params.append(filters["permit_status"])
-
+    dashboard_team_conditions, dashboard_team_params = dashboard_scope_conditions(
+        "t", project_column="t.project_id", duid_column="t.du_id"
+    )
     cursor.execute(
         f"""
-        SELECT ptw.id,
-               ptw.permit_number,
-               ptw.du_id,
-               ptw.permit_type,
-               ptw.status,
-               ptw.valid_until,
-               p.project_name
-        FROM permit_to_work ptw
-        LEFT JOIN projects p ON ptw.project_id = p.id
-        WHERE {' AND '.join(permit_conditions)}
-        ORDER BY ptw.created_at DESC, ptw.id DESC
-        LIMIT 10
+        SELECT COUNT(*)
+        FROM teams t
+        WHERE {' AND '.join(dashboard_team_conditions)}
+          AND t.active IS TRUE
         """,
-        permit_params,
+        dashboard_team_params,
     )
-    recent_permits = rows_to_dicts(cursor)
+    dashboard_active_teams = cursor.fetchone()[0]
 
-    incident_conditions = ["TRUE"]
-    incident_params = []
-
-    if filters["project_id"]:
-        incident_conditions.append("ir.project_id=%s")
-        incident_params.append(filters["project_id"])
-
-    if filters["du_id"]:
-        incident_conditions.append("ir.du_id=%s")
-        incident_params.append(filters["du_id"])
-
+    dashboard_daily_conditions, dashboard_daily_params = dashboard_scope_conditions(
+        "dsl", project_column="dsl.project_id", duid_column="dsl.duid"
+    )
     cursor.execute(
         f"""
-        SELECT ir.id,
-               ir.du_id,
-               ir.incident_date,
-               ir.severity,
-               ir.category,
-               ir.status,
-               p.project_name,
-               e.first_name,
-               e.last_name
-        FROM incident_reports ir
-        LEFT JOIN projects p ON ir.project_id = p.id
-        LEFT JOIN employees e ON ir.reported_by = e.id
-        WHERE {' AND '.join(incident_conditions)}
-        ORDER BY ir.created_at DESC, ir.id DESC
-        LIMIT 10
+        SELECT COUNT(DISTINCT dsl.id) FILTER (
+                   WHERE dsl.report_date=CURRENT_DATE
+               ) AS reports_today,
+               COUNT(DISTINCT dsl.duid) FILTER (
+                   WHERE dsl.report_date=CURRENT_DATE
+               ) AS active_sites_today,
+               COUNT(da.id) FILTER (
+                   WHERE dsl.report_date=CURRENT_DATE
+                     AND da.attendance_status IN ('Present','Late')
+               ) AS personnel_present_today,
+               COUNT(DISTINCT dsl.duid) FILTER (
+                   WHERE dsl.report_date=CURRENT_DATE
+                     AND (
+                         COALESCE(TRIM(dsl.blockers), '') <> ''
+                         OR COALESCE(TRIM(dsl.blocker_category), '') <> ''
+                     )
+               ) AS sites_with_blockers
+        FROM daily_site_logs dsl
+        LEFT JOIN daily_attendance da ON da.daily_log_id = dsl.id
+        WHERE {' AND '.join(dashboard_daily_conditions)}
         """,
-        incident_params,
+        dashboard_daily_params,
     )
-    recent_incidents = rows_to_dicts(cursor)
+    dashboard_daily_pulse = row_to_dict(cursor)
+    reports_today = dashboard_daily_pulse["reports_today"] or 0
+    active_sites_today = dashboard_daily_pulse["active_sites_today"] or 0
+    personnel_present_today = dashboard_daily_pulse["personnel_present_today"] or 0
+    sites_with_blockers = dashboard_daily_pulse["sites_with_blockers"] or 0
 
     cursor.execute(
         f"""
@@ -4963,6 +5029,7 @@ def dashboard():
                dsl.duid,
                dsl.report_date,
                dsl.current_stage,
+               dsl.progress_before,
                dsl.progress_after,
                dsl.work_completed,
                dsl.blocker_category,
@@ -4983,86 +5050,402 @@ def dashboard():
             FROM daily_attendance
             GROUP BY daily_log_id
         ) att ON att.daily_log_id = dsl.id
+        WHERE {' AND '.join(dashboard_daily_conditions)}
         ORDER BY dsl.report_date DESC, dsl.created_at DESC, dsl.id DESC
-        LIMIT 10
-        """
+        LIMIT 6
+        """,
+        dashboard_daily_params,
     )
-    recent_daily_activity = rows_to_dicts(cursor)
+    dashboard_recent_daily_activity = rows_to_dicts(cursor)
 
-    cursor.execute(
-        """
-        SELECT DISTINCT du_id
-        FROM (
-            SELECT du_id FROM globe_nlz
-            UNION
-            SELECT du_id FROM planning_reference
-            UNION
-            SELECT du_id FROM telecom_sites
-        ) all_duids
-        WHERE du_id IS NOT NULL
-          AND TRIM(du_id) <> ''
-        ORDER BY du_id
-        """
+    dashboard_sites_with_open_punchlists = len(
+        [
+            site
+            for site in dashboard_site_rows
+            if int(site.get("open_punchlists") or 0) > 0
+        ]
     )
-    duids = [row[0] for row in cursor.fetchall()]
+    dashboard_critical_punchlist_items = sum(
+        int(site.get("critical_punchlists") or 0) for site in dashboard_site_rows
+    )
+    dashboard_sites_awaiting_pat = len(
+        [
+            site
+            for site in dashboard_site_rows
+            if clean_text(site.get("latest_pat_result")).upper()
+            in ("", "MISSING", "PENDING")
+        ]
+    )
+    dashboard_pat_failed = len(
+        [
+            site
+            for site in dashboard_site_rows
+            if clean_text(site.get("latest_pat_result")).upper() == "FAILED"
+        ]
+    )
+
+    def dashboard_site_ready_for_acceptance(site):
+
+        pat_result = clean_text(site.get("latest_pat_result")).upper()
+        acceptance_status = clean_text(site.get("acceptance_status")).upper()
+        unresolved_count = int(site.get("open_punchlists") or 0)
+        critical_count = int(site.get("critical_punchlists") or 0)
+
+        return (
+            pat_result in ("PASSED", "PASSED WITH PUNCHLIST")
+            and critical_count == 0
+            and (unresolved_count == 0 or pat_result == "PASSED WITH PUNCHLIST")
+            and acceptance_status != "ACCEPTED"
+        )
+
+    dashboard_sites_ready_for_acceptance = len(
+        [
+            site
+            for site in dashboard_site_rows
+            if dashboard_site_ready_for_acceptance(site)
+        ]
+    )
+    dashboard_pat_distribution = dashboard_distribution_from_rows(
+        dashboard_site_rows, "latest_pat_result", "PENDING"
+    )
+    dashboard_acceptance_distribution = dashboard_distribution_from_rows(
+        dashboard_site_rows, "acceptance_status", "NOT READY"
+    )
+
+    dashboard_site_attention_items = []
+
+    for site in dashboard_site_rows:
+        reasons = []
+        score = 0
+
+        if clean_text(site.get("overall_status")) in ("Blocked", "On Hold"):
+            reasons.append(f"Status: {site.get('overall_status')}")
+            score = max(score, 90)
+
+        if clean_text(site.get("latest_pat_result")).upper() == "FAILED":
+            reasons.append("Latest PAT failed")
+            score = max(score, 95)
+
+        if int(site.get("critical_punchlists") or 0) > 0:
+            reasons.append(f"{site.get('critical_punchlists')} critical punchlist")
+            score = max(score, 100)
+        elif int(site.get("open_punchlists") or 0) > 0:
+            reasons.append(f"{site.get('open_punchlists')} open punchlist")
+            score = max(score, 55)
+
+        if int(site.get("open_incidents") or 0) > 0:
+            reasons.append(f"{site.get('open_incidents')} open incident")
+            score = max(score, 85)
+
+        if clean_text(site.get("latest_blocker_category")) or clean_text(
+            site.get("latest_blockers")
+        ):
+            reasons.append(site.get("latest_blocker_category") or "Latest report blocker")
+            score = max(score, 80)
+
+        pat_result = clean_text(site.get("latest_pat_result")).upper()
+
+        if (
+            pat_result in ("", "MISSING", "PENDING")
+            and (
+                clean_text(site.get("current_stage")) == "PAT"
+                or dashboard_number(site.get("overall_progress")) >= 80
+            )
+        ):
+            reasons.append("Awaiting PAT")
+            score = max(score, 60)
+
+        if site.get("access_validity") == "EXPIRED":
+            reasons.append("Access expired")
+            score = max(score, 50)
+
+        if reasons:
+            latest_report_date = site.get("latest_report_date") or date.min
+            dashboard_site_attention_items.append(
+                {
+                    "du_id": site.get("du_id"),
+                    "display_site_name": site.get("display_site_name"),
+                    "project_name": site.get("project_name"),
+                    "current_stage": site.get("current_stage"),
+                    "overall_progress": site.get("overall_progress"),
+                    "overall_status": site.get("overall_status"),
+                    "reasons": reasons[:3],
+                    "score": score,
+                    "latest_report_date": site.get("latest_report_date"),
+                    "sort_date": latest_report_date.toordinal()
+                    if hasattr(latest_report_date, "toordinal")
+                    else 0,
+                }
+            )
+
+    dashboard_attention_site_count = len(dashboard_site_attention_items)
+    dashboard_site_attention_items.sort(
+        key=lambda item: (-item["score"], -item["sort_date"], item.get("du_id") or "")
+    )
+    dashboard_site_attention_items = dashboard_site_attention_items[:8]
+
+    dashboard_project_progress = {}
+
+    for site in dashboard_site_rows:
+        project_id = site.get("project_id")
+
+        if not project_id:
+            continue
+
+        entry = dashboard_project_progress.setdefault(
+            project_id,
+            {
+                "project_id": project_id,
+                "project_name": site.get("project_name") or "Unnamed project",
+                "project_code": site.get("project_code"),
+                "site_count": 0,
+                "active_sites": 0,
+                "completed_sites": 0,
+                "progress_total": 0,
+            },
+        )
+        entry["site_count"] += 1
+        entry["progress_total"] += dashboard_number(site.get("overall_progress"))
+
+        if clean_text(site.get("overall_status")) == "Active":
+            entry["active_sites"] += 1
+
+        if (
+            clean_text(site.get("overall_status")) == "Completed"
+            or clean_text(site.get("current_stage")) == "Completed"
+        ):
+            entry["completed_sites"] += 1
+
+    dashboard_project_progress_rows = []
+
+    for entry in dashboard_project_progress.values():
+        entry["average_progress"] = (
+            round(entry["progress_total"] / entry["site_count"], 1)
+            if entry["site_count"]
+            else 0
+        )
+        entry["percent"] = entry["average_progress"]
+        dashboard_project_progress_rows.append(entry)
+
+    dashboard_project_progress_rows.sort(
+        key=lambda row: (-row["site_count"], row["project_name"])
+    )
+    dashboard_project_progress_rows = dashboard_project_progress_rows[:6]
 
     cursor.close()
     conn.close()
 
-    total_ids = 0
+    dashboard_scope_text = "current scope" if dashboard_site_filter_active else "portfolio"
+    dashboard_projects_context = (
+        "Projects represented in current scope"
+        if dashboard_site_filter_active
+        else "Current project portfolio"
+    )
+    dashboard_sites_context = (
+        f"{dashboard_count_label(dashboard_active_sites, 'active site')}, "
+        f"{dashboard_count_label(dashboard_completed_sites, 'completed site')}"
+    )
+    dashboard_employees_context = (
+        "Registered personnel in current scope"
+        if dashboard_site_filter_active
+        else "Registered personnel"
+    )
+    dashboard_tasks_context = (
+        "No open telecom tasks"
+        if not dashboard_open_telecom_tasks
+        else (
+            f"{dashboard_high_priority_open_tasks} high priority or urgent"
+            if dashboard_high_priority_open_tasks
+            else f"Open telecom work in {dashboard_scope_text}"
+        )
+    )
+    dashboard_pat_context = (
+        "No pending PAT"
+        if not dashboard_sites_awaiting_pat
+        else (
+            f"{dashboard_pat_failed} latest PAT failed"
+            if dashboard_pat_failed
+            else "Awaiting PAT status"
+        )
+    )
 
-    if os.path.exists(EXCEL_DIR):
+    dashboard_kpi_cards = [
+        {
+            "title": "Projects",
+            "value": dashboard_project_scope_count,
+            "context": dashboard_projects_context,
+            "icon": "PR",
+            "url": url_for("projects_workspace") if can("manage_projects") else None,
+            "tone": "primary",
+        },
+        {
+            "title": "Telecom Sites",
+            "value": dashboard_total_telecom_sites,
+            "context": dashboard_sites_context,
+            "icon": "ST",
+            "url": url_for("sites"),
+            "tone": "primary",
+        },
+        {
+            "title": "Employees",
+            "value": dashboard_employee_count,
+            "context": dashboard_employees_context,
+            "icon": "EM",
+            "url": url_for("search"),
+            "tone": "primary",
+        },
+        {
+            "title": "Active Teams",
+            "value": dashboard_active_teams,
+            "context": "No active field teams"
+            if not dashboard_active_teams
+            else f"Field teams in {dashboard_scope_text}",
+            "icon": "TM",
+            "url": url_for("teams") if can("manage_teams") else None,
+            "tone": "success",
+        },
+        {
+            "title": "Open Tasks",
+            "value": dashboard_open_telecom_tasks,
+            "context": dashboard_tasks_context,
+            "icon": "TK",
+            "url": url_for("telecom_tasks") if can("manage_tasks") else None,
+            "tone": "warning" if dashboard_open_telecom_tasks else "success",
+        },
+        {
+            "title": "Safety Alerts",
+            "value": dashboard_safety_attention_workers,
+            "context": "No safety alerts"
+            if not dashboard_safety_attention_workers
+            else "Workers need compliance attention",
+            "icon": "SF",
+            "url": url_for("safety_compliance"),
+            "tone": "danger" if dashboard_safety_attention_workers else "success",
+        },
+        {
+            "title": "Pending PAT",
+            "value": dashboard_sites_awaiting_pat,
+            "context": dashboard_pat_context,
+            "icon": "PA",
+            "url": url_for("pat_history") if can("view_pat") or can("manage_pat") else None,
+            "tone": "warning" if dashboard_sites_awaiting_pat else "success",
+        },
+        {
+            "title": "Ready Acceptance",
+            "value": dashboard_sites_ready_for_acceptance,
+            "context": "No sites ready"
+            if not dashboard_sites_ready_for_acceptance
+            else "Ready for handover review",
+            "icon": "HO",
+            "url": url_for("pat_acceptance_report") if can("export_reports") else None,
+            "tone": "success",
+        },
+    ]
 
-        for file in os.listdir(EXCEL_DIR):
+    dashboard_hr_kpi_cards = [
+        {
+            "title": "Employees",
+            "value": total_employees,
+            "context": "Registered personnel",
+            "icon": "EM",
+            "url": url_for("search"),
+            "tone": "primary",
+        },
+        {
+            "title": "Safety Cleared",
+            "value": dashboard_safety_compliant_workers,
+            "context": "Fully valid safety records",
+            "icon": "OK",
+            "url": url_for("safety_compliance"),
+            "tone": "success",
+        },
+        {
+            "title": "Safety Alerts",
+            "value": dashboard_safety_attention_workers,
+            "context": "No HR safety alerts"
+            if not dashboard_safety_attention_workers
+            else "Workers requiring HR attention",
+            "icon": "SF",
+            "url": url_for("safety_compliance"),
+            "tone": "danger" if dashboard_safety_attention_workers else "success",
+        },
+        {
+            "title": "Expiring Certs",
+            "value": expiring_certificates,
+            "context": f"Within {EXPIRING_SOON_DAYS} days",
+            "icon": "EX",
+            "url": url_for("safety_documents") if can("manage_safety") else None,
+            "tone": "warning" if expiring_certificates else "success",
+        },
+        {
+            "title": "Missing Certs",
+            "value": missing_certificates,
+            "context": "Required safety documents missing",
+            "icon": "MS",
+            "url": url_for("safety_documents") if can("manage_safety") else None,
+            "tone": "danger" if missing_certificates else "success",
+        },
+    ]
 
-            if file.endswith(".xlsx"):
-
-                wb = load_workbook(os.path.join(EXCEL_DIR, file))
-
-                if "ID" in wb.sheetnames:
-
-                    ws = wb["ID"]
-
-                    total_ids += ws.max_row - 1
+    dashboard_operational_pulse = [
+        {
+            "label": "Reports Today",
+            "value": reports_today,
+            "detail": f"{active_sites_today} sites updated today",
+        },
+        {
+            "label": "Present Today",
+            "value": personnel_present_today,
+            "detail": "Present or late attendance entries",
+        },
+        {
+            "label": "Blockers Today",
+            "value": sites_with_blockers,
+            "detail": "Daily reports with blockers",
+        },
+        {
+            "label": "Open Incidents",
+            "value": open_incidents,
+            "detail": "Not closed or resolved",
+        },
+        {
+            "label": "Active Permits",
+            "value": active_permits,
+            "detail": "Currently valid permit records",
+        },
+        {
+            "label": "Open Punchlists",
+            "value": dashboard_sites_with_open_punchlists,
+            "detail": f"{dashboard_critical_punchlist_items} critical items",
+        },
+    ]
 
     return render_template(
         "dashboard.html",
+        dashboard_view="super_admin" if is_super_admin_role() else "hr",
+        towercos=towercos,
+        regions=regions,
+        dashboard_site_filter_active=dashboard_site_filter_active,
+        dashboard_kpi_cards=dashboard_kpi_cards,
+        dashboard_hr_kpi_cards=dashboard_hr_kpi_cards,
+        dashboard_operational_pulse=dashboard_operational_pulse,
+        dashboard_total_telecom_sites=dashboard_total_telecom_sites,
+        dashboard_attention_site_count=dashboard_attention_site_count,
+        dashboard_sites_by_stage=dashboard_sites_by_stage,
+        dashboard_safety_distribution=dashboard_safety_distribution,
+        dashboard_safety_attention_workers=dashboard_safety_attention_workers,
+        dashboard_open_telecom_tasks=dashboard_open_telecom_tasks,
+        dashboard_high_priority_open_tasks=dashboard_high_priority_open_tasks,
+        dashboard_task_status_distribution=dashboard_task_status_distribution,
+        dashboard_priority_tasks=dashboard_priority_tasks,
+        dashboard_pat_distribution=dashboard_pat_distribution,
+        dashboard_acceptance_distribution=dashboard_acceptance_distribution,
+        dashboard_sites_ready_for_acceptance=dashboard_sites_ready_for_acceptance,
+        dashboard_site_attention_items=dashboard_site_attention_items,
+        dashboard_recent_daily_activity=dashboard_recent_daily_activity,
+        dashboard_project_progress_rows=dashboard_project_progress_rows,
         projects=projects,
-        total_projects=total_projects,
-        total_telecom_sites=total_telecom_sites,
-        active_sites=active_sites,
-        completed_sites=completed_sites,
-        attention_sites=attention_sites,
-        average_site_progress=average_site_progress,
-        sites_by_stage=sites_by_stage,
-        total_employees=total_employees,
-        total_ids=total_ids,
-        safety_compliant_workers=safety_compliant_workers,
-        expiring_certificates=expiring_certificates,
-        expired_certificates=expired_certificates,
-        missing_certificates=missing_certificates,
-        open_telecom_tasks=open_telecom_tasks,
-        active_permits=active_permits,
-        open_incidents=open_incidents,
-        reports_today=reports_today,
-        active_sites_today=active_sites_today,
-        personnel_present_today=personnel_present_today,
-        sites_with_blockers=sites_with_blockers,
-        sites_updated_today=sites_updated_today,
-        sites_with_open_punchlists=sites_with_open_punchlists,
-        critical_punchlist_items=critical_punchlist_items,
-        sites_awaiting_pat=sites_awaiting_pat,
-        pat_failed=pat_failed,
-        sites_ready_for_acceptance=sites_ready_for_acceptance,
-        accepted_completed_sites=accepted_completed_sites,
-        recent_daily_activity=recent_daily_activity,
-        duids=duids,
-        employees=employees,
         filters=filters,
-        recent_tasks=recent_tasks,
-        recent_permits=recent_permits,
-        recent_incidents=recent_incidents,
-        filtered_safety_employees=filtered_safety_employees[:10],
         attention_employees=attention_employees[:10],
     )
 

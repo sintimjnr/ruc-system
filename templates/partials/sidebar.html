@@ -5,9 +5,9 @@
       <strong>RUC SYSTEM</strong>
       <span>Local Operations</span>
     </div>
-    <button class="icon-button sidebar-collapse" type="button" data-sidebar-collapse aria-label="Collapse sidebar">
-      <span></span>
-      <span></span>
+    <button class="icon-button sidebar-collapse" type="button" data-sidebar-collapse aria-label="Collapse sidebar" title="Collapse sidebar">
+      <span class="sidebar-toggle-expanded" aria-hidden="true">&lsaquo;</span>
+      <span class="sidebar-toggle-collapsed" aria-hidden="true">&rsaquo;</span>
     </button>
   </div>
 
@@ -15,41 +15,41 @@
     {% if current_effective_role == 'team_leader' %}
       <div class="nav-section">
         <span class="nav-section-title">MAIN</span>
-        <a class="nav-link {% if shell_active_module == 'team_leader' %}is-active{% endif %}" href="{{ url_for('team_leader_dashboard') }}">
+        <a class="nav-link {% if shell_active_module == 'team_leader' %}is-active{% endif %}" href="{{ url_for('team_leader_dashboard') }}" title="My Work">
           <span class="nav-icon">MW</span><span class="nav-text">My Work</span>
         </a>
       </div>
 
       <div class="nav-section">
         <span class="nav-section-title">FIELD OPERATIONS</span>
-        <a class="nav-link {% if shell_active_module == 'sites' %}is-active{% endif %}" href="{{ url_for('sites') }}">
+        <a class="nav-link {% if shell_active_module == 'sites' %}is-active{% endif %}" href="{{ url_for('sites') }}" title="My Sites">
           <span class="nav-icon">ST</span><span class="nav-text">My Sites</span>
         </a>
-        <a class="nav-link {% if shell_active_module == 'daily_operations' %}is-active{% endif %}" href="{{ url_for('daily_operations') }}">
+        <a class="nav-link {% if shell_active_module == 'daily_operations' %}is-active{% endif %}" href="{{ url_for('daily_operations') }}" title="Daily Reports">
           <span class="nav-icon">DO</span><span class="nav-text">Daily Reports</span>
         </a>
         {% if can('manage_tasks') %}
-          <a class="nav-link {% if shell_active_module == 'tasks' %}is-active{% endif %}" href="{{ url_for('telecom_tasks') }}">
+          <a class="nav-link {% if shell_active_module == 'tasks' %}is-active{% endif %}" href="{{ url_for('telecom_tasks') }}" title="Tasks">
             <span class="nav-icon">TK</span><span class="nav-text">Tasks</span>
           </a>
         {% endif %}
         {% if can('manage_operations') %}
-          <a class="nav-link {% if shell_active_module == 'toolbox' %}is-active{% endif %}" href="{{ url_for('toolbox_talks') }}">
+          <a class="nav-link {% if shell_active_module == 'toolbox' %}is-active{% endif %}" href="{{ url_for('toolbox_talks') }}" title="Toolbox Talks">
             <span class="nav-icon">TB</span><span class="nav-text">Toolbox Talks</span>
           </a>
         {% endif %}
         {% if can('manage_incidents') %}
-          <a class="nav-link {% if shell_active_module == 'incidents' %}is-active{% endif %}" href="{{ url_for('incidents') }}">
+          <a class="nav-link {% if shell_active_module == 'incidents' %}is-active{% endif %}" href="{{ url_for('incidents') }}" title="Incidents">
             <span class="nav-icon">IN</span><span class="nav-text">Incidents</span>
           </a>
         {% endif %}
         {% if can('manage_punchlist') %}
-          <a class="nav-link {% if shell_active_module == 'punchlist' %}is-active{% endif %}" href="{{ url_for('punchlist') }}">
+          <a class="nav-link {% if shell_active_module == 'punchlist' %}is-active{% endif %}" href="{{ url_for('punchlist') }}" title="Punchlist">
             <span class="nav-icon">PL</span><span class="nav-text">Punchlist</span>
           </a>
         {% endif %}
         {% if can('view_pat') or can('manage_pat') %}
-          <a class="nav-link {% if shell_active_module == 'pat' %}is-active{% endif %}" href="{{ url_for('pat_history') }}">
+          <a class="nav-link {% if shell_active_module == 'pat' %}is-active{% endif %}" href="{{ url_for('pat_history') }}" title="PAT">
             <span class="nav-icon">PA</span><span class="nav-text">PAT</span>
           </a>
         {% endif %}
@@ -57,43 +57,43 @@
 
       <div class="nav-section">
         <span class="nav-section-title">TEAM</span>
-        <a class="nav-link" href="{{ url_for('team_leader_dashboard') }}#my-team">
+        <a class="nav-link" href="{{ url_for('team_leader_dashboard') }}#my-team" title="My Team">
           <span class="nav-icon">MY</span><span class="nav-text">My Team</span>
         </a>
-        <a class="nav-link {% if shell_active_module == 'safety' %}is-active{% endif %}" href="{{ url_for('safety_compliance') }}">
+        <a class="nav-link {% if shell_active_module == 'safety' %}is-active{% endif %}" href="{{ url_for('safety_compliance') }}" title="Safety Status">
           <span class="nav-icon">SF</span><span class="nav-text">Safety Status</span>
         </a>
       </div>
 
       <div class="nav-section">
         <span class="nav-section-title">REPORTS</span>
-        <a class="nav-link {% if shell_active_module == 'reports' %}is-active{% endif %}" href="{{ url_for('reports_center') }}">
+        <a class="nav-link {% if shell_active_module == 'reports' %}is-active{% endif %}" href="{{ url_for('reports_center') }}" title="Authorized Reports">
           <span class="nav-icon">RP</span><span class="nav-text">Authorized Reports</span>
         </a>
       </div>
     {% elif current_effective_role == 'hr' %}
       <div class="nav-section">
         <span class="nav-section-title">MAIN</span>
-        <a class="nav-link {% if shell_active_module == 'dashboard' %}is-active{% endif %}" href="{{ url_for('dashboard') }}">
+        <a class="nav-link {% if shell_active_module == 'dashboard' %}is-active{% endif %}" href="{{ url_for('dashboard') }}" title="Dashboard">
           <span class="nav-icon">DB</span><span class="nav-text">Dashboard</span>
         </a>
       </div>
 
       <div class="nav-section">
         <span class="nav-section-title">PEOPLE &amp; SAFETY</span>
-        <a class="nav-link {% if shell_active_module == 'employees' %}is-active{% endif %}" href="{{ url_for('search') }}">
+        <a class="nav-link {% if shell_active_module == 'employees' %}is-active{% endif %}" href="{{ url_for('search') }}" title="Employees">
           <span class="nav-icon">EM</span><span class="nav-text">Employees</span>
         </a>
-        <a class="nav-link {% if shell_active_module == 'safety' %}is-active{% endif %}" href="{{ url_for('safety_compliance') }}">
+        <a class="nav-link {% if shell_active_module == 'safety' %}is-active{% endif %}" href="{{ url_for('safety_compliance') }}" title="Safety Compliance">
           <span class="nav-icon">SF</span><span class="nav-text">Safety Compliance</span>
         </a>
         {% if can('manage_safety') %}
-          <a class="nav-link {% if shell_active_module == 'safety_documents' %}is-active{% endif %}" href="{{ url_for('safety_documents') }}">
+          <a class="nav-link {% if shell_active_module == 'safety_documents' %}is-active{% endif %}" href="{{ url_for('safety_documents') }}" title="Safety Documents">
             <span class="nav-icon">SD</span><span class="nav-text">Safety Documents</span>
           </a>
         {% endif %}
         {% if can('generate_ids') %}
-          <a class="nav-link {% if shell_active_module == 'id_management' %}is-active{% endif %}" href="{{ url_for('id_generator') }}">
+          <a class="nav-link {% if shell_active_module == 'id_management' %}is-active{% endif %}" href="{{ url_for('id_generator') }}" title="ID Management">
             <span class="nav-icon">ID</span><span class="nav-text">ID Management</span>
           </a>
         {% endif %}
@@ -102,7 +102,7 @@
       <div class="nav-section">
         <span class="nav-section-title">REPORTS</span>
         {% if can('export_reports') %}
-          <a class="nav-link {% if shell_active_module == 'reports' %}is-active{% endif %}" href="{{ url_for('reports_center') }}">
+          <a class="nav-link {% if shell_active_module == 'reports' %}is-active{% endif %}" href="{{ url_for('reports_center') }}" title="Reporting Center">
             <span class="nav-icon">RP</span><span class="nav-text">Reporting Center</span>
           </a>
         {% endif %}
@@ -111,7 +111,7 @@
       {% if can('manage_team_leader_accounts') %}
         <div class="nav-section">
           <span class="nav-section-title">ADMINISTRATION</span>
-          <a class="nav-link {% if shell_active_module == 'users' %}is-active{% endif %}" href="{{ url_for('users') }}">
+          <a class="nav-link {% if shell_active_module == 'users' %}is-active{% endif %}" href="{{ url_for('users') }}" title="Team Leader Accounts">
             <span class="nav-icon">UM</span><span class="nav-text">Team Leader Accounts</span>
           </a>
         </div>
@@ -119,7 +119,7 @@
     {% else %}
       <div class="nav-section">
         <span class="nav-section-title">MAIN</span>
-        <a class="nav-link {% if shell_active_module == 'dashboard' %}is-active{% endif %}" href="{{ url_for('dashboard') }}">
+        <a class="nav-link {% if shell_active_module == 'dashboard' %}is-active{% endif %}" href="{{ url_for('dashboard') }}" title="Dashboard">
           <span class="nav-icon">DB</span><span class="nav-text">Dashboard</span>
         </a>
       </div>
@@ -127,33 +127,33 @@
       <div class="nav-section">
         <span class="nav-section-title">OPERATIONS</span>
         {% if can('manage_projects') %}
-          <a class="nav-link {% if shell_active_module == 'projects' %}is-active{% endif %}" href="{{ url_for('projects_workspace') }}">
+          <a class="nav-link {% if shell_active_module == 'projects' %}is-active{% endif %}" href="{{ url_for('projects_workspace') }}" title="Projects">
             <span class="nav-icon">PR</span><span class="nav-text">Projects</span>
           </a>
         {% endif %}
-        <a class="nav-link {% if shell_active_module == 'sites' %}is-active{% endif %}" href="{{ url_for('sites') }}">
+        <a class="nav-link {% if shell_active_module == 'sites' %}is-active{% endif %}" href="{{ url_for('sites') }}" title="Sites">
           <span class="nav-icon">ST</span><span class="nav-text">Sites</span>
         </a>
-        <a class="nav-link {% if shell_active_module == 'daily_operations' %}is-active{% endif %}" href="{{ url_for('daily_operations') }}">
+        <a class="nav-link {% if shell_active_module == 'daily_operations' %}is-active{% endif %}" href="{{ url_for('daily_operations') }}" title="Daily Operations">
           <span class="nav-icon">DO</span><span class="nav-text">Daily Operations</span>
         </a>
         {% if can('manage_tasks') %}
-          <a class="nav-link {% if shell_active_module == 'tasks' %}is-active{% endif %}" href="{{ url_for('telecom_tasks') }}">
+          <a class="nav-link {% if shell_active_module == 'tasks' %}is-active{% endif %}" href="{{ url_for('telecom_tasks') }}" title="Tasks">
             <span class="nav-icon">TK</span><span class="nav-text">Tasks</span>
           </a>
         {% endif %}
         {% if can('manage_permits') %}
-          <a class="nav-link {% if shell_active_module == 'permits' %}is-active{% endif %}" href="{{ url_for('permits') }}">
+          <a class="nav-link {% if shell_active_module == 'permits' %}is-active{% endif %}" href="{{ url_for('permits') }}" title="Permits">
             <span class="nav-icon">PT</span><span class="nav-text">Permits</span>
           </a>
         {% endif %}
         {% if can('manage_operations') %}
-          <a class="nav-link {% if shell_active_module == 'toolbox' %}is-active{% endif %}" href="{{ url_for('toolbox_talks') }}">
+          <a class="nav-link {% if shell_active_module == 'toolbox' %}is-active{% endif %}" href="{{ url_for('toolbox_talks') }}" title="Toolbox Talks">
             <span class="nav-icon">TB</span><span class="nav-text">Toolbox Talks</span>
           </a>
         {% endif %}
         {% if can('manage_incidents') %}
-          <a class="nav-link {% if shell_active_module == 'incidents' %}is-active{% endif %}" href="{{ url_for('incidents') }}">
+          <a class="nav-link {% if shell_active_module == 'incidents' %}is-active{% endif %}" href="{{ url_for('incidents') }}" title="Incidents">
             <span class="nav-icon">IN</span><span class="nav-text">Incidents</span>
           </a>
         {% endif %}
@@ -161,29 +161,29 @@
 
       <div class="nav-section">
         <span class="nav-section-title">PEOPLE &amp; SAFETY</span>
-        <a class="nav-link {% if shell_active_module == 'employees' %}is-active{% endif %}" href="{{ url_for('search') }}">
+        <a class="nav-link {% if shell_active_module == 'employees' %}is-active{% endif %}" href="{{ url_for('search') }}" title="Employees">
           <span class="nav-icon">EM</span><span class="nav-text">Employees</span>
         </a>
         {% if can('manage_teams') %}
-          <a class="nav-link {% if shell_active_module == 'teams' %}is-active{% endif %}" href="{{ url_for('teams') }}">
+          <a class="nav-link {% if shell_active_module == 'teams' %}is-active{% endif %}" href="{{ url_for('teams') }}" title="Teams">
             <span class="nav-icon">TM</span><span class="nav-text">Teams</span>
           </a>
         {% endif %}
         {% if can('manage_assignments') %}
-          <a class="nav-link {% if shell_active_module == 'assignments' %}is-active{% endif %}" href="{{ url_for('site_assignments') }}">
+          <a class="nav-link {% if shell_active_module == 'assignments' %}is-active{% endif %}" href="{{ url_for('site_assignments') }}" title="Assignments">
             <span class="nav-icon">AS</span><span class="nav-text">Assignments</span>
           </a>
         {% endif %}
-        <a class="nav-link {% if shell_active_module == 'safety' %}is-active{% endif %}" href="{{ url_for('safety_compliance') }}">
+        <a class="nav-link {% if shell_active_module == 'safety' %}is-active{% endif %}" href="{{ url_for('safety_compliance') }}" title="Safety Compliance">
           <span class="nav-icon">SF</span><span class="nav-text">Safety Compliance</span>
         </a>
         {% if can('manage_safety') %}
-          <a class="nav-link {% if shell_active_module == 'safety_documents' %}is-active{% endif %}" href="{{ url_for('safety_documents') }}">
+          <a class="nav-link {% if shell_active_module == 'safety_documents' %}is-active{% endif %}" href="{{ url_for('safety_documents') }}" title="Safety Documents">
             <span class="nav-icon">SD</span><span class="nav-text">Safety Documents</span>
           </a>
         {% endif %}
         {% if can('generate_ids') %}
-          <a class="nav-link {% if shell_active_module == 'id_management' %}is-active{% endif %}" href="{{ url_for('id_generator') }}">
+          <a class="nav-link {% if shell_active_module == 'id_management' %}is-active{% endif %}" href="{{ url_for('id_generator') }}" title="ID Management">
             <span class="nav-icon">ID</span><span class="nav-text">ID Management</span>
           </a>
         {% endif %}
@@ -192,17 +192,17 @@
       <div class="nav-section">
         <span class="nav-section-title">QUALITY &amp; HANDOVER</span>
         {% if can('manage_punchlist') or can('view_pat') %}
-          <a class="nav-link {% if shell_active_module == 'punchlist' %}is-active{% endif %}" href="{{ url_for('punchlist') }}">
+          <a class="nav-link {% if shell_active_module == 'punchlist' %}is-active{% endif %}" href="{{ url_for('punchlist') }}" title="Punchlist">
             <span class="nav-icon">PL</span><span class="nav-text">Punchlist</span>
           </a>
         {% endif %}
         {% if can('manage_pat') or can('view_pat') %}
-          <a class="nav-link {% if shell_active_module == 'pat' %}is-active{% endif %}" href="{{ url_for('pat_history') }}">
+          <a class="nav-link {% if shell_active_module == 'pat' %}is-active{% endif %}" href="{{ url_for('pat_history') }}" title="PAT">
             <span class="nav-icon">PA</span><span class="nav-text">PAT</span>
           </a>
         {% endif %}
         {% if can('export_reports') %}
-          <a class="nav-link {% if shell_active_module == 'handover' %}is-active{% endif %}" href="{{ url_for('pat_acceptance_report') }}">
+          <a class="nav-link {% if shell_active_module == 'handover' %}is-active{% endif %}" href="{{ url_for('pat_acceptance_report') }}" title="Acceptance / Handover">
             <span class="nav-icon">HO</span><span class="nav-text">Acceptance / Handover</span>
           </a>
         {% endif %}
@@ -211,7 +211,7 @@
       <div class="nav-section">
         <span class="nav-section-title">REPORTS</span>
         {% if can('export_reports') %}
-          <a class="nav-link {% if shell_active_module == 'reports' %}is-active{% endif %}" href="{{ url_for('reports_center') }}">
+          <a class="nav-link {% if shell_active_module == 'reports' %}is-active{% endif %}" href="{{ url_for('reports_center') }}" title="Reporting Center">
             <span class="nav-icon">RP</span><span class="nav-text">Reporting Center</span>
           </a>
         {% endif %}
@@ -221,7 +221,7 @@
         <div class="nav-section">
           <span class="nav-section-title">ADMINISTRATION</span>
           {% if can('manage_users') or can('manage_team_leader_accounts') %}
-            <a class="nav-link {% if shell_active_module == 'users' %}is-active{% endif %}" href="{{ url_for('users') }}">
+            <a class="nav-link {% if shell_active_module == 'users' %}is-active{% endif %}" href="{{ url_for('users') }}" title="User Management">
               <span class="nav-icon">UM</span><span class="nav-text">User Management</span>
             </a>
           {% endif %}

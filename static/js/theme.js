@@ -115,24 +115,36 @@
     })
 
     if (sidebarCollapse) {
-      try {
-        if (window.localStorage && window.localStorage.getItem('ruc-sidebar-collapsed') === 'true') {
-          body.classList.add('sidebar-collapsed')
-        }
-      } catch (error) {
-        body.classList.remove('sidebar-collapsed')
-      }
+      function setSidebarCollapsed(isCollapsed, shouldPersist) {
+        body.classList.toggle('sidebar-collapsed', isCollapsed)
+        sidebarCollapse.setAttribute('aria-label', isCollapsed ? 'Expand sidebar' : 'Collapse sidebar')
+        sidebarCollapse.setAttribute('title', isCollapsed ? 'Expand sidebar' : 'Collapse sidebar')
 
-      sidebarCollapse.addEventListener('click', function () {
-        body.classList.toggle('sidebar-collapsed')
+        if (shouldPersist === false) {
+          return
+        }
 
         try {
           if (window.localStorage) {
-            window.localStorage.setItem('ruc-sidebar-collapsed', body.classList.contains('sidebar-collapsed'))
+            window.localStorage.setItem('ruc-sidebar-collapsed', isCollapsed)
           }
         } catch (error) {
           return
         }
+      }
+
+      try {
+        if (window.localStorage && window.localStorage.getItem('ruc-sidebar-collapsed') === 'true') {
+          setSidebarCollapsed(true, false)
+        } else {
+          setSidebarCollapsed(false, false)
+        }
+      } catch (error) {
+        setSidebarCollapsed(false, false)
+      }
+
+      sidebarCollapse.addEventListener('click', function () {
+        setSidebarCollapsed(!body.classList.contains('sidebar-collapsed'))
       })
     }
 

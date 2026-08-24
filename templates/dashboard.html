@@ -1,272 +1,380 @@
 {% extends "base.html" %}
 {% block active_module %}dashboard{% endblock %}
 {% block page_title %}Dashboard{% endblock %}
-{% block page_subtitle %}RUC System overview{% endblock %}
+{% block page_subtitle %}RUC operational command centre{% endblock %}
+
+{% macro kpi_card(card) %}
+  {% if card.url %}
+    <a class="dashboard-kpi tone-{{ card.tone }}" href="{{ card.url }}">
+  {% else %}
+    <div class="dashboard-kpi tone-{{ card.tone }}">
+  {% endif %}
+      <span class="kpi-top">
+        <span class="kpi-icon">{{ card.icon }}</span>
+        <span class="kpi-title">{{ card.title }}</span>
+      </span>
+      <strong>{{ card.value }}</strong>
+      <span class="kpi-context">{{ card.context }}</span>
+      {% if card.url %}
+        <span class="kpi-action">Open &rarr;</span>
+      {% endif %}
+  {% if card.url %}
+    </a>
+  {% else %}
+    </div>
+  {% endif %}
+{% endmacro %}
+
+{% macro chart_rows(rows, empty_text) %}
+  {% if rows %}
+    <div class="chart-list">
+      {% for row in rows %}
+        <div class="chart-row tone-{{ row.tone }}">
+          <div class="chart-meta">
+            <span>{{ row.label }}</span>
+            <strong>{{ row.count }} <small>{{ row.percent }}%</small></strong>
+          </div>
+          <div class="chart-track">
+            <span style="width: {{ row.percent }}%"></span>
+          </div>
+        </div>
+      {% endfor %}
+      </div>
+  {% else %}
+    <div class="empty-state">
+      <span aria-hidden="true">0</span>
+      <p>{{ empty_text }}</p>
+    </div>
+  {% endif %}
+{% endmacro %}
 
 {% block content %}
-    <div class="container data-workspace dashboard-workspace">
-      <div class="summary-grid">
-        <div class="card">Projects<br /><br /><b>{{ total_projects }}</b></div>
-        <div class="card">Telecom Sites<br /><br /><b>{{ total_telecom_sites }}</b></div>
-        <div class="card">Active Sites<br /><br /><b>{{ active_sites }}</b></div>
-        <div class="card">Completed Sites<br /><br /><b>{{ completed_sites }}</b></div>
-        <div class="card">Average Progress<br /><br /><b>{{ average_site_progress }}%</b></div>
-        <div class="card">Sites Attention<br /><br /><b>{{ attention_sites }}</b></div>
-        <div class="card">Employees<br /><br /><b>{{ total_employees }}</b></div>
-        <div class="card">IDs Generated<br /><br /><b>{{ total_ids }}</b></div>
-        <div class="card">Safety Compliant<br /><br /><b>{{ safety_compliant_workers }}</b></div>
-        <div class="card">Expiring Certs<br /><br /><b>{{ expiring_certificates }}</b></div>
-        <div class="card">Expired Certs<br /><br /><b>{{ expired_certificates }}</b></div>
-        <div class="card">Missing Certs<br /><br /><b>{{ missing_certificates }}</b></div>
-        <div class="card">Open Tasks<br /><br /><b>{{ open_telecom_tasks }}</b></div>
-        <div class="card">Active Permits<br /><br /><b>{{ active_permits }}</b></div>
-        <div class="card">Open Incidents<br /><br /><b>{{ open_incidents }}</b></div>
-        <div class="card">Reports Today<br /><br /><b>{{ reports_today }}</b></div>
-        <div class="card">Active Sites Today<br /><br /><b>{{ active_sites_today }}</b></div>
-        <div class="card">Present Today<br /><br /><b>{{ personnel_present_today }}</b></div>
-        <div class="card">Blockers Today<br /><br /><b>{{ sites_with_blockers }}</b></div>
-        <div class="card">Sites Updated Today<br /><br /><b>{{ sites_updated_today }}</b></div>
-        <div class="card">Open Punchlists<br /><br /><b>{{ sites_with_open_punchlists }}</b></div>
-        <div class="card">Critical Punchlist<br /><br /><b>{{ critical_punchlist_items }}</b></div>
-        <div class="card">Awaiting PAT<br /><br /><b>{{ sites_awaiting_pat }}</b></div>
-        <div class="card">PAT Failed<br /><br /><b>{{ pat_failed }}</b></div>
-        <div class="card">Ready Acceptance<br /><br /><b>{{ sites_ready_for_acceptance }}</b></div>
-        <div class="card">Accepted/Completed<br /><br /><b>{{ accepted_completed_sites }}</b></div>
-      </div>
-
-      <div class="toolbar">
-        {% if can('manage_projects') %}
-        <a class="btn" href="{{ url_for('projects_workspace') }}">Projects Workspace</a>
-        {% endif %}
-        <a class="btn" href="/master_tracker" target="_blank">MASTER TRACKER</a>
-        {% if can('manage_master_tracker') %}
-        <a class="btn" href="/upload_master_tracker">Upload Updated Master Tracker</a>
-        {% endif %}
-        <a class="btn" href="/daily_operations">Daily Operations</a>
-        <a class="btn" href="/reports">Reporting Center</a>
-      </div>
-
-      <div class="form-box wide dashboard-filter-panel">
-        <h2>Dashboard Filters</h2>
-        <form method="GET" action="/dashboard" class="filter-grid">
-          <select name="du_id">
-            <option value="">All DUIDs</option>
-            {% for duid in duids %}
-              <option value="{{ duid }}" {% if filters.du_id == duid %}selected{% endif %}>{{ duid }}</option>
-            {% endfor %}
-          </select>
-
-          <select name="project_id">
-            <option value="">All Projects</option>
-            {% for project in projects %}
-              <option value="{{ project.id }}" {% if filters.project_id == project.id|string %}selected{% endif %}>{{ project.project_name }} - {{ project.project_code }}</option>
-            {% endfor %}
-          </select>
-
-          <select name="employee_id">
-            <option value="">All Employees</option>
-            {% for emp in employees %}
-              <option value="{{ emp.id }}" {% if filters.employee_id == emp.id|string %}selected{% endif %}>{{ emp.first_name }} {{ emp.last_name }}</option>
-            {% endfor %}
-          </select>
-
-          <select name="safety_status">
-            <option value="">Any Safety Status</option>
-            {% for status in ['VALID','EXPIRING SOON','EXPIRED','MISSING'] %}
-              <option value="{{ status }}" {% if filters.safety_status == status %}selected{% endif %}>{{ status }}</option>
-            {% endfor %}
-          </select>
-
-          <select name="task_status">
-            <option value="">Any Task Status</option>
-            {% for status in ['PENDING','IN PROGRESS','BLOCKED','COMPLETED','OPEN','CLOSED','CANCELLED'] %}
-              <option value="{{ status }}" {% if filters.task_status == status %}selected{% endif %}>{{ status }}</option>
-            {% endfor %}
-          </select>
-
-          <select name="permit_status">
-            <option value="">Any Permit Status</option>
-            {% for status in ['PENDING','ACTIVE','EXPIRED','CLOSED','CANCELLED'] %}
-              <option value="{{ status }}" {% if filters.permit_status == status %}selected{% endif %}>{{ status }}</option>
-            {% endfor %}
-          </select>
-
-          <button type="submit">Apply Filters</button>
+  <div class="container dashboard-workspace">
+    {% if dashboard_view == 'super_admin' %}
+      <section class="dashboard-filter-strip">
+        <div>
+          <h2>Operational Scope</h2>
+          <p>Project, TowerCo, and region filters apply to site-linked dashboard sections and related task, PAT, daily activity, team, and safety summaries.</p>
+        </div>
+        <form method="GET" action="{{ url_for('dashboard') }}" class="dashboard-filters">
+          <label>
+            <span>Project</span>
+            <select name="project_id" aria-label="Project filter">
+              <option value="">All Projects</option>
+              {% for project in projects %}
+                <option value="{{ project.id }}" {% if filters.project_id == project.id|string %}selected{% endif %}>
+                  {{ project.project_name }} - {{ project.project_code }}
+                </option>
+              {% endfor %}
+            </select>
+          </label>
+          <label>
+            <span>TowerCo</span>
+            <select name="towerco" aria-label="TowerCo filter">
+              <option value="">All TowerCos</option>
+              {% for towerco in towercos %}
+                <option value="{{ towerco }}" {% if filters.towerco == towerco %}selected{% endif %}>{{ towerco }}</option>
+              {% endfor %}
+            </select>
+          </label>
+          <label>
+            <span>Region</span>
+            <select name="region" aria-label="Region filter">
+              <option value="">All Regions</option>
+              {% for region in regions %}
+                <option value="{{ region }}" {% if filters.region == region %}selected{% endif %}>{{ region }}</option>
+              {% endfor %}
+            </select>
+          </label>
+          <button type="submit">Apply</button>
+          {% if dashboard_site_filter_active %}
+            <a class="btn secondary" href="{{ url_for('dashboard') }}">Reset</a>
+          {% endif %}
         </form>
-      </div>
+      </section>
 
-      <div class="dashboard-panels">
-        <section>
-          <h2>Recent Daily Activity</h2>
-          <table>
-            <tr>
-              <th>Date</th>
-              <th>DUID</th>
-              <th>Site</th>
-              <th>Stage</th>
-              <th>Progress</th>
-              <th>Attendance</th>
-              <th>Blocker</th>
-              <th>Action</th>
-            </tr>
-            {% for log in recent_daily_activity %}
-              <tr>
-                <td>{{ log.report_date }}</td>
-                <td><a href="{{ url_for('site_detail', du_id=log.duid) }}">{{ log.duid }}</a></td>
-                <td>{{ log.display_site_name or '-' }}</td>
-                <td><span class="status {{ log.current_stage|lower|replace(' ', '-') }}">{{ log.current_stage }}</span></td>
-                <td>{{ log.progress_after }}%</td>
-                <td>{{ log.present_count }}/{{ log.attendance_count }}</td>
-                <td>
-                  {% if log.blocker_category or log.blockers %}
-                    <span class="status blocked">{{ log.blocker_category or 'Reported' }}</span>
-                  {% else %}
-                    -
-                  {% endif %}
-                </td>
-                <td><a class="btn-small" href="{{ url_for('daily_log_detail', log_id=log.id) }}">View</a></td>
-              </tr>
-            {% else %}
-              <tr>
-                <td colspan="8">No daily reports yet.</td>
-              </tr>
-            {% endfor %}
-          </table>
-        </section>
+      <section class="dashboard-kpi-grid" aria-label="Dashboard summary">
+        {% for card in dashboard_kpi_cards %}
+          {{ kpi_card(card) }}
+        {% endfor %}
+      </section>
 
-        <section>
-          <h2>Sites by Stage</h2>
-          <table>
-            <tr>
-              <th>Stage</th>
-              <th>Sites</th>
-            </tr>
-            {% for row in sites_by_stage %}
-              <tr>
-                <td><span class="status {{ row.current_stage|lower|replace(' ', '-') }}">{{ row.current_stage }}</span></td>
-                <td>{{ row.site_count }}</td>
-              </tr>
-            {% endfor %}
-          </table>
-        </section>
+      <section class="dashboard-visual-grid">
+        <div class="dashboard-panel stage-panel">
+          <div class="panel-heading">
+            <div>
+              <h2>Site Stage Distribution</h2>
+              <p>{{ dashboard_total_telecom_sites }} sites in current scope</p>
+            </div>
+            <a class="btn-small" href="{{ url_for('sites', project_id=filters.project_id, towerco=filters.towerco, region=filters.region) }}">View Sites</a>
+          </div>
+          {{ chart_rows(dashboard_sites_by_stage, 'No sites match this scope.') }}
+        </div>
 
-        <section>
-          <h2>Attention Required</h2>
-          <table>
-            <tr>
-              <th>Employee</th>
-              <th>DUID</th>
-              <th>NBI</th>
-              <th>WAH</th>
-              <th>First Aid</th>
-              <th>Overall</th>
-              <th>Action</th>
-            </tr>
-            {% for emp in attention_employees %}
-              <tr>
-                <td><a href="{{ url_for('employee_dossier', employee_id=emp.id) }}">{{ emp.full_name }}</a></td>
-                <td>{{ emp.assigned_du_id or '-' }}</td>
-                <td><span class="status {{ emp.nbi_status|lower|replace(' ', '-') }}">{{ emp.nbi_status }}</span></td>
-                <td><span class="status {{ emp.wah_status|lower|replace(' ', '-') }}">{{ emp.wah_status }}</span></td>
-                <td><span class="status {{ emp.first_aid_status|lower|replace(' ', '-') }}">{{ emp.first_aid_status }}</span></td>
-                <td><span class="status {{ emp.overall_safety_status|lower|replace(' ', '-') }}">{{ emp.overall_safety_status }}</span></td>
-                <td><a class="btn-small" href="{{ url_for('employee_dossier', employee_id=emp.id) }}">View Dossier</a></td>
-              </tr>
-            {% endfor %}
-          </table>
-        </section>
+        <div class="dashboard-panel task-status-panel">
+          <div class="panel-heading">
+            <div>
+              <h2>Task Status</h2>
+              <p>{{ dashboard_open_telecom_tasks }} open tasks, {{ dashboard_high_priority_open_tasks }} high priority or urgent</p>
+            </div>
+            {% if can('manage_tasks') %}
+              <a class="btn-small" href="{{ url_for('telecom_tasks') }}">View Tasks</a>
+            {% endif %}
+          </div>
+          {{ chart_rows(dashboard_task_status_distribution, 'No open telecom tasks.') }}
+        </div>
 
-        <section>
-          <h2>Safety Snapshot</h2>
-          <table>
-            <tr>
-              <th>Employee</th>
-              <th>DUID</th>
-              <th>Role</th>
-              <th>NBI</th>
-              <th>WAH</th>
-              <th>First Aid</th>
-              <th>Overall</th>
-            </tr>
-            {% for emp in filtered_safety_employees %}
-              <tr>
-                <td><a href="{{ url_for('employee_dossier', employee_id=emp.id) }}">{{ emp.first_name }} {{ emp.last_name }}</a></td>
-                <td>{{ emp.assigned_du_id or '-' }}</td>
-                <td>{{ emp.telecom_role or emp.position }}</td>
-                <td><span class="status {{ emp.nbi_status|lower|replace(' ', '-') }}">{{ emp.nbi_status }}</span></td>
-                <td><span class="status {{ emp.wah_status|lower|replace(' ', '-') }}">{{ emp.wah_status }}</span></td>
-                <td><span class="status {{ emp.first_aid_status|lower|replace(' ', '-') }}">{{ emp.first_aid_status }}</span></td>
-                <td><span class="status {{ emp.overall_safety_status|lower|replace(' ', '-') }}">{{ emp.overall_safety_status }}</span></td>
-              </tr>
-            {% endfor %}
-          </table>
-        </section>
+        <div class="dashboard-panel safety-panel">
+          <div class="panel-heading">
+            <div>
+              <h2>Safety / Compliance</h2>
+              <p>{{ dashboard_safety_attention_workers }} workers require attention</p>
+            </div>
+            <a class="btn-small" href="{{ url_for('safety_compliance') }}">View Safety</a>
+          </div>
+          {{ chart_rows(dashboard_safety_distribution, 'No personnel safety records found.') }}
+        </div>
 
-        <section>
-          <h2>Recent Tasks</h2>
-          <table>
-            <tr>
-              <th>DUID</th>
-              <th>Task</th>
-              <th>Priority</th>
-              <th>Status</th>
-              <th>Assigned</th>
-            </tr>
-            {% for task in recent_tasks %}
-              <tr>
-                <td>{{ task.du_id }}</td>
-                <td>{{ task.task_type }}</td>
-                <td>{{ task.priority }}</td>
-                <td>{{ task.status }}</td>
-                <td>{{ task.first_name or '' }} {{ task.last_name or '' }}</td>
-              </tr>
-            {% endfor %}
-          </table>
-        </section>
+        <div class="dashboard-panel pat-panel">
+          <div class="panel-heading">
+            <div>
+              <h2>PAT / Acceptance</h2>
+              <p>{{ dashboard_sites_ready_for_acceptance }} sites ready for acceptance review</p>
+            </div>
+            {% if can('export_reports') %}
+              <a class="btn-small" href="{{ url_for('pat_acceptance_report') }}">View Handover</a>
+            {% endif %}
+          </div>
+          <div class="split-chart">
+            <div>
+              <h3>PAT</h3>
+              {{ chart_rows(dashboard_pat_distribution, 'No PAT records yet.') }}
+            </div>
+            <div>
+              <h3>Acceptance</h3>
+              {{ chart_rows(dashboard_acceptance_distribution, 'No acceptance data found.') }}
+            </div>
+          </div>
+        </div>
+      </section>
 
-        <section>
-          <h2>Recent Permits</h2>
-          <table>
-            <tr>
-              <th>Permit</th>
-              <th>DUID</th>
-              <th>Type</th>
-              <th>Status</th>
-              <th>Valid Until</th>
-            </tr>
-            {% for permit in recent_permits %}
-              <tr>
-                <td>{{ permit.permit_number }}</td>
-                <td>{{ permit.du_id }}</td>
-                <td>{{ permit.permit_type }}</td>
-                <td>{{ permit.status }}</td>
-                <td>{{ permit.valid_until or '-' }}</td>
-              </tr>
-            {% endfor %}
-          </table>
-        </section>
+      <section class="dashboard-pulse-grid" aria-label="Operational pulse">
+        {% for item in dashboard_operational_pulse %}
+          <div class="pulse-card">
+            <span>{{ item.label }}</span>
+            <strong>{{ item.value }}</strong>
+            <small>{{ item.detail }}</small>
+          </div>
+        {% endfor %}
+      </section>
 
-        <section>
-          <h2>Recent Incidents</h2>
-          <table>
-            <tr>
-              <th>Date</th>
-              <th>DUID</th>
-              <th>Severity</th>
-              <th>Category</th>
-              <th>Status</th>
-            </tr>
-            {% for incident in recent_incidents %}
-              <tr>
-                <td>{{ incident.incident_date }}</td>
-                <td>{{ incident.du_id }}</td>
-                <td>{{ incident.severity }}</td>
-                <td>{{ incident.category }}</td>
-                <td>{{ incident.status }}</td>
-              </tr>
-            {% endfor %}
-          </table>
-        </section>
-      </div>
-    </div>
+      <section class="dashboard-lower-grid">
+        <div class="dashboard-panel attention-panel">
+          <div class="panel-heading">
+            <div>
+              <h2>Sites Requiring Attention</h2>
+              <p>{{ dashboard_attention_site_count }} sites have operational warning conditions</p>
+            </div>
+            <a class="btn-small" href="{{ url_for('sites') }}">View All Sites</a>
+          </div>
+          {% if dashboard_site_attention_items %}
+            <div class="attention-list">
+              {% for site in dashboard_site_attention_items %}
+                <a class="attention-item" href="{{ url_for('site_detail', du_id=site.du_id) }}">
+                  <div class="attention-header">
+                    <div>
+                      <strong>{{ site.du_id }}</strong>
+                      <span>{{ site.display_site_name or site.project_name or '-' }}</span>
+                    </div>
+                    <small>View Site &rarr;</small>
+                  </div>
+                  <div class="attention-progress">
+                    <span class="status {{ site.overall_status|lower|replace(' ', '-') }}">{{ site.overall_status }}</span>
+                    <span>{{ site.current_stage }} · {{ site.overall_progress }}%</span>
+                  </div>
+                  <div class="reason-stack">
+                    {% for reason in site.reasons %}
+                      <span>{{ reason }}</span>
+                    {% endfor %}
+                  </div>
+                </a>
+              {% endfor %}
+            </div>
+          {% else %}
+            <div class="empty-state">
+              <span aria-hidden="true">OK</span>
+              <p>No attention conditions found for the current scope.</p>
+            </div>
+          {% endif %}
+        </div>
+
+        <div class="dashboard-panel activity-panel">
+          <div class="panel-heading">
+            <div>
+              <h2>Recent Daily Activity</h2>
+              <p>Latest field reports submitted through Daily Operations</p>
+            </div>
+            <a class="btn-small" href="{{ url_for('daily_operations') }}">View Daily Operations</a>
+          </div>
+          {% if dashboard_recent_daily_activity %}
+            <div class="activity-list">
+              {% for log in dashboard_recent_daily_activity %}
+                <a class="activity-item" href="{{ url_for('daily_log_detail', log_id=log.id) }}">
+                  <div>
+                    <strong>{{ log.duid }}</strong>
+                    <span>{{ log.display_site_name or '-' }}</span>
+                  </div>
+                  <div>
+                    <span>{{ log.report_date }}</span>
+                    <span>{{ log.current_stage }} · {{ log.progress_before }}% to {{ log.progress_after }}%</span>
+                  </div>
+                  <div>
+                    <span>{{ log.present_count }}/{{ log.attendance_count }} present</span>
+                    {% if log.submitted_by %}
+                      <span>By {{ log.submitted_by }}</span>
+                    {% endif %}
+                    {% if log.blocker_category or log.blockers %}
+                      <span class="status blocked">{{ log.blocker_category or 'Blocker' }}</span>
+                    {% endif %}
+                  </div>
+                </a>
+              {% endfor %}
+            </div>
+          {% else %}
+            <div class="empty-state">
+              <span aria-hidden="true">0</span>
+              <p>No daily activity found for the current scope.</p>
+            </div>
+          {% endif %}
+        </div>
+      </section>
+
+      <section class="dashboard-lower-grid">
+        <div class="dashboard-panel progress-panel">
+          <div class="panel-heading">
+            <div>
+              <h2>Project / Site Progress</h2>
+              <p>Average progress for projects with operational site records</p>
+            </div>
+            {% if can('manage_projects') %}
+              <a class="btn-small" href="{{ url_for('projects_workspace') }}">View Projects</a>
+            {% endif %}
+          </div>
+          {% if dashboard_project_progress_rows %}
+            <div class="project-progress-list">
+              {% for project in dashboard_project_progress_rows %}
+                <a class="project-progress-item" href="{{ url_for('sites', project_id=project.project_id) }}">
+                  <div class="project-progress-main">
+                    <strong>{{ project.project_name }}</strong>
+                    <span>{{ project.project_code or '-' }}</span>
+                  </div>
+                  <div class="project-progress-stats">
+                    <span>{{ project.site_count }} sites</span>
+                    <span>{{ project.active_sites }} active</span>
+                    <span>{{ project.completed_sites }} completed</span>
+                  </div>
+                  <div class="chart-track">
+                    <span style="width: {{ project.percent }}%"></span>
+                  </div>
+                  <small>{{ project.average_progress }}% average progress</small>
+                </a>
+              {% endfor %}
+            </div>
+          {% else %}
+            <div class="empty-state">
+              <span aria-hidden="true">0</span>
+              <p>No project-linked operational sites found.</p>
+            </div>
+          {% endif %}
+        </div>
+
+        <div class="dashboard-panel priority-tasks-panel">
+          <div class="panel-heading">
+            <div>
+              <h2>Priority Tasks</h2>
+              <p>Highest priority open work items</p>
+            </div>
+            {% if can('manage_tasks') %}
+              <a class="btn-small" href="{{ url_for('telecom_tasks') }}">View Tasks</a>
+            {% endif %}
+          </div>
+          {% if dashboard_priority_tasks %}
+            <div class="task-list">
+              {% for task in dashboard_priority_tasks %}
+                <div class="task-item">
+                  <div>
+                    <strong>{{ task.task_type }}</strong>
+                    <span>{{ task.du_id or '-' }}</span>
+                  </div>
+                  <div>
+                    <span class="status {{ task.priority|lower }}">{{ task.priority }}</span>
+                    <span class="status {{ task.status|lower|replace(' ', '-') }}">{{ task.status }}</span>
+                  </div>
+                  <small>
+                    {{ task.first_name or '' }} {{ task.last_name or '' }}
+                    {% if task.planned_date %} · {{ task.planned_date }}{% endif %}
+                  </small>
+                </div>
+              {% endfor %}
+            </div>
+          {% else %}
+            <div class="empty-state">
+              <span aria-hidden="true">0</span>
+              <p>No open telecom tasks found.</p>
+            </div>
+          {% endif %}
+        </div>
+      </section>
+    {% else %}
+      <section class="dashboard-kpi-grid hr-dashboard" aria-label="HR dashboard summary">
+        {% for card in dashboard_hr_kpi_cards %}
+          {{ kpi_card(card) }}
+        {% endfor %}
+      </section>
+
+      <section class="dashboard-lower-grid">
+        <div class="dashboard-panel">
+          <div class="panel-heading">
+            <div>
+              <h2>Safety / Compliance</h2>
+              <p>HR-visible personnel compliance summary</p>
+            </div>
+            <a class="btn-small" href="{{ url_for('safety_compliance') }}">View Safety</a>
+          </div>
+          {{ chart_rows(dashboard_safety_distribution, 'No personnel safety records found.') }}
+        </div>
+
+        <div class="dashboard-panel">
+          <div class="panel-heading">
+            <div>
+              <h2>Personnel Requiring Attention</h2>
+              <p>Workers with expiring, expired, or missing safety status</p>
+            </div>
+            <a class="btn-small" href="{{ url_for('search') }}">View Employees</a>
+          </div>
+          {% if attention_employees %}
+            <div class="task-list">
+              {% for emp in attention_employees %}
+                <a class="task-item" href="{{ url_for('employee_dossier', employee_id=emp.id) }}">
+                  <div>
+                    <strong>{{ emp.full_name }}</strong>
+                    <span>{{ emp.assigned_du_id or '-' }}</span>
+                  </div>
+                  <div>
+                    <span class="status {{ emp.overall_safety_status|lower|replace(' ', '-') }}">{{ emp.overall_safety_status }}</span>
+                  </div>
+                  <small>{{ emp.telecom_role or emp.position or '-' }}</small>
+                </a>
+              {% endfor %}
+            </div>
+          {% else %}
+            <div class="empty-state">
+              <span aria-hidden="true">OK</span>
+              <p>No HR safety attention items found.</p>
+            </div>
+          {% endif %}
+        </div>
+      </section>
+    {% endif %}
+  </div>
 {% endblock %}
