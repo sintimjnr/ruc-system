@@ -28,6 +28,101 @@ from reportlab.platypus import (
 )
 
 
+class ConfigurationError(RuntimeError):
+    pass
+
+
+def load_local_env():
+
+    env_path = os.path.join(os.path.abspath(os.path.dirname(__file__)), ".env")
+
+    if not os.path.exists(env_path):
+        return
+
+    try:
+        from dotenv import load_dotenv
+    except ImportError:
+        load_dotenv = None
+
+    if load_dotenv:
+        load_dotenv(env_path, override=False)
+        return
+
+    with open(env_path, "r", encoding="utf-8") as env_file:
+        for raw_line in env_file:
+            line = raw_line.strip()
+
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+
+            if line.lower().startswith("export "):
+                line = line[7:].strip()
+
+            key, value = line.split("=", 1)
+            key = key.strip()
+            value = value.strip()
+
+            if (
+                len(value) >= 2
+                and value[0] == value[-1]
+                and value[0] in {"'", '"'}
+            ):
+                value = value[1:-1]
+
+            if key and key not in os.environ:
+                os.environ[key] = value
+
+
+def require_config(name):
+
+    value = os.environ.get(name)
+
+    if value is None or value == "":
+        raise ConfigurationError(
+            f"Missing required configuration: {name}. "
+            "Copy .env.example to .env and set local values."
+        )
+
+    return value
+
+
+def get_secret_key():
+
+    return require_config("SECRET_KEY")
+
+
+def get_database_config():
+
+    database_url = os.environ.get("DATABASE_URL", "").strip()
+
+    if database_url:
+        return {"dsn": database_url}
+
+    required_names = ["DB_HOST", "DB_PORT", "DB_NAME", "DB_USER", "DB_PASSWORD"]
+    missing = [
+        name
+        for name in required_names
+        if os.environ.get(name) is None or os.environ.get(name) == ""
+    ]
+
+    if missing:
+        raise ConfigurationError(
+            "Missing database configuration. Set DATABASE_URL or set DB_HOST, "
+            "DB_PORT, DB_NAME, DB_USER, and DB_PASSWORD in .env."
+        )
+
+    return {
+        "host": os.environ["DB_HOST"],
+        "port": os.environ["DB_PORT"],
+        "database": os.environ["DB_NAME"],
+        "user": os.environ["DB_USER"],
+        "password": os.environ["DB_PASSWORD"],
+    }
+
+
+load_local_env()
+
+
 #############################################
 # FIND COLUMN BY HEADER NAME
 #############################################
@@ -160,7 +255,7 @@ def backup_file(file_path, backup_folder):
 #############################################
 
 app = Flask(__name__, static_folder=None)
-app.secret_key = os.environ.get("FLASK_SECRET_KEY", "ruc_secret_local_dev")
+app.secret_key = get_secret_key()
 app.config["MAX_CONTENT_LENGTH"] = int(
     os.environ.get("MAX_UPLOAD_BYTES", 16 * 1024 * 1024)
 )
@@ -1204,19 +1299,12 @@ import psycopg2
 
 def connect_db():
 
-    database_url = os.environ.get("DATABASE_URL")
+    database_config = get_database_config()
 
-    if database_url:
-        return psycopg2.connect(database_url)
+    if database_config.get("dsn"):
+        return psycopg2.connect(database_config["dsn"])
 
-    else:
-        return psycopg2.connect(
-            host=os.environ.get("DB_HOST", "localhost"),
-            database=os.environ.get("DB_NAME", "ruc_system"),
-            user=os.environ.get("DB_USER", "postgres"),
-            password=os.environ.get("DB_PASSWORD", "3598"),
-            port=os.environ.get("DB_PORT", "5432"),
-        )
+    return psycopg2.connect(**database_config)
 
 
 ACCESS_INFO_HEADERS = [

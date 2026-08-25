@@ -7,16 +7,16 @@ This upgrade extends the existing local Flask + PostgreSQL + OpenPyXL + Pillow R
 Open PowerShell and run:
 
 ```powershell
-$env:PGPASSWORD="3598"
+$env:PGPASSWORD="YOUR_LOCAL_DB_PASSWORD"
 & "C:\Program Files\PostgreSQL\13\bin\pg_dump.exe" -h localhost -U postgres -d ruc_system -F c -f "D:\RUC_SYSTEM\backups\ruc_system_before_telecom_safety.backup"
 ```
 
-If you use environment variables for the local DB password, replace `3598` with your current `DB_PASSWORD`.
+If you use environment variables for the local DB password, replace the placeholder with your current local `DB_PASSWORD`.
 
 ## 2. Run The Migration
 
 ```powershell
-$env:PGPASSWORD="3598"
+$env:PGPASSWORD="YOUR_LOCAL_DB_PASSWORD"
 & "C:\Program Files\PostgreSQL\13\bin\psql.exe" -h localhost -U postgres -d ruc_system -f "D:\RUC_SYSTEM\db_upgrade_telecom_safety.sql"
 ```
 
@@ -25,7 +25,7 @@ The migration is written with `IF NOT EXISTS` and guarded constraints so it can 
 For Phase 2 Telecom Site / DUID Management, run the additional idempotent migration:
 
 ```powershell
-$env:PGPASSWORD="3598"
+$env:PGPASSWORD="YOUR_LOCAL_DB_PASSWORD"
 & "C:\Program Files\PostgreSQL\13\bin\psql.exe" -h localhost -U postgres -d ruc_system -f "D:\RUC_SYSTEM\db_phase2_telecom_sites.sql"
 ```
 
@@ -34,7 +34,7 @@ This creates the `telecom_sites` operational table without modifying `globe_nlz`
 For Phase 3 Personnel & Safety Dossier Management, run:
 
 ```powershell
-$env:PGPASSWORD="3598"
+$env:PGPASSWORD="YOUR_LOCAL_DB_PASSWORD"
 & "C:\Program Files\PostgreSQL\13\bin\psql.exe" -h localhost -U postgres -d ruc_system -f "D:\RUC_SYSTEM\db_phase3_personnel_safety.sql"
 ```
 
@@ -43,7 +43,7 @@ This keeps the existing `safety_documents` table, adds current/history metadata,
 For Phase 4 Daily Site Operations & Attendance, run:
 
 ```powershell
-$env:PGPASSWORD="3598"
+$env:PGPASSWORD="YOUR_LOCAL_DB_PASSWORD"
 & "C:\Program Files\PostgreSQL\13\bin\psql.exe" -h localhost -U postgres -d ruc_system -f "D:\RUC_SYSTEM\db_phase4_daily_operations.sql"
 ```
 
@@ -51,22 +51,36 @@ This adds `daily_site_logs`, `daily_attendance`, and `daily_log_files` for local
 
 ## 3. Configure Local Secrets
 
-The app still falls back to the original local development values, but production-like local use should set:
+The app requires local configuration from environment variables or a local `.env` file. Do not store real passwords or secrets in source code.
+
+Recommended local setup:
 
 ```powershell
-$env:FLASK_SECRET_KEY="change-this-local-secret"
+Copy-Item .env.example .env
+notepad .env
+```
+
+In `.env`, enter either a local `DATABASE_URL` or all individual `DB_*` values, and set a long random `SECRET_KEY`.
+
+Individual PostgreSQL variables:
+
+```powershell
 $env:DB_HOST="localhost"
 $env:DB_PORT="5432"
 $env:DB_NAME="ruc_system"
-$env:DB_USER="postgres"
-$env:DB_PASSWORD="3598"
+$env:DB_USER="RUC_USER"
+$env:DB_PASSWORD="YOUR_LOCAL_DB_PASSWORD"
+$env:SECRET_KEY="GENERATE_A_LONG_RANDOM_SECRET"
 ```
 
-You may also use `DATABASE_URL` instead:
+Or use `DATABASE_URL` instead of the individual `DB_*` values:
 
 ```powershell
-$env:DATABASE_URL="postgresql://postgres:3598@localhost:5432/ruc_system"
+$env:DATABASE_URL="postgresql://RUC_USER:RUC_PASSWORD@localhost:5432/ruc_system"
+$env:SECRET_KEY="GENERATE_A_LONG_RANDOM_SECRET"
 ```
+
+Never commit `.env`.
 
 ## 4. Test Database Connection
 
