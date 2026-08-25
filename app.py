@@ -4,6 +4,8 @@ from openpyxl import Workbook, load_workbook
 from openpyxl.drawing.image import Image as ExcelImage
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from PIL import Image, ImageDraw, ImageFont
+from contextlib import contextmanager
+import hashlib
 import os
 import random
 import secrets
@@ -16,6 +18,7 @@ from flask import send_from_directory
 from functools import wraps
 import uuid
 from io import BytesIO
+import threading
 import zipfile
 from werkzeug.exceptions import HTTPException, RequestEntityTooLarge
 from reportlab.lib import colors
@@ -195,84 +198,94 @@ def find_column(sheet, header_name):
 
 def validate_tracker(old_file, new_file):
 
-    old_wb = load_workbook(old_file)
-    new_wb = load_workbook(new_file)
+    old_wb = None
+    new_wb = None
 
-    # Check sheet exists
-    if "GLOBE NLZ" not in new_wb.sheetnames:
-        return "Sheet 'GLOBE NLZ' is missing"
+    try:
+        old_wb = load_workbook(old_file, read_only=True, data_only=True)
+        new_wb = load_workbook(new_file, read_only=True, data_only=True)
 
-    old_ws = old_wb["GLOBE NLZ"]
-    new_ws = new_wb["GLOBE NLZ"]
+        # Check sheet exists
+        if "GLOBE NLZ" not in new_wb.sheetnames:
+            return "Sheet 'GLOBE NLZ' is missing"
 
-    #################################
-    # CHECK COLUMN HEADERS
-    #################################
+        old_ws = old_wb["GLOBE NLZ"]
+        new_ws = new_wb["GLOBE NLZ"]
 
-    for col in range(1, old_ws.max_column + 1):
+        #################################
+        # CHECK COLUMN HEADERS
+        #################################
 
-        old_header = old_ws.cell(row=1, column=col).value
-        new_header = new_ws.cell(row=1, column=col).value
+        for col in range(1, old_ws.max_column + 1):
 
-        if old_header != new_header:
-            return f"Column changed: {old_header}"
+            old_header = old_ws.cell(row=1, column=col).value
+            new_header = new_ws.cell(row=1, column=col).value
 
-    #################################
-    # CHECK ROWS WERE NOT DELETED
-    #################################
+            if old_header != new_header:
+                return f"Column changed: {old_header}"
 
-    if new_ws.max_row < old_ws.max_row:
-        return "Rows were deleted from the tracker"
+        #################################
+        # CHECK ROWS WERE NOT DELETED
+        #################################
 
-    #################################
-    # FIND DU ID COLUMN
-    #################################
+        if new_ws.max_row < old_ws.max_row:
+            return "Rows were deleted from the tracker"
 
-    du_col_old = find_column(old_ws, "DU ID")
-    du_col_new = find_column(new_ws, "DU ID")
+        #################################
+        # FIND DU ID COLUMN
+        #################################
 
-    if not du_col_old or not du_col_new:
-        return "DU ID column missing"
+        du_col_old = find_column(old_ws, "DU ID")
+        du_col_new = find_column(new_ws, "DU ID")
 
-    #################################
-    # CHECK DU ID INTEGRITY
-    #################################
+        if not du_col_old or not du_col_new:
+            return "DU ID column missing"
 
-    old_du_ids = set()
-    new_du_ids = set()
+        #################################
+        # CHECK DU ID INTEGRITY
+        #################################
 
-    # Collect old DU IDs
-    for row in range(2, old_ws.max_row + 1):
+        old_du_counts = {}
+        new_du_counts = {}
 
-        du = old_ws.cell(row=row, column=du_col_old).value
+        # Collect old DU IDs
+        for row in range(2, old_ws.max_row + 1):
 
-        if du:
-            old_du_ids.add(str(du).strip())
+            du = old_ws.cell(row=row, column=du_col_old).value
 
-    # Collect new DU IDs
-    for row in range(2, new_ws.max_row + 1):
+            if du:
+                du = str(du).strip()
+                old_du_counts[du] = old_du_counts.get(du, 0) + 1
 
-        du = new_ws.cell(row=row, column=du_col_new).value
+        # Collect new DU IDs
+        for row in range(2, new_ws.max_row + 1):
 
-        if du:
+            du = new_ws.cell(row=row, column=du_col_new).value
 
-            du = str(du).strip()
+            if du:
 
-            if du in new_du_ids:
-                return f"Duplicate DU ID detected: {du}"
+                du = str(du).strip()
+                new_du_counts[du] = new_du_counts.get(du, 0) + 1
 
-            new_du_ids.add(du)
+                if new_du_counts[du] > max(old_du_counts.get(du, 0), 1):
+                    return f"Duplicate DU ID detected: {du}"
 
-    #################################
-    # CHECK FOR MISSING DU IDs
-    #################################
+        #################################
+        # CHECK FOR MISSING DU IDs
+        #################################
 
-    missing_du = old_du_ids - new_du_ids
+        missing_du = set(old_du_counts) - set(new_du_counts)
 
-    if missing_du:
-        return f"Missing DU IDs detected: {list(missing_du)[:5]}"
+        if missing_du:
+            return f"Missing DU IDs detected: {list(missing_du)[:5]}"
 
-    return "OK"
+        return "OK"
+    finally:
+        if old_wb is not None:
+            old_wb.close()
+
+        if new_wb is not None:
+            new_wb.close()
 
 
 #############################################
@@ -282,20 +295,32 @@ def validate_tracker(old_file, new_file):
 
 def backup_file(file_path, backup_folder):
 
-    if not os.path.exists(backup_folder):
-        os.makedirs(backup_folder)
+    os.makedirs(backup_folder, exist_ok=True)
 
     if os.path.exists(file_path):
 
-        time_stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        time_stamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
 
         file_name = os.path.basename(file_path)
 
-        new_name = time_stamp + "_" + file_name
+        new_name = time_stamp + "_" + uuid.uuid4().hex[:8] + "_" + file_name
 
         backup_path = os.path.join(backup_folder, new_name)
 
-        shutil.copy(file_path, backup_path)
+        shutil.copy2(file_path, backup_path)
+
+        return backup_path
+
+    return None
+
+
+def restore_workbook_backup(workbook_path, backup_path):
+
+    if backup_path and os.path.exists(backup_path):
+        shutil.copy2(backup_path, workbook_path)
+        return True
+
+    return False
 
 
 #############################################
@@ -458,6 +483,516 @@ PUNCHLIST_FILE_TYPES = ["BEFORE", "AFTER", "GENERAL", "DOCUMENT"]
 PUNCHLIST_UNRESOLVED_STATUSES = ["OPEN", "IN PROGRESS", "RECTIFIED"]
 PAT_RESULTS = ["PENDING", "PASSED", "PASSED WITH PUNCHLIST", "FAILED"]
 ACCEPTANCE_STATUSES = ["NOT READY", "READY", "ACCEPTED", "REJECTED"]
+RUNTIME_DIR = os.path.join(BASE_DIR, "runtime")
+WORKBOOK_LOCK_DIR = os.path.join(RUNTIME_DIR, "locks")
+WORKBOOK_TEMP_PREFIX = ".~ruc_tmp_"
+WORKBOOK_LOCK_TIMEOUT_SECONDS = config_int(
+    "WORKBOOK_LOCK_TIMEOUT_SECONDS", 30, minimum=1, maximum=300
+)
+WORKBOOK_LOCK_POLL_SECONDS = 0.1
+WORKBOOK_STALE_LOCK_SECONDS = config_int(
+    "WORKBOOK_STALE_LOCK_SECONDS", 3600, minimum=30, maximum=86400
+)
+PROJECT_WORKBOOK_REQUIRED_SHEETS = (
+    "ACCESS INFO",
+    "2X2",
+    "NBI",
+    "CERTIFICATES",
+    "eSignature",
+    "SEC ID",
+    "WAH CERT",
+    "ID",
+)
+MASTER_TRACKER_REQUIRED_SHEETS = ("GLOBE NLZ",)
+WORKBOOK_THREAD_LOCKS = {}
+WORKBOOK_THREAD_LOCKS_GUARD = threading.Lock()
+
+
+class WorkbookSafetyError(RuntimeError):
+
+    def __init__(self, message, user_message=None):
+
+        super().__init__(message)
+        self.user_message = user_message or message
+
+
+class WorkbookBusyError(WorkbookSafetyError):
+    pass
+
+
+class WorkbookValidationError(WorkbookSafetyError):
+    pass
+
+
+def workbook_error_message(exc):
+
+    if isinstance(exc, WorkbookBusyError):
+        return (
+            "The workbook is currently busy or open in another process. "
+            "Please close it if needed and try again."
+        )
+
+    if isinstance(exc, WorkbookSafetyError):
+        return exc.user_message
+
+    return "The workbook could not be updated safely. Please try again."
+
+
+def canonical_workbook_path(workbook_path):
+
+    return os.path.normcase(os.path.abspath(workbook_path))
+
+
+def workbook_lock_path(workbook_path):
+
+    digest = hashlib.sha256(canonical_workbook_path(workbook_path).encode("utf-8")).hexdigest()
+    return os.path.join(WORKBOOK_LOCK_DIR, digest + ".lock")
+
+
+def get_workbook_thread_lock(workbook_path):
+
+    canonical_path = canonical_workbook_path(workbook_path)
+
+    with WORKBOOK_THREAD_LOCKS_GUARD:
+        lock = WORKBOOK_THREAD_LOCKS.get(canonical_path)
+
+        if lock is None:
+            lock = threading.Lock()
+            WORKBOOK_THREAD_LOCKS[canonical_path] = lock
+
+    return lock
+
+
+def read_workbook_lock_metadata(lock_file_path):
+
+    metadata = {}
+
+    try:
+        with open(lock_file_path, "r", encoding="utf-8") as lock_file:
+            for line in lock_file.read(2048).splitlines():
+                if "=" not in line:
+                    continue
+
+                key, value = line.split("=", 1)
+                metadata[key.strip()] = value.strip()
+    except OSError:
+        pass
+
+    return metadata
+
+
+def process_is_running(pid):
+
+    try:
+        pid = int(pid)
+    except (TypeError, ValueError):
+        return None
+
+    if pid <= 0:
+        return None
+
+    if pid == os.getpid():
+        return True
+
+    if os.name == "nt":
+        try:
+            import ctypes
+
+            kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+            synchronize = 0x00100000
+            query_limited_information = 0x1000
+            wait_timeout = 0x00000102
+            error_access_denied = 5
+
+            handle = kernel32.OpenProcess(
+                synchronize | query_limited_information,
+                False,
+                pid,
+            )
+
+            if not handle:
+                return True if ctypes.get_last_error() == error_access_denied else False
+
+            try:
+                return kernel32.WaitForSingleObject(handle, 0) == wait_timeout
+            finally:
+                kernel32.CloseHandle(handle)
+        except Exception:
+            return None
+
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except OSError:
+        return None
+
+    return True
+
+
+def workbook_lock_is_stale(lock_file_path):
+
+    metadata = read_workbook_lock_metadata(lock_file_path)
+    process_state = process_is_running(metadata.get("pid"))
+
+    if process_state is False:
+        return True
+
+    try:
+        lock_age = time_module.time() - os.path.getmtime(lock_file_path)
+    except OSError:
+        return False
+
+    return process_state is None and lock_age > WORKBOOK_STALE_LOCK_SECONDS
+
+
+def remove_stale_workbook_lock(lock_file_path):
+
+    if not os.path.exists(lock_file_path):
+        return True
+
+    if not workbook_lock_is_stale(lock_file_path):
+        return False
+
+    try:
+        os.remove(lock_file_path)
+        return True
+    except FileNotFoundError:
+        return True
+    except OSError:
+        return False
+
+
+@contextmanager
+def workbook_write_lock(workbook_path, timeout=None):
+
+    timeout = float(timeout if timeout is not None else WORKBOOK_LOCK_TIMEOUT_SECONDS)
+    deadline = time_module.monotonic() + timeout
+    thread_lock = get_workbook_thread_lock(workbook_path)
+
+    if not thread_lock.acquire(timeout=timeout):
+        raise WorkbookBusyError(
+            f"Timed out waiting for workbook lock: {os.path.basename(workbook_path)}"
+        )
+
+    lock_file_path = workbook_lock_path(workbook_path)
+    lock_fd = None
+
+    try:
+        os.makedirs(WORKBOOK_LOCK_DIR, exist_ok=True)
+
+        while True:
+            try:
+                lock_fd = os.open(lock_file_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+                metadata = (
+                    f"pid={os.getpid()}\n"
+                    f"created_at={datetime.now().isoformat(timespec='seconds')}\n"
+                    f"workbook={os.path.basename(workbook_path)}\n"
+                )
+                os.write(lock_fd, metadata.encode("utf-8"))
+                break
+            except FileExistsError as exc:
+                if remove_stale_workbook_lock(lock_file_path):
+                    continue
+
+                if time_module.monotonic() >= deadline:
+                    raise WorkbookBusyError(
+                        f"Timed out waiting for workbook lock file: {os.path.basename(workbook_path)}"
+                    ) from exc
+
+                remaining = max(0.0, deadline - time_module.monotonic())
+                time_module.sleep(min(WORKBOOK_LOCK_POLL_SECONDS, remaining))
+
+        yield
+    finally:
+        if lock_fd is not None:
+            os.close(lock_fd)
+
+        try:
+            if os.path.exists(lock_file_path):
+                os.remove(lock_file_path)
+        except OSError:
+            pass
+
+        thread_lock.release()
+
+
+def verify_workbook_sheets(wb, expected_sheets):
+
+    missing = [sheet for sheet in (expected_sheets or []) if sheet not in wb.sheetnames]
+
+    if missing:
+        raise WorkbookValidationError(
+            "Workbook is missing required sheet(s): " + ", ".join(missing)
+        )
+
+
+def validate_workbook_file(workbook_path, expected_sheets=None):
+
+    try:
+        wb = load_workbook(workbook_path, read_only=True, data_only=False)
+        try:
+            verify_workbook_sheets(wb, expected_sheets)
+        finally:
+            wb.close()
+    except WorkbookSafetyError:
+        raise
+    except Exception as exc:
+        raise WorkbookValidationError(
+            f"Workbook validation failed for {os.path.basename(workbook_path)}.",
+            user_message="The workbook file could not be validated after saving.",
+        ) from exc
+
+
+def save_workbook_atomic_locked(
+    wb,
+    workbook_path,
+    expected_sheets=None,
+    backup_folder=None,
+    backup_existing=True,
+    before_replace=None,
+):
+
+    verify_workbook_sheets(wb, expected_sheets)
+
+    folder_path = os.path.dirname(workbook_path)
+    os.makedirs(folder_path, exist_ok=True)
+    temp_path = os.path.join(
+        folder_path,
+        f"{WORKBOOK_TEMP_PREFIX}{uuid.uuid4().hex}_{os.path.basename(workbook_path)}",
+    )
+    backup_path = None
+
+    try:
+        if backup_existing and os.path.exists(workbook_path):
+            backup_path = backup_file(workbook_path, backup_folder or folder_path)
+
+        wb.save(temp_path)
+        validate_workbook_file(temp_path, expected_sheets)
+
+        if before_replace:
+            before_replace(temp_path, backup_path)
+
+        os.replace(temp_path, workbook_path)
+
+        try:
+            validate_workbook_file(workbook_path, expected_sheets)
+        except WorkbookSafetyError:
+            restore_workbook_backup(workbook_path, backup_path)
+            raise
+
+        return {
+            "backup_path": backup_path,
+            "workbook_path": workbook_path,
+            "expected_sheets": tuple(expected_sheets or ()),
+        }
+    except PermissionError as exc:
+        raise WorkbookBusyError(
+            f"Workbook is locked by another process: {os.path.basename(workbook_path)}"
+        ) from exc
+    except WorkbookSafetyError:
+        raise
+    except Exception as exc:
+        raise WorkbookSafetyError(
+            f"Workbook save failed for {os.path.basename(workbook_path)}.",
+            user_message="The workbook could not be saved safely.",
+        ) from exc
+    finally:
+        if os.path.exists(temp_path):
+            try:
+                os.remove(temp_path)
+            except OSError:
+                pass
+
+
+def update_persistent_workbook(
+    workbook_path,
+    mutator,
+    expected_sheets=None,
+    backup_folder=None,
+    operation="workbook update",
+    timeout=None,
+    before_replace=None,
+):
+
+    with workbook_write_lock(workbook_path, timeout=timeout):
+        if not os.path.exists(workbook_path):
+            raise WorkbookSafetyError(
+                f"Workbook missing for {operation}: {os.path.basename(workbook_path)}",
+                user_message="The workbook is missing. Please restore or rebuild it before continuing.",
+            )
+
+        try:
+            wb = load_workbook(workbook_path)
+        except PermissionError as exc:
+            raise WorkbookBusyError(
+                f"Workbook is locked by another process: {os.path.basename(workbook_path)}"
+            ) from exc
+        except Exception as exc:
+            raise WorkbookValidationError(
+                f"Workbook could not be opened for {operation}: {os.path.basename(workbook_path)}",
+                user_message="The workbook could not be opened safely.",
+            ) from exc
+
+        try:
+            mutator(wb)
+            return save_workbook_atomic_locked(
+                wb,
+                workbook_path,
+                expected_sheets=expected_sheets,
+                backup_folder=backup_folder,
+                backup_existing=True,
+                before_replace=before_replace,
+            )
+        finally:
+            wb.close()
+
+
+def restore_persistent_workbook_backup(workbook_path, backup_path, expected_sheets=None, timeout=None):
+
+    if not backup_path:
+        return False
+
+    with workbook_write_lock(workbook_path, timeout=timeout):
+        if not os.path.exists(backup_path):
+            return False
+
+        folder_path = os.path.dirname(workbook_path)
+        temp_path = os.path.join(
+            folder_path,
+            f"{WORKBOOK_TEMP_PREFIX}restore_{uuid.uuid4().hex}_{os.path.basename(workbook_path)}",
+        )
+
+        try:
+            shutil.copy2(backup_path, temp_path)
+            validate_workbook_file(temp_path, expected_sheets)
+            os.replace(temp_path, workbook_path)
+            validate_workbook_file(workbook_path, expected_sheets)
+            return True
+        finally:
+            if os.path.exists(temp_path):
+                try:
+                    os.remove(temp_path)
+                except OSError:
+                    pass
+
+
+def restore_workbook_results(*results):
+
+    restored = []
+
+    for result in reversed([item for item in results if item]):
+        try:
+            if restore_persistent_workbook_backup(
+                result.get("workbook_path"),
+                result.get("backup_path"),
+                result.get("expected_sheets"),
+            ):
+                restored.append(result.get("workbook_path"))
+        except WorkbookSafetyError:
+            continue
+
+    return restored
+
+
+def create_persistent_workbook(
+    workbook_path,
+    workbook_factory,
+    expected_sheets=None,
+    operation="workbook create",
+    timeout=None,
+):
+
+    with workbook_write_lock(workbook_path, timeout=timeout):
+        if os.path.exists(workbook_path):
+            raise WorkbookSafetyError(
+                f"Workbook already exists for {operation}: {os.path.basename(workbook_path)}",
+                user_message="A workbook already exists for this project code.",
+            )
+
+        wb = workbook_factory()
+
+        try:
+            return save_workbook_atomic_locked(
+                wb,
+                workbook_path,
+                expected_sheets=expected_sheets,
+                backup_existing=False,
+            )
+        finally:
+            wb.close()
+
+
+def replace_persistent_workbook_file(
+    target_path,
+    candidate_path,
+    validator=None,
+    expected_sheets=None,
+    backup_folder=None,
+    operation="workbook replace",
+    timeout=None,
+):
+
+    with workbook_write_lock(target_path, timeout=timeout):
+        if not os.path.exists(target_path):
+            raise WorkbookSafetyError(
+                f"Workbook missing for {operation}: {os.path.basename(target_path)}",
+                user_message="The existing workbook could not be found.",
+            )
+
+        folder_path = os.path.dirname(target_path)
+        temp_path = os.path.join(
+            folder_path,
+            f"{WORKBOOK_TEMP_PREFIX}{uuid.uuid4().hex}_{os.path.basename(target_path)}",
+        )
+        backup_path = None
+
+        try:
+            if validator:
+                result = validator(target_path, candidate_path)
+
+                if result != "OK":
+                    raise WorkbookValidationError(
+                        result,
+                        user_message=result,
+                    )
+
+            validate_workbook_file(candidate_path, expected_sheets)
+            backup_path = backup_file(target_path, backup_folder or folder_path)
+            shutil.copy2(candidate_path, temp_path)
+            validate_workbook_file(temp_path, expected_sheets)
+            os.replace(temp_path, target_path)
+
+            try:
+                validate_workbook_file(target_path, expected_sheets)
+            except WorkbookSafetyError:
+                restore_workbook_backup(target_path, backup_path)
+                raise
+
+            return {
+                "backup_path": backup_path,
+                "workbook_path": target_path,
+                "expected_sheets": tuple(expected_sheets or ()),
+            }
+        except PermissionError as exc:
+            raise WorkbookBusyError(
+                f"Workbook is locked by another process: {os.path.basename(target_path)}"
+            ) from exc
+        except WorkbookSafetyError:
+            raise
+        except Exception as exc:
+            raise WorkbookSafetyError(
+                f"Workbook replacement failed for {os.path.basename(target_path)}.",
+                user_message="The workbook could not be replaced safely.",
+            ) from exc
+        finally:
+            if os.path.exists(temp_path):
+                try:
+                    os.remove(temp_path)
+                except OSError:
+                    pass
 
 FINAL_ROLE_LABELS = {
     "super_admin": "SUPER ADMIN",
@@ -3500,49 +4035,6 @@ def sync_daily_log_to_project_workbook(cursor, daily_log_id):
     if not os.path.exists(excel_path):
         return
 
-    backup_file(excel_path, safe_abs_path("backups", "excel"))
-    wb = load_workbook(excel_path)
-    ensure_daily_workbook_sheets(wb)
-
-    ws = wb["DAILY LOGS"]
-    row = None
-
-    for current_row in range(2, ws.max_row + 1):
-        if ws.cell(row=current_row, column=1).value == daily_log_id:
-            row = current_row
-            break
-
-    if row is None:
-        row = ws.max_row + 1
-
-    values = [
-        log["id"],
-        log["report_date"],
-        log["duid"],
-        log["current_stage"],
-        log["progress_before"],
-        log["progress_after"],
-        log["work_completed"],
-        log["blocker_category"],
-        log["blockers"],
-        log["next_day_plan"],
-        log["submitted_by"],
-        log["updated_at"],
-    ]
-
-    for col, value in enumerate(values, start=1):
-        ws.cell(row=row, column=col).value = value
-
-    attendance_ws = wb["ATTENDANCE"]
-    rows_to_delete = []
-
-    for current_row in range(2, attendance_ws.max_row + 1):
-        if attendance_ws.cell(row=current_row, column=1).value == daily_log_id:
-            rows_to_delete.append(current_row)
-
-    for current_row in reversed(rows_to_delete):
-        attendance_ws.delete_rows(current_row, 1)
-
     cursor.execute(
         """
         SELECT da.employee_id,
@@ -3564,25 +4056,75 @@ def sync_daily_log_to_project_workbook(cursor, daily_log_id):
     )
     attendance_rows = rows_to_dicts(cursor)
 
-    for attendance in attendance_rows:
-        attendance_ws.append(
-            [
-                log["id"],
-                log["report_date"],
-                log["duid"],
-                attendance["employee_id"],
-                full_employee_name(attendance),
-                attendance.get("role_at_site"),
-                attendance.get("attendance_status"),
-                str(attendance.get("time_in") or ""),
-                str(attendance.get("time_out") or ""),
-                attendance.get("safety_status_snapshot"),
-                attendance.get("remarks"),
-            ]
-        )
+    def apply_daily_log_workbook_update(wb):
 
-    apply_project_workbook_formatting(wb)
-    wb.save(excel_path)
+        ensure_daily_workbook_sheets(wb)
+
+        ws = wb["DAILY LOGS"]
+        row = None
+
+        for current_row in range(2, ws.max_row + 1):
+            if ws.cell(row=current_row, column=1).value == daily_log_id:
+                row = current_row
+                break
+
+        if row is None:
+            row = ws.max_row + 1
+
+        values = [
+            log["id"],
+            log["report_date"],
+            log["duid"],
+            log["current_stage"],
+            log["progress_before"],
+            log["progress_after"],
+            log["work_completed"],
+            log["blocker_category"],
+            log["blockers"],
+            log["next_day_plan"],
+            log["submitted_by"],
+            log["updated_at"],
+        ]
+
+        for col, value in enumerate(values, start=1):
+            ws.cell(row=row, column=col).value = value
+
+        attendance_ws = wb["ATTENDANCE"]
+        rows_to_delete = []
+
+        for current_row in range(2, attendance_ws.max_row + 1):
+            if attendance_ws.cell(row=current_row, column=1).value == daily_log_id:
+                rows_to_delete.append(current_row)
+
+        for current_row in reversed(rows_to_delete):
+            attendance_ws.delete_rows(current_row, 1)
+
+        for attendance in attendance_rows:
+            attendance_ws.append(
+                [
+                    log["id"],
+                    log["report_date"],
+                    log["duid"],
+                    attendance["employee_id"],
+                    full_employee_name(attendance),
+                    attendance.get("role_at_site"),
+                    attendance.get("attendance_status"),
+                    str(attendance.get("time_in") or ""),
+                    str(attendance.get("time_out") or ""),
+                    attendance.get("safety_status_snapshot"),
+                    attendance.get("remarks"),
+                ]
+            )
+
+        apply_project_workbook_formatting(wb)
+
+    return update_persistent_workbook(
+        excel_path,
+        apply_daily_log_workbook_update,
+        expected_sheets=PROJECT_WORKBOOK_REQUIRED_SHEETS + ("DAILY LOGS", "ATTENDANCE"),
+        backup_folder=safe_abs_path("backups", "excel"),
+        operation="daily log sync",
+    )
 
 
 def ensure_phase5_workbook_sheets(wb):
@@ -3945,42 +4487,49 @@ def sync_punchlist_item_to_project_workbook(cursor, item_id):
     if not os.path.exists(excel_path):
         return
 
-    backup_file(excel_path, safe_abs_path("backups", "excel"))
-    wb = load_workbook(excel_path)
-    ensure_phase5_workbook_sheets(wb)
-    ws = wb["PUNCHLIST"]
-    row = None
+    def apply_punchlist_workbook_update(wb):
 
-    for current_row in range(2, ws.max_row + 1):
-        if ws.cell(row=current_row, column=1).value == item_id:
-            row = current_row
-            break
+        ensure_phase5_workbook_sheets(wb)
+        ws = wb["PUNCHLIST"]
+        row = None
 
-    if row is None:
-        row = ws.max_row + 1
+        for current_row in range(2, ws.max_row + 1):
+            if ws.cell(row=current_row, column=1).value == item_id:
+                row = current_row
+                break
 
-    values = [
-        item["id"],
-        item["duid"],
-        item.get("item_number"),
-        item.get("category"),
-        item.get("title"),
-        item.get("priority"),
-        item.get("status"),
-        item.get("assigned_name"),
-        item.get("raised_date"),
-        item.get("target_date"),
-        item.get("rectified_date"),
-        item.get("verified_date"),
-        item.get("closure_notes"),
-        item.get("updated_at"),
-    ]
+        if row is None:
+            row = ws.max_row + 1
 
-    for col, value in enumerate(values, start=1):
-        ws.cell(row=row, column=col).value = value
+        values = [
+            item["id"],
+            item["duid"],
+            item.get("item_number"),
+            item.get("category"),
+            item.get("title"),
+            item.get("priority"),
+            item.get("status"),
+            item.get("assigned_name"),
+            item.get("raised_date"),
+            item.get("target_date"),
+            item.get("rectified_date"),
+            item.get("verified_date"),
+            item.get("closure_notes"),
+            item.get("updated_at"),
+        ]
 
-    apply_project_workbook_formatting(wb)
-    wb.save(excel_path)
+        for col, value in enumerate(values, start=1):
+            ws.cell(row=row, column=col).value = value
+
+        apply_project_workbook_formatting(wb)
+
+    return update_persistent_workbook(
+        excel_path,
+        apply_punchlist_workbook_update,
+        expected_sheets=PROJECT_WORKBOOK_REQUIRED_SHEETS + ("PUNCHLIST", "PAT"),
+        backup_folder=safe_abs_path("backups", "excel"),
+        operation="punchlist sync",
+    )
 
 
 def get_latest_pat_record(cursor, duid):
@@ -4139,39 +4688,46 @@ def sync_pat_record_to_project_workbook(cursor, pat_id):
     if not os.path.exists(excel_path):
         return
 
-    backup_file(excel_path, safe_abs_path("backups", "excel"))
-    wb = load_workbook(excel_path)
-    ensure_phase5_workbook_sheets(wb)
-    ws = wb["PAT"]
-    row = None
+    def apply_pat_workbook_update(wb):
 
-    for current_row in range(2, ws.max_row + 1):
-        if ws.cell(row=current_row, column=1).value == pat_id:
-            row = current_row
-            break
+        ensure_phase5_workbook_sheets(wb)
+        ws = wb["PAT"]
+        row = None
 
-    if row is None:
-        row = ws.max_row + 1
+        for current_row in range(2, ws.max_row + 1):
+            if ws.cell(row=current_row, column=1).value == pat_id:
+                row = current_row
+                break
 
-    values = [
-        record["id"],
-        record["duid"],
-        record.get("pat_reference"),
-        record.get("pat_date"),
-        record.get("inspector_name"),
-        record.get("vendor_name"),
-        record.get("towerco_customer"),
-        record.get("result"),
-        record.get("remarks"),
-        record.get("document_filename") or stored_file_display_name(record.get("document_path")),
-        record.get("updated_at"),
-    ]
+        if row is None:
+            row = ws.max_row + 1
 
-    for col, value in enumerate(values, start=1):
-        ws.cell(row=row, column=col).value = value
+        values = [
+            record["id"],
+            record["duid"],
+            record.get("pat_reference"),
+            record.get("pat_date"),
+            record.get("inspector_name"),
+            record.get("vendor_name"),
+            record.get("towerco_customer"),
+            record.get("result"),
+            record.get("remarks"),
+            record.get("document_filename") or stored_file_display_name(record.get("document_path")),
+            record.get("updated_at"),
+        ]
 
-    apply_project_workbook_formatting(wb)
-    wb.save(excel_path)
+        for col, value in enumerate(values, start=1):
+            ws.cell(row=row, column=col).value = value
+
+        apply_project_workbook_formatting(wb)
+
+    return update_persistent_workbook(
+        excel_path,
+        apply_pat_workbook_update,
+        expected_sheets=PROJECT_WORKBOOK_REQUIRED_SHEETS + ("PUNCHLIST", "PAT"),
+        backup_folder=safe_abs_path("backups", "excel"),
+        operation="PAT sync",
+    )
 
 
 def apply_latest_pat_to_site(cursor, duid):
@@ -4876,50 +5432,56 @@ def update_master_tracker_safety(employee):
     if not du_id or not os.path.exists(MASTER_TRACKER_PATH):
         return
 
-    wb = load_workbook(MASTER_TRACKER_PATH)
+    def apply_master_safety_update(wb):
 
-    if "RUC SAFETY" in wb.sheetnames:
-        ws = wb["RUC SAFETY"]
-    else:
-        ws = wb.create_sheet("RUC SAFETY")
-        ws.append(
-            [
-                "DUID",
-                "EMPLOYEE ID",
-                "EMPLOYEE NAME",
-                "ROLE",
-                "PROJECT ID",
-                "NBI EXPIRY",
-                "WAH EXPIRY",
-                "FIRST AID EXPIRY",
-                "SAFETY STATUS",
-                "UPDATED AT",
-            ]
-        )
+        if "RUC SAFETY" in wb.sheetnames:
+            ws = wb["RUC SAFETY"]
+        else:
+            ws = wb.create_sheet("RUC SAFETY")
+            ws.append(
+                [
+                    "DUID",
+                    "EMPLOYEE ID",
+                    "EMPLOYEE NAME",
+                    "ROLE",
+                    "PROJECT ID",
+                    "NBI EXPIRY",
+                    "WAH EXPIRY",
+                    "FIRST AID EXPIRY",
+                    "SAFETY STATUS",
+                    "UPDATED AT",
+                ]
+            )
 
-    employee_id = employee.get("id")
-    row = None
+        employee_id = employee.get("id")
+        row = None
 
-    for current_row in range(2, ws.max_row + 1):
-        if ws.cell(row=current_row, column=2).value == employee_id:
-            row = current_row
-            break
+        for current_row in range(2, ws.max_row + 1):
+            if ws.cell(row=current_row, column=2).value == employee_id:
+                row = current_row
+                break
 
-    if row is None:
-        row = ws.max_row + 1
+        if row is None:
+            row = ws.max_row + 1
 
-    ws.cell(row=row, column=1).value = du_id
-    ws.cell(row=row, column=2).value = employee_id
-    ws.cell(row=row, column=3).value = full_employee_name(employee)
-    ws.cell(row=row, column=4).value = employee.get("telecom_role", "")
-    ws.cell(row=row, column=5).value = employee.get("project_id", "")
-    ws.cell(row=row, column=6).value = employee.get("nbi_expiry_date", "")
-    ws.cell(row=row, column=7).value = employee.get("wah_expiry_date", "")
-    ws.cell(row=row, column=8).value = employee.get("first_aid_expiry_date", "")
-    ws.cell(row=row, column=9).value = employee.get("overall_safety_status", "")
-    ws.cell(row=row, column=10).value = datetime.now().strftime("%Y-%m-%d %H:%M")
+        ws.cell(row=row, column=1).value = du_id
+        ws.cell(row=row, column=2).value = employee_id
+        ws.cell(row=row, column=3).value = full_employee_name(employee)
+        ws.cell(row=row, column=4).value = employee.get("telecom_role", "")
+        ws.cell(row=row, column=5).value = employee.get("project_id", "")
+        ws.cell(row=row, column=6).value = employee.get("nbi_expiry_date", "")
+        ws.cell(row=row, column=7).value = employee.get("wah_expiry_date", "")
+        ws.cell(row=row, column=8).value = employee.get("first_aid_expiry_date", "")
+        ws.cell(row=row, column=9).value = employee.get("overall_safety_status", "")
+        ws.cell(row=row, column=10).value = datetime.now().strftime("%Y-%m-%d %H:%M")
 
-    wb.save(MASTER_TRACKER_PATH)
+    return update_persistent_workbook(
+        MASTER_TRACKER_PATH,
+        apply_master_safety_update,
+        expected_sheets=MASTER_TRACKER_REQUIRED_SHEETS + ("RUC SAFETY",),
+        backup_folder=safe_abs_path("backups", "master"),
+        operation="master tracker safety sync",
+    )
 
 
 def sync_safety_document(
@@ -5131,31 +5693,41 @@ def upload_master_tracker():
 
     if request.method == "POST":
 
-        file = request.files["tracker"]
+        file = request.files.get("tracker")
 
-        if file.filename == "":
-            return "No file selected"
+        if not file or file.filename == "":
+            flash("No file selected.")
+            return redirect(url_for("upload_master_tracker"))
 
         if not allowed_file(file.filename, {"xlsx"}):
-            return "Only .xlsx files are allowed"
+            flash("Only .xlsx files are allowed.")
+            return redirect(url_for("upload_master_tracker"))
 
-        upload_path = safe_abs_path("excel_files", "master", "upload_temp.xlsx")
-        file.save(upload_path)
+        upload_path = safe_abs_path(
+            "excel_files",
+            "master",
+            f"{WORKBOOK_TEMP_PREFIX}upload_{uuid.uuid4().hex}.xlsx",
+        )
 
-        # Validate tracker
-        result = validate_tracker(master_path, upload_path)
+        try:
+            file.save(upload_path)
+            replace_persistent_workbook_file(
+                master_path,
+                upload_path,
+                validator=validate_tracker,
+                expected_sheets=MASTER_TRACKER_REQUIRED_SHEETS,
+                backup_folder=safe_abs_path("backups", "master"),
+                operation="master tracker upload",
+            )
+        except WorkbookSafetyError as exc:
+            flash("Master Tracker was not updated. " + workbook_error_message(exc))
+            return redirect(url_for("upload_master_tracker"))
+        finally:
+            if os.path.exists(upload_path):
+                os.remove(upload_path)
 
-        if result != "OK":
-            os.remove(upload_path)
-            return result
-
-        # Backup old tracker
-        backup_file(master_path, safe_abs_path("backups", "master"))
-
-        # Replace old tracker
-        os.replace(upload_path, master_path)
-
-        return "Master Tracker Updated Successfully"
+        flash("Master Tracker updated successfully.")
+        return redirect(url_for("upload_master_tracker"))
 
     return render_template("upload_master_tracker.html")
 
@@ -7624,32 +8196,35 @@ def generated_id_card_metadata(id_number):
         workbook_path = os.path.join(EXCEL_DIR, filename)
 
         try:
-            wb = load_workbook(workbook_path, data_only=True, read_only=False)
+            wb = load_workbook(workbook_path, data_only=True, read_only=True)
         except Exception:
             continue
 
-        if "ID" not in wb.sheetnames:
-            continue
+        try:
+            if "ID" not in wb.sheetnames:
+                continue
 
-        ws = wb["ID"]
+            ws = wb["ID"]
 
-        for row_index, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
-            row_id_number = clean_text(row[1] if len(row) > 1 else "")
-            row_employee_id = row[4] if len(row) > 4 else None
+            for row_index, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
+                row_id_number = clean_text(row[1] if len(row) > 1 else "")
+                row_employee_id = row[4] if len(row) > 4 else None
 
-            if row_id_number == clean_id_number and row_employee_id:
-                current_duid = current_id_card_duid_for_employee(row_employee_id)
-                return build_id_card_metadata(
-                    row_id_number,
-                    row[2] if len(row) > 2 else "",
-                    row_employee_id,
-                    row[5] if len(row) > 5 else "",
-                    row[6] if len(row) > 6 else "",
-                    row[7] if len(row) > 7 else "",
-                    filename,
-                    row_index,
-                    current_duid=current_duid,
-                )
+                if row_id_number == clean_id_number and row_employee_id:
+                    current_duid = current_id_card_duid_for_employee(row_employee_id)
+                    return build_id_card_metadata(
+                        row_id_number,
+                        row[2] if len(row) > 2 else "",
+                        row_employee_id,
+                        row[5] if len(row) > 5 else "",
+                        row[6] if len(row) > 6 else "",
+                        row[7] if len(row) > 7 else "",
+                        filename,
+                        row_index,
+                        current_duid=current_duid,
+                    )
+        finally:
+            wb.close()
 
     return None
 
@@ -7670,39 +8245,42 @@ def find_generated_id_cards_for_employee(employee_id):
         workbook_path = os.path.join(EXCEL_DIR, filename)
 
         try:
-            wb = load_workbook(workbook_path, data_only=True, read_only=False)
+            wb = load_workbook(workbook_path, data_only=True, read_only=True)
         except Exception:
             continue
 
-        if "ID" not in wb.sheetnames:
-            continue
-
-        ws = wb["ID"]
-
-        for row_index, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
-            id_number = clean_text(row[1] if len(row) > 1 else "")
-            row_employee_id = row[4] if len(row) > 4 else None
-
-            if not id_number or clean_text(row_employee_id) != clean_text(employee_id):
+        try:
+            if "ID" not in wb.sheetnames:
                 continue
 
-            card = build_id_card_metadata(
-                id_number,
-                row[2] if len(row) > 2 else "",
-                row_employee_id,
-                row[5] if len(row) > 5 else "",
-                row[6] if len(row) > 6 else "",
-                row[7] if len(row) > 7 else "",
-                filename,
-                row_index,
-                current_duid=current_duid,
-            )
+            ws = wb["ID"]
 
-            if card["files_exist"]:
-                card["print_url"] = url_for("print_id", id_number=card["safe_id"])
-                card["front_url"] = url_for("id_cards", filename=card["front_filename"])
-                card["back_url"] = url_for("id_cards", filename=card["back_filename"])
-                cards.append(card)
+            for row_index, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
+                id_number = clean_text(row[1] if len(row) > 1 else "")
+                row_employee_id = row[4] if len(row) > 4 else None
+
+                if not id_number or clean_text(row_employee_id) != clean_text(employee_id):
+                    continue
+
+                card = build_id_card_metadata(
+                    id_number,
+                    row[2] if len(row) > 2 else "",
+                    row_employee_id,
+                    row[5] if len(row) > 5 else "",
+                    row[6] if len(row) > 6 else "",
+                    row[7] if len(row) > 7 else "",
+                    filename,
+                    row_index,
+                    current_duid=current_duid,
+                )
+
+                if card["files_exist"]:
+                    card["print_url"] = url_for("print_id", id_number=card["safe_id"])
+                    card["front_url"] = url_for("id_cards", filename=card["front_filename"])
+                    card["back_url"] = url_for("id_cards", filename=card["back_filename"])
+                    cards.append(card)
+        finally:
+            wb.close()
 
     cards.sort(
         key=lambda card: (
@@ -8452,8 +9030,6 @@ def edit_employee(emp_id):
             conn=conn,
         )
 
-        conn.commit()
-
         updated_employee = {
             "id": int(emp_id),
             "project_id": emp["project_id"],
@@ -8476,13 +9052,36 @@ def edit_employee(emp_id):
         }
         updated_employee.update(safety_summary_from_employee(updated_employee))
 
-        if emp.get("project_code") and os.path.exists(project_excel_path(emp["project_code"])):
-            wb = load_workbook(project_excel_path(emp["project_code"]))
-            write_access_info_row(wb, emp, updated_employee, old_name=old_name)
-            apply_project_workbook_formatting(wb)
-            wb.save(project_excel_path(emp["project_code"]))
+        workbook_results = []
 
-        update_master_tracker_safety(updated_employee)
+        try:
+            if emp.get("project_code"):
+                excel_path = project_excel_path(emp["project_code"])
+
+                if os.path.exists(excel_path):
+
+                    def apply_employee_workbook_update(wb):
+
+                        write_access_info_row(wb, emp, updated_employee, old_name=old_name)
+                        apply_project_workbook_formatting(wb)
+
+                    workbook_results.append(update_persistent_workbook(
+                        excel_path,
+                        apply_employee_workbook_update,
+                        expected_sheets=PROJECT_WORKBOOK_REQUIRED_SHEETS,
+                        backup_folder=safe_abs_path("backups", "excel"),
+                        operation="employee edit workbook sync",
+                    ))
+
+            workbook_results.append(update_master_tracker_safety(updated_employee))
+            conn.commit()
+        except (ValueError, psycopg2.Error, WorkbookSafetyError) as exc:
+            conn.rollback()
+            restore_workbook_results(*workbook_results)
+            cursor.close()
+            conn.close()
+            flash(workbook_error_message(exc) if isinstance(exc, WorkbookSafetyError) else str(exc))
+            return redirect(url_for("edit_employee", emp_id=emp_id))
 
         cursor.close()
         conn.close()
@@ -8540,20 +9139,38 @@ def create_project():
             conn=conn,
         )
 
-        conn.commit()
-
-        cursor.close()
-        conn.close()
-
         #################################
         # CREATE EXCEL
         #################################
 
-        wb = build_project_workbook_template()
         file_path = project_excel_path(project_code)
-        wb.save(file_path)
+        workbook_created = False
 
-        backup_file(file_path, safe_abs_path("backups", "excel"))
+        try:
+            create_persistent_workbook(
+                file_path,
+                build_project_workbook_template,
+                expected_sheets=PROJECT_WORKBOOK_REQUIRED_SHEETS + ("PUNCHLIST", "PAT"),
+                operation="project workbook create",
+            )
+            workbook_created = True
+            conn.commit()
+        except (WorkbookSafetyError, psycopg2.Error) as exc:
+            conn.rollback()
+
+            if workbook_created and os.path.exists(file_path):
+                try:
+                    os.remove(file_path)
+                except OSError:
+                    pass
+
+            cursor.close()
+            conn.close()
+            flash(workbook_error_message(exc) if isinstance(exc, WorkbookSafetyError) else str(exc))
+            return redirect(url_for("create_project"))
+
+        cursor.close()
+        conn.close()
 
         return redirect("/dashboard")
 
@@ -8846,14 +9463,11 @@ def form(code):
         )
         sync_site_assignment(cursor, project["id"], employee_id, assigned_du_id, telecom_role)
 
-        conn.commit()
-
         #################################
         # OPEN EXCEL
         #################################
 
         file_path = workbook_path
-        wb = load_workbook(file_path)
 
         #################################
         # ACCESS INFO SHEET
@@ -8881,83 +9495,99 @@ def form(code):
         }
         employee_record.update(safety_summary_from_employee(employee_record))
 
-        write_access_info_row(wb, project, employee_record)
+        def apply_registration_workbook_update(wb):
 
-        #################################
-        # CLIENT IMAGE LAYOUT ENGINE
-        #################################
+            write_access_info_row(wb, project, employee_record)
 
-        def insert_image(sheet, image_path):
+            #################################
+            # CLIENT IMAGE LAYOUT ENGINE
+            #################################
 
-            if image_path == "":
-                return
+            def insert_image(sheet, image_path):
 
-            if not is_image_file(image_path):
-                return
+                if image_path == "":
+                    return
 
-            ws = wb[sheet]
+                if not is_image_file(image_path):
+                    return
 
-            row = ws.max_row + 3
+                ws = wb[sheet]
 
-            img = ExcelImage(image_path)
+                row = ws.max_row + 3
 
-            img.width = 250
-            img.height = 250
+                img = ExcelImage(image_path)
 
-            ws.row_dimensions[row].height = 210
-            ws.row_dimensions[row + 1].height = 25
+                img.width = 250
+                img.height = 250
 
-            ws.column_dimensions["B"].width = 45
+                ws.row_dimensions[row].height = 210
+                ws.row_dimensions[row + 1].height = 25
 
-            ws.add_image(img, "B" + str(row))
+                ws.column_dimensions["B"].width = 45
 
-            ws["B" + str(row + 1)] = full_name
+                ws.add_image(img, "B" + str(row))
 
-        #################################
-        # INSERT CLIENT STYLE IMAGES
-        #################################
+                ws["B" + str(row + 1)] = full_name
 
-        insert_image("2X2", photo_path)
-        insert_image("NBI", nbi_path)
-        insert_image("CERTIFICATES", cert_path)
-        insert_image("eSignature", sign_path)
-        insert_image("WAH CERT", wah_path)
+            #################################
+            # INSERT CLIENT STYLE IMAGES
+            #################################
 
-        #################################
-        # SEC ID SHEET (PROPER FORMAT)
-        #################################
+            insert_image("2X2", photo_path)
+            insert_image("NBI", nbi_path)
+            insert_image("CERTIFICATES", cert_path)
+            insert_image("eSignature", sign_path)
+            insert_image("WAH CERT", wah_path)
 
-        ws6 = wb["SEC ID"]
+            #################################
+            # SEC ID SHEET (PROPER FORMAT)
+            #################################
 
-        row = ws6.max_row + 1
+            ws6 = wb["SEC ID"]
 
-        ws6.cell(row=row, column=1).value = full_name
-        ws6.cell(row=row, column=2).value = sec_number
-        ws6.cell(row=row, column=3).value = sec_expiry
+            row = ws6.max_row + 1
 
-        ws6.column_dimensions["A"].width = 30
-        ws6.column_dimensions["B"].width = 20
-        ws6.column_dimensions["C"].width = 18
-        ws6.column_dimensions["D"].width = 40
+            ws6.cell(row=row, column=1).value = full_name
+            ws6.cell(row=row, column=2).value = sec_number
+            ws6.cell(row=row, column=3).value = sec_expiry
 
-        if sec_path != "" and is_image_file(sec_path):
+            ws6.column_dimensions["A"].width = 30
+            ws6.column_dimensions["B"].width = 20
+            ws6.column_dimensions["C"].width = 18
+            ws6.column_dimensions["D"].width = 40
 
-            img = ExcelImage(sec_path)
+            if sec_path != "" and is_image_file(sec_path):
 
-            img.width = 200
-            img.height = 140
+                img = ExcelImage(sec_path)
 
-            ws6.row_dimensions[row].height = 110
+                img.width = 200
+                img.height = 140
 
-            ws6.add_image(img, "D" + str(row))
+                ws6.row_dimensions[row].height = 110
 
-        #################################
-        # SAVE EXCEL
-        #################################
+                ws6.add_image(img, "D" + str(row))
 
-        apply_project_workbook_formatting(wb)
-        wb.save(file_path)
-        update_master_tracker_safety(employee_record)
+            apply_project_workbook_formatting(wb)
+
+        workbook_results = []
+
+        try:
+            workbook_results.append(update_persistent_workbook(
+                file_path,
+                apply_registration_workbook_update,
+                expected_sheets=PROJECT_WORKBOOK_REQUIRED_SHEETS,
+                backup_folder=safe_abs_path("backups", "excel"),
+                operation="employee registration workbook sync",
+            ))
+            workbook_results.append(update_master_tracker_safety(employee_record))
+            conn.commit()
+        except (psycopg2.Error, WorkbookSafetyError) as exc:
+            conn.rollback()
+            restore_workbook_results(*workbook_results)
+            cursor.close()
+            conn.close()
+            flash(workbook_error_message(exc) if isinstance(exc, WorkbookSafetyError) else str(exc))
+            return redirect(url_for("form", code=project["project_code"]))
 
         cursor.close()
         conn.close()
@@ -9499,26 +10129,46 @@ def safety_documents():
             )
 
         updated_employee = get_employee_detail(cursor, employee_id)
+        workbook_results = []
 
-        if updated_employee and updated_employee.get("project_code"):
-            excel_path = project_excel_path(updated_employee["project_code"])
+        try:
+            if updated_employee and updated_employee.get("project_code"):
+                excel_path = project_excel_path(updated_employee["project_code"])
 
-            if os.path.exists(excel_path):
-                wb = load_workbook(excel_path)
-                write_access_info_row(wb, updated_employee, updated_employee)
-                apply_project_workbook_formatting(wb)
-                wb.save(excel_path)
+                if os.path.exists(excel_path):
 
-            update_master_tracker_safety(updated_employee)
+                    def apply_safety_workbook_update(wb):
 
-        audit_event(
-            "SAFETY_DOCUMENT_CHANGED",
-            "employee",
-            employee_id,
-            f"Updated {document_type} safety document.",
-            conn=conn,
-        )
-        conn.commit()
+                        write_access_info_row(wb, updated_employee, updated_employee)
+                        apply_project_workbook_formatting(wb)
+
+                    workbook_results.append(update_persistent_workbook(
+                        excel_path,
+                        apply_safety_workbook_update,
+                        expected_sheets=PROJECT_WORKBOOK_REQUIRED_SHEETS,
+                        backup_folder=safe_abs_path("backups", "excel"),
+                        operation="safety document workbook sync",
+                    ))
+
+            if updated_employee:
+                workbook_results.append(update_master_tracker_safety(updated_employee))
+
+            audit_event(
+                "SAFETY_DOCUMENT_CHANGED",
+                "employee",
+                employee_id,
+                f"Updated {document_type} safety document.",
+                conn=conn,
+            )
+            conn.commit()
+        except (ValueError, psycopg2.Error, WorkbookSafetyError) as exc:
+            conn.rollback()
+            restore_workbook_results(*workbook_results)
+            cursor.close()
+            conn.close()
+            flash(workbook_error_message(exc) if isinstance(exc, WorkbookSafetyError) else str(exc))
+            return redirect("/safety_documents")
+
         cursor.close()
         conn.close()
         return redirect("/safety_documents")
@@ -10397,6 +11047,8 @@ def new_daily_log(du_id):
             conn.close()
             return redirect(url_for("edit_daily_log", log_id=existing_daily_log_id))
 
+        workbook_results = []
+
         try:
             cursor.execute(
                 """
@@ -10446,7 +11098,7 @@ def new_daily_log(du_id):
                 log_data["report_date"],
             )
             apply_daily_site_progress(cursor, log_data)
-            sync_daily_log_to_project_workbook(cursor, daily_log_id)
+            workbook_results.append(sync_daily_log_to_project_workbook(cursor, daily_log_id))
             audit_event(
                 "DAILY_REPORT_CREATED",
                 "daily_site_log",
@@ -10455,11 +11107,13 @@ def new_daily_log(du_id):
                 conn=conn,
             )
             conn.commit()
-        except (ValueError, psycopg2.Error) as exc:
+        except (ValueError, psycopg2.Error, WorkbookSafetyError) as exc:
             conn.rollback()
+            restore_workbook_results(*workbook_results)
             cursor.close()
             conn.close()
-            return str(exc)
+            flash(workbook_error_message(exc) if isinstance(exc, WorkbookSafetyError) else str(exc))
+            return redirect(url_for("new_daily_log", du_id=du_id))
 
         cursor.close()
         conn.close()
@@ -10660,6 +11314,8 @@ def edit_daily_log(log_id):
             conn.close()
             return redirect(url_for("edit_daily_log", log_id=existing_daily_log_id))
 
+        workbook_results = []
+
         try:
             cursor.execute(
                 """
@@ -10705,7 +11361,7 @@ def edit_daily_log(log_id):
                 log_data["report_date"],
             )
             apply_daily_site_progress(cursor, log_data)
-            sync_daily_log_to_project_workbook(cursor, log_id)
+            workbook_results.append(sync_daily_log_to_project_workbook(cursor, log_id))
             audit_event(
                 "DAILY_REPORT_UPDATED",
                 "daily_site_log",
@@ -10714,11 +11370,13 @@ def edit_daily_log(log_id):
                 conn=conn,
             )
             conn.commit()
-        except (ValueError, psycopg2.Error) as exc:
+        except (ValueError, psycopg2.Error, WorkbookSafetyError) as exc:
             conn.rollback()
+            restore_workbook_results(*workbook_results)
             cursor.close()
             conn.close()
-            return str(exc)
+            flash(workbook_error_message(exc) if isinstance(exc, WorkbookSafetyError) else str(exc))
+            return redirect(url_for("edit_daily_log", log_id=log_id))
 
         cursor.close()
         conn.close()
@@ -12102,166 +12760,202 @@ def generate_id(code, employee_id):
         # OPEN EXCEL AND CHECK DUPLICATE
         #################################
 
-        wb = load_workbook(excel_path)
-
-        if "ID" not in wb.sheetnames:
-
-            ws = wb.create_sheet("ID")
-            ws.append(
-                [
-                    "NAME",
-                    "ID NUMBER",
-                    "EXPIRY",
-                    "IMAGE",
-                    "EMPLOYEE ID",
-                    "TELECOM ROLE",
-                    "DUID",
-                    "SAFETY STATUS",
-                ]
-            )
-
-        else:
-            ws = wb["ID"]
-
-        extra_headers = ["EMPLOYEE ID", "TELECOM ROLE", "DUID", "SAFETY STATUS"]
-        for offset, header in enumerate(extra_headers, start=5):
-            if ws.cell(row=1, column=offset).value in (None, ""):
-                ws.cell(row=1, column=offset).value = header
-
-        for r in ws.iter_rows(min_row=2):
-            if len(r) > 1 and r[1].value == id_number:
-                cursor.close()
-                conn.close()
-                return "ID Number Exists"
-
-        #################################
-        # LOAD ID TEMPLATES (PIXEL PERFECT)
-        #################################
-
-        front = Image.open(os.path.join(ID_TEMPLATE_DIR, "front.png")).convert("RGB")
-        back = Image.open(os.path.join(ID_TEMPLATE_DIR, "back.png")).convert("RGB")
-
-        draw_front = ImageDraw.Draw(front)
-        draw_back = ImageDraw.Draw(back)
-
-        #################################
-        # FIT PHOTO INTO TEMPLATE FRAME
-        #################################
-
-        photo_box = (140, 195, 356, 411)
-        photo = Image.open(photo_path).convert("RGB")
-        front.paste(fit_image_to_box(photo, photo_box), (photo_box[0], photo_box[1]))
-
-        #################################
-        # FRONT TEXT
-        #################################
-
-        draw_fitted_text(draw_front, name.upper(), (52, 420, 443, 457), 30, 18, bold=True)
-        draw_fitted_text(
-            draw_front,
-            "Employee ID: " + str(emp["id"]),
-            (118, 462, 377, 486),
-            16,
-            11,
-        )
-        draw_fitted_text(
-            draw_front,
-            "ID No: " + id_number,
-            (100, 492, 395, 518),
-            18,
-            12,
-            bold=True,
-        )
-        draw_fitted_text(
-            draw_front,
-            "DUID: " + assigned_du_id,
-            (114, 522, 381, 548),
-            16,
-            11,
-        )
-        draw_fitted_text(draw_front, telecom_role, (104, 559, 391, 599), 22, 12, bold=True)
-
-        badge_text = emp["safety_badge"]
-        badge_color = (
-            (18, 120, 66)
-            if emp["overall_safety_status"] in ("VALID", "EXPIRING SOON")
-            else (150, 45, 45)
-        )
-        badge_box = (155, 616, 340, 646)
-        draw_front.rounded_rectangle(badge_box, radius=8, fill=badge_color)
-        draw_fitted_text(
-            draw_front,
-            badge_text,
-            (badge_box[0] + 6, badge_box[1] + 2, badge_box[2] - 6, badge_box[3] - 2),
-            16,
-            10,
-            bold=True,
-        )
-
-        #################################
-        # BACK TEXT
-        #################################
-
-        draw_fitted_text(draw_back, name, (126, 189, 442, 214), 18, 11, bold=True, align="left")
-        draw_wrapped_text(draw_back, address, (144, 217, 442, 260), 14, 8, max_lines=3)
-        draw_fitted_text(
-            draw_back,
-            contact_number,
-            (218, 263, 442, 284),
-            16,
-            10,
-            align="left",
-        )
-        draw_fitted_text(draw_back, "DUID: " + assigned_du_id, (70, 287, 425, 306), 13, 9)
-        draw_fitted_text(draw_back, "ID No: " + id_number, (70, 574, 425, 598), 15, 10)
-        draw_fitted_text(draw_back, "EXPIRY: " + expiry, (70, 604, 425, 630), 17, 11, bold=True)
-
-        #################################
-        # SAVE ID CARDS
-        #################################
-
-        if not os.path.exists(ID_CARD_DIR):
-            os.makedirs(ID_CARD_DIR)
-
         front_file = os.path.join(ID_CARD_DIR, safe_id_number + "_front.png")
         back_file = os.path.join(ID_CARD_DIR, safe_id_number + "_back.png")
+        generated_files = []
 
-        front.save(front_file, quality=100)
-        back.save(back_file, quality=100)
+        def render_id_card_files():
 
-        #################################
-        # SAVE TO EXCEL
-        #################################
+            #################################
+            # LOAD ID TEMPLATES (PIXEL PERFECT)
+            #################################
 
-        row = ws.max_row + 2
+            front = Image.open(os.path.join(ID_TEMPLATE_DIR, "front.png")).convert("RGB")
+            back = Image.open(os.path.join(ID_TEMPLATE_DIR, "back.png")).convert("RGB")
 
-        ws.cell(row=row, column=1).value = name
-        ws.cell(row=row, column=2).value = id_number
-        ws.cell(row=row, column=3).value = expiry
-        ws.cell(row=row, column=5).value = emp["id"]
-        ws.cell(row=row, column=6).value = telecom_role
-        ws.cell(row=row, column=7).value = assigned_du_id
-        ws.cell(row=row, column=8).value = emp["overall_safety_status"]
+            draw_front = ImageDraw.Draw(front)
+            draw_back = ImageDraw.Draw(back)
 
-        img = ExcelImage(front_file)
-        img.width = 420
-        img.height = 260
+            #################################
+            # FIT PHOTO INTO TEMPLATE FRAME
+            #################################
 
-        ws.row_dimensions[row].height = 200
+            photo_box = (140, 195, 356, 411)
+            photo = Image.open(photo_path).convert("RGB")
+            front.paste(fit_image_to_box(photo, photo_box), (photo_box[0], photo_box[1]))
 
-        ws.column_dimensions["A"].width = 25
-        ws.column_dimensions["B"].width = 20
-        ws.column_dimensions["C"].width = 15
-        ws.column_dimensions["D"].width = 70
-        ws.column_dimensions["E"].width = 15
-        ws.column_dimensions["F"].width = 20
-        ws.column_dimensions["G"].width = 18
-        ws.column_dimensions["H"].width = 20
+            #################################
+            # FRONT TEXT
+            #################################
 
-        ws.add_image(img, "D" + str(row))
+            draw_fitted_text(draw_front, name.upper(), (52, 420, 443, 457), 30, 18, bold=True)
+            draw_fitted_text(
+                draw_front,
+                "Employee ID: " + str(emp["id"]),
+                (118, 462, 377, 486),
+                16,
+                11,
+            )
+            draw_fitted_text(
+                draw_front,
+                "ID No: " + id_number,
+                (100, 492, 395, 518),
+                18,
+                12,
+                bold=True,
+            )
+            draw_fitted_text(
+                draw_front,
+                "DUID: " + assigned_du_id,
+                (114, 522, 381, 548),
+                16,
+                11,
+            )
+            draw_fitted_text(draw_front, telecom_role, (104, 559, 391, 599), 22, 12, bold=True)
 
-        apply_project_workbook_formatting(wb)
-        wb.save(excel_path)
+            badge_text = emp["safety_badge"]
+            badge_color = (
+                (18, 120, 66)
+                if emp["overall_safety_status"] in ("VALID", "EXPIRING SOON")
+                else (150, 45, 45)
+            )
+            badge_box = (155, 616, 340, 646)
+            draw_front.rounded_rectangle(badge_box, radius=8, fill=badge_color)
+            draw_fitted_text(
+                draw_front,
+                badge_text,
+                (badge_box[0] + 6, badge_box[1] + 2, badge_box[2] - 6, badge_box[3] - 2),
+                16,
+                10,
+                bold=True,
+            )
+
+            #################################
+            # BACK TEXT
+            #################################
+
+            draw_fitted_text(draw_back, name, (126, 189, 442, 214), 18, 11, bold=True, align="left")
+            draw_wrapped_text(draw_back, address, (144, 217, 442, 260), 14, 8, max_lines=3)
+            draw_fitted_text(
+                draw_back,
+                contact_number,
+                (218, 263, 442, 284),
+                16,
+                10,
+                align="left",
+            )
+            draw_fitted_text(draw_back, "DUID: " + assigned_du_id, (70, 287, 425, 306), 13, 9)
+            draw_fitted_text(draw_back, "ID No: " + id_number, (70, 574, 425, 598), 15, 10)
+            draw_fitted_text(draw_back, "EXPIRY: " + expiry, (70, 604, 425, 630), 17, 11, bold=True)
+
+            #################################
+            # SAVE ID CARDS
+            #################################
+
+            os.makedirs(ID_CARD_DIR, exist_ok=True)
+            front.save(front_file, quality=100)
+            generated_files.append(front_file)
+            back.save(back_file, quality=100)
+            generated_files.append(back_file)
+
+        def apply_id_workbook_update(wb):
+
+            if "ID" not in wb.sheetnames:
+
+                ws = wb.create_sheet("ID")
+                ws.append(
+                    [
+                        "NAME",
+                        "ID NUMBER",
+                        "EXPIRY",
+                        "IMAGE",
+                        "EMPLOYEE ID",
+                        "TELECOM ROLE",
+                        "DUID",
+                        "SAFETY STATUS",
+                    ]
+                )
+
+            else:
+                ws = wb["ID"]
+
+            extra_headers = ["EMPLOYEE ID", "TELECOM ROLE", "DUID", "SAFETY STATUS"]
+            for offset, header in enumerate(extra_headers, start=5):
+                if ws.cell(row=1, column=offset).value in (None, ""):
+                    ws.cell(row=1, column=offset).value = header
+
+            for r in ws.iter_rows(min_row=2):
+                if len(r) > 1 and r[1].value == id_number:
+                    raise ValueError("ID Number Exists")
+
+            if os.path.exists(front_file) or os.path.exists(back_file):
+                raise ValueError("ID Number Exists")
+
+            render_id_card_files()
+
+            #################################
+            # SAVE TO EXCEL
+            #################################
+
+            row = ws.max_row + 2
+
+            ws.cell(row=row, column=1).value = name
+            ws.cell(row=row, column=2).value = id_number
+            ws.cell(row=row, column=3).value = expiry
+            ws.cell(row=row, column=5).value = emp["id"]
+            ws.cell(row=row, column=6).value = telecom_role
+            ws.cell(row=row, column=7).value = assigned_du_id
+            ws.cell(row=row, column=8).value = emp["overall_safety_status"]
+
+            img = ExcelImage(front_file)
+            img.width = 420
+            img.height = 260
+
+            ws.row_dimensions[row].height = 200
+
+            ws.column_dimensions["A"].width = 25
+            ws.column_dimensions["B"].width = 20
+            ws.column_dimensions["C"].width = 15
+            ws.column_dimensions["D"].width = 70
+            ws.column_dimensions["E"].width = 15
+            ws.column_dimensions["F"].width = 20
+            ws.column_dimensions["G"].width = 18
+            ws.column_dimensions["H"].width = 20
+
+            ws.add_image(img, "D" + str(row))
+
+            apply_project_workbook_formatting(wb)
+
+        try:
+            update_persistent_workbook(
+                excel_path,
+                apply_id_workbook_update,
+                expected_sheets=PROJECT_WORKBOOK_REQUIRED_SHEETS,
+                backup_folder=safe_abs_path("backups", "excel"),
+                operation="ID card workbook sync",
+            )
+        except (ValueError, WorkbookSafetyError, OSError) as exc:
+            for generated_file in generated_files:
+                if os.path.exists(generated_file):
+                    try:
+                        os.remove(generated_file)
+                    except OSError:
+                        pass
+
+            cursor.close()
+            conn.close()
+
+            if isinstance(exc, WorkbookSafetyError):
+                flash(workbook_error_message(exc))
+                return redirect(
+                    url_for(
+                        "generate_id",
+                        code=emp["project_code"],
+                        employee_id=employee_id,
+                    )
+                )
+
+            return str(exc)
         audit_event(
             "ID_GENERATED",
             "employee",
@@ -12481,6 +13175,8 @@ def new_punchlist_item(du_id):
         return denied
 
     if request.method == "POST":
+        workbook_results = []
+
         try:
             item_data = collect_punchlist_form_data(cursor, du_id, site)
             if item_data.get("assigned_employee_id"):
@@ -12546,7 +13242,7 @@ def new_punchlist_item(du_id):
             item = get_punchlist_item(cursor, item_id)
             project_key = project_key_for_site_files(cursor, item["project_id"])
             sync_punchlist_files(cursor, item, project_key)
-            sync_punchlist_item_to_project_workbook(cursor, item_id)
+            workbook_results.append(sync_punchlist_item_to_project_workbook(cursor, item_id))
             audit_event(
                 "PUNCHLIST_CREATED",
                 "punchlist_item",
@@ -12555,11 +13251,12 @@ def new_punchlist_item(du_id):
                 conn=conn,
             )
             conn.commit()
-        except (ValueError, psycopg2.Error) as exc:
+        except (ValueError, psycopg2.Error, WorkbookSafetyError) as exc:
             conn.rollback()
+            restore_workbook_results(*workbook_results)
             cursor.close()
             conn.close()
-            flash(str(exc))
+            flash(workbook_error_message(exc) if isinstance(exc, WorkbookSafetyError) else str(exc))
             return redirect(url_for("new_punchlist_item", du_id=du_id))
 
         cursor.close()
@@ -12669,6 +13366,8 @@ def edit_punchlist_item(item_id):
     site = get_site_by_duid(cursor, item["duid"])
 
     if request.method == "POST":
+        workbook_results = []
+
         try:
             item_data = collect_punchlist_form_data(cursor, item["duid"], site, item)
             if item_data.get("assigned_employee_id"):
@@ -12738,7 +13437,7 @@ def edit_punchlist_item(item_id):
             updated_item = get_punchlist_item(cursor, item_id)
             project_key = project_key_for_site_files(cursor, updated_item["project_id"])
             sync_punchlist_files(cursor, updated_item, project_key)
-            sync_punchlist_item_to_project_workbook(cursor, item_id)
+            workbook_results.append(sync_punchlist_item_to_project_workbook(cursor, item_id))
             audit_event(
                 "PUNCHLIST_UPDATED",
                 "punchlist_item",
@@ -12747,11 +13446,12 @@ def edit_punchlist_item(item_id):
                 conn=conn,
             )
             conn.commit()
-        except (ValueError, psycopg2.Error) as exc:
+        except (ValueError, psycopg2.Error, WorkbookSafetyError) as exc:
             conn.rollback()
+            restore_workbook_results(*workbook_results)
             cursor.close()
             conn.close()
-            flash(str(exc))
+            flash(workbook_error_message(exc) if isinstance(exc, WorkbookSafetyError) else str(exc))
             return redirect(url_for("edit_punchlist_item", item_id=item_id))
 
         cursor.close()
@@ -12929,6 +13629,8 @@ def new_pat_record(du_id):
         return "Site not found"
 
     if request.method == "POST":
+        workbook_results = []
+
         try:
             pat_data = collect_pat_form_data(cursor, du_id, site)
             cursor.execute(
@@ -12978,7 +13680,7 @@ def new_pat_record(du_id):
                 (document_filename, document_path, pat_id),
             )
             apply_latest_pat_to_site(cursor, du_id)
-            sync_pat_record_to_project_workbook(cursor, pat_id)
+            workbook_results.append(sync_pat_record_to_project_workbook(cursor, pat_id))
             audit_event(
                 "PAT_CREATED",
                 "pat_record",
@@ -12987,11 +13689,12 @@ def new_pat_record(du_id):
                 conn=conn,
             )
             conn.commit()
-        except (ValueError, psycopg2.Error) as exc:
+        except (ValueError, psycopg2.Error, WorkbookSafetyError) as exc:
             conn.rollback()
+            restore_workbook_results(*workbook_results)
             cursor.close()
             conn.close()
-            flash(str(exc))
+            flash(workbook_error_message(exc) if isinstance(exc, WorkbookSafetyError) else str(exc))
             return redirect(url_for("new_pat_record", du_id=du_id))
 
         cursor.close()
@@ -13035,6 +13738,8 @@ def edit_pat_record(pat_id):
     site = get_site_by_duid(cursor, record["duid"])
 
     if request.method == "POST":
+        workbook_results = []
+
         try:
             pat_data = collect_pat_form_data(cursor, record["duid"], site, record)
             project_key = project_key_for_site_files(cursor, pat_data["project_id"])
@@ -13070,7 +13775,7 @@ def edit_pat_record(pat_id):
                 ),
             )
             apply_latest_pat_to_site(cursor, record["duid"])
-            sync_pat_record_to_project_workbook(cursor, pat_id)
+            workbook_results.append(sync_pat_record_to_project_workbook(cursor, pat_id))
             audit_event(
                 "PAT_UPDATED",
                 "pat_record",
@@ -13079,11 +13784,12 @@ def edit_pat_record(pat_id):
                 conn=conn,
             )
             conn.commit()
-        except (ValueError, psycopg2.Error) as exc:
+        except (ValueError, psycopg2.Error, WorkbookSafetyError) as exc:
             conn.rollback()
+            restore_workbook_results(*workbook_results)
             cursor.close()
             conn.close()
-            flash(str(exc))
+            flash(workbook_error_message(exc) if isinstance(exc, WorkbookSafetyError) else str(exc))
             return redirect(url_for("edit_pat_record", pat_id=pat_id))
 
         cursor.close()

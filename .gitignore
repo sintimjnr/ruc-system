@@ -18,6 +18,9 @@ Thumbs.db
 ~$*.xls*
 *.tmp
 *.log
+*.tmp.xlsx
+.~ruc_tmp_*
+*.lock
 
 # Local operational uploads
 uploads/
@@ -34,3 +37,6 @@ excel_files/master/*.xlsx
 # Local backups and database dumps
 backups/
 *.backup
+
+# Local runtime locks and temporary working files
+runtime/
