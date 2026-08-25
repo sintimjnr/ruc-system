@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, redirect, session, send_file, url_for, flash
+from flask import Flask, render_template, request, redirect, session, send_file, url_for, flash, jsonify
 import psycopg2
 from openpyxl import Workbook, load_workbook
 from openpyxl.drawing.image import Image as ExcelImage
@@ -1438,6 +1438,9 @@ def render_error_page(status_code, title, message):
 
 @app.before_request
 def enforce_csrf_for_state_changes():
+
+    if request.url_rule is None:
+        return None
 
     if request.method in CSRF_SAFE_METHODS:
         return None
@@ -16331,9 +16334,20 @@ def logout():
     return redirect("/")
 
 
+@app.route("/healthz", methods=["GET"])
+def healthz():
+
+    return jsonify({"status": "ok"})
+
+
 #############################################
-# RUN SERVER
+# DEVELOPMENT SERVER
 #############################################
 
 if __name__ == "__main__":
-    app.run(debug=config_bool("RUC_DEBUG", False))
+    app.run(
+        host="127.0.0.1",
+        port=5000,
+        debug=config_bool("RUC_DEBUG", False),
+        use_reloader=False,
+    )

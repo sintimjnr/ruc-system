@@ -21,6 +21,7 @@ Thumbs.db
 *.tmp.xlsx
 .~ruc_tmp_*
 *.lock
+logs/
 
 # Local operational uploads
 uploads/
