@@ -42,6 +42,7 @@
           </dl>
 
           <form method="POST" action="/site_assignments">
+            {% include "partials/csrf.html" %}
             {% for key, value in form_values.items() %}
               <input type="hidden" name="{{ key }}" value="{{ value }}" />
             {% endfor %}

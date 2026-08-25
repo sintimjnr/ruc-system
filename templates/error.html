@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="stylesheet" href="{{ static_asset('css/style.css') }}" />
+    <title>{{ status_code }} - {{ title }}</title>
+  </head>
+  <body>
+    <div class="login-box">
+      <h1>{{ title }}</h1>
+      <p>{{ message }}</p>
+      <p class="muted">Error {{ status_code }}</p>
+      <a class="btn" href="{{ back_url }}">Continue</a>
+    </div>
+  </body>
+</html>

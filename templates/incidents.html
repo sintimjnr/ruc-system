@@ -8,6 +8,7 @@
       <div class="form-box wide">
         <h2>Report Incident</h2>
         <form method="POST" enctype="multipart/form-data" class="filter-grid">
+          {% include "partials/csrf.html" %}
           <select name="project_id" required>
             <option value="">Project</option>
             {% for project in projects %}
@@ -95,6 +96,7 @@
             <td>{{ incident.attachments }}</td>
             <td>
               <form method="POST" action="/incidents/{{ incident.id }}/status" class="table-form">
+                {% include "partials/csrf.html" %}
                 <select name="status">
                   {% for status in statuses %}
                     <option value="{{ status }}" {% if incident.status == status %}selected{% endif %}>{{ status }}</option>

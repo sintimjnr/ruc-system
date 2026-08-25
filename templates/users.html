@@ -59,6 +59,7 @@
                   <span class="status valid">Required</span>
                 {% else %}
                   <form class="inline-form" method="POST" action="{{ url_for('toggle_user', user_id=user.id) }}">
+                    {% include "partials/csrf.html" %}
                     <button class="btn-small" type="submit">
                       {% if user.active %}Deactivate{% else %}Activate{% endif %}
                     </button>

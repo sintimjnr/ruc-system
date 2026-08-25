@@ -9,6 +9,7 @@
         <div class="form-box wide">
           <h2>Assign Worker to Site</h2>
           <form method="POST" class="filter-grid">
+            {% include "partials/csrf.html" %}
             <select name="project_id" required>
               <option value="">Project</option>
               {% for project in projects %}

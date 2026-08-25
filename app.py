@@ -6,15 +6,18 @@ from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from PIL import Image, ImageDraw, ImageFont
 import os
 import random
+import secrets
 from werkzeug.utils import secure_filename
 import shutil
 from datetime import datetime, date, timedelta, time
+import time as time_module
 from werkzeug.security import generate_password_hash, check_password_hash
 from flask import send_from_directory
 from functools import wraps
 import uuid
 from io import BytesIO
 import zipfile
+from werkzeug.exceptions import HTTPException, RequestEntityTooLarge
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
@@ -121,6 +124,51 @@ def get_database_config():
 
 
 load_local_env()
+
+
+def config_bool(name, default=False):
+
+    value = os.environ.get(name)
+
+    if value is None or value == "":
+        return default
+
+    return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def config_int(name, default, minimum=None, maximum=None):
+
+    raw_value = os.environ.get(name)
+
+    try:
+        value = int(raw_value) if raw_value not in {None, ""} else int(default)
+    except (TypeError, ValueError):
+        value = int(default)
+
+    if minimum is not None:
+        value = max(value, minimum)
+
+    if maximum is not None:
+        value = min(value, maximum)
+
+    return value
+
+
+def config_samesite(name="SESSION_COOKIE_SAMESITE", default="Lax"):
+
+    value = clean_config_value(os.environ.get(name), default)
+    normalized = value.capitalize()
+
+    if normalized not in {"Lax", "Strict", "None"}:
+        return default
+
+    return normalized
+
+
+def clean_config_value(value, default=""):
+
+    value = str(value or "").strip()
+    return value or default
 
 
 #############################################
@@ -259,6 +307,34 @@ app.secret_key = get_secret_key()
 app.config["MAX_CONTENT_LENGTH"] = int(
     os.environ.get("MAX_UPLOAD_BYTES", 16 * 1024 * 1024)
 )
+app.config.update(
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE=config_samesite(),
+    SESSION_COOKIE_SECURE=config_bool("SESSION_COOKIE_SECURE", False),
+    PERMANENT_SESSION_LIFETIME=timedelta(
+        hours=config_int("RUC_SESSION_HOURS", 8, minimum=1, maximum=24)
+    ),
+    SESSION_REFRESH_EACH_REQUEST=True,
+)
+
+CSRF_SESSION_KEY = "_ruc_csrf_token"
+CSRF_FORM_FIELD = "csrf_token"
+CSRF_HEADER_NAMES = ("X-CSRFToken", "X-CSRF-Token")
+CSRF_SAFE_METHODS = {"GET", "HEAD", "OPTIONS", "TRACE"}
+LOGIN_RATE_LIMIT_ATTEMPTS = config_int(
+    "LOGIN_RATE_LIMIT_ATTEMPTS", 5, minimum=1, maximum=50
+)
+LOGIN_RATE_LIMIT_WINDOW_SECONDS = config_int(
+    "LOGIN_RATE_LIMIT_WINDOW_SECONDS", 60, minimum=10, maximum=3600
+)
+LOGIN_RATE_LIMIT_BLOCK_SECONDS = config_int(
+    "LOGIN_RATE_LIMIT_BLOCK_SECONDS", 300, minimum=30, maximum=86400
+)
+SECURITY_AUDIT_THROTTLE_SECONDS = config_int(
+    "SECURITY_AUDIT_THROTTLE_SECONDS", 60, minimum=0, maximum=3600
+)
+login_rate_limit_state = {}
+security_audit_throttle_state = {}
 
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
 LEGACY_UPLOAD_DIR = os.path.join(BASE_DIR, "uploads")
@@ -470,6 +546,16 @@ def static_files(filename):
 
     normalized = filename.replace("\\", "/")
 
+    if (
+        normalized == "."
+        or normalized.startswith("../")
+        or "/../" in normalized
+        or normalized.startswith("..")
+    ):
+        return render_error_page(400, "Bad Request", "The requested static path is invalid.")
+
+    normalized = os.path.normpath(normalized).replace("\\", "/")
+
     if normalized.startswith("uploads/") and not validate_session_account():
         return redirect("/")
 
@@ -480,7 +566,7 @@ def static_files(filename):
             return denied
 
     if not normalized.startswith(("css/", "images/", "js/", "uploads/")):
-        return "Invalid static path"
+        return render_error_page(400, "Bad Request", "The requested static path is invalid.")
 
     return send_from_directory(safe_abs_path("static"), normalized)
 
@@ -651,10 +737,11 @@ def current_user_profile():
 
 def get_request_ip():
 
-    forwarded_for = request.headers.get("X-Forwarded-For", "")
+    if config_bool("RUC_TRUST_PROXY_HEADERS", False):
+        forwarded_for = request.headers.get("X-Forwarded-For", "")
 
-    if forwarded_for:
-        return forwarded_for.split(",")[0].strip()
+        if forwarded_for:
+            return forwarded_for.split(",")[0].strip()
 
     return request.remote_addr
 
@@ -721,6 +808,306 @@ def audit_event(
             cursor.close()
         if owns_connection and db:
             db.close()
+
+
+def ensure_csrf_token():
+
+    token = session.get(CSRF_SESSION_KEY)
+
+    if not token:
+        token = secrets.token_urlsafe(32)
+        session[CSRF_SESSION_KEY] = token
+
+    return token
+
+
+def csrf_token():
+
+    return ensure_csrf_token()
+
+
+def submitted_csrf_token():
+
+    token = request.form.get(CSRF_FORM_FIELD)
+
+    if token:
+        return token
+
+    for header_name in CSRF_HEADER_NAMES:
+        token = request.headers.get(header_name)
+
+        if token:
+            return token
+
+    return ""
+
+
+def csrf_token_is_valid():
+
+    expected = session.get(CSRF_SESSION_KEY)
+    supplied = submitted_csrf_token()
+
+    if not expected or not supplied:
+        return False
+
+    return secrets.compare_digest(str(expected), str(supplied))
+
+
+def security_audit_key(action):
+
+    return "|".join(
+        [
+            clean_text(action),
+            clean_text(get_request_ip()),
+            clean_text(request.path),
+        ]
+    )
+
+
+def audit_security_event_once(action, description, entity_type="security", entity_id=None):
+
+    if SECURITY_AUDIT_THROTTLE_SECONDS <= 0:
+        audit_event(action, entity_type, entity_id, description)
+        return
+
+    now = time_module.time()
+    key = security_audit_key(action)
+    last_seen = security_audit_throttle_state.get(key, 0)
+
+    if now - last_seen < SECURITY_AUDIT_THROTTLE_SECONDS:
+        return
+
+    security_audit_throttle_state[key] = now
+    audit_event(action, entity_type, entity_id, description)
+
+
+def render_error_page(status_code, title, message):
+
+    try:
+        if session.get("admin_id"):
+            fallback_url = url_for("dashboard")
+        else:
+            fallback_url = url_for("login")
+    except Exception:
+        fallback_url = "/"
+
+    return (
+        render_template(
+            "error.html",
+            status_code=status_code,
+            title=title,
+            message=message,
+            back_url=fallback_url,
+        ),
+        status_code,
+    )
+
+
+@app.before_request
+def enforce_csrf_for_state_changes():
+
+    if request.method in CSRF_SAFE_METHODS:
+        return None
+
+    if csrf_token_is_valid():
+        return None
+
+    audit_security_event_once(
+        "CSRF_REJECTED",
+        "Rejected a state-changing request with a missing or invalid CSRF token.",
+    )
+    return render_error_page(
+        400,
+        "Bad Request",
+        "Your form session expired or the request could not be verified. Please reload the page and try again.",
+    )
+
+
+def login_rate_limit_key():
+
+    user_agent = clean_text(request.headers.get("User-Agent", ""))[:120]
+    return f"{get_request_ip()}|{user_agent}"
+
+
+def login_rate_limit_status():
+
+    now = time_module.time()
+    key = login_rate_limit_key()
+    entry = login_rate_limit_state.get(
+        key,
+        {
+            "failed_at": [],
+            "blocked_until": 0,
+        },
+    )
+
+    if entry.get("blocked_until", 0) > now:
+        retry_after = max(1, int(entry["blocked_until"] - now))
+        login_rate_limit_state[key] = entry
+        return True, retry_after
+
+    recent_failures = [
+        failed_at
+        for failed_at in entry.get("failed_at", [])
+        if now - failed_at <= LOGIN_RATE_LIMIT_WINDOW_SECONDS
+    ]
+    entry["failed_at"] = recent_failures
+    entry["blocked_until"] = 0
+    login_rate_limit_state[key] = entry
+
+    return False, 0
+
+
+def record_login_failure():
+
+    now = time_module.time()
+    key = login_rate_limit_key()
+    entry = login_rate_limit_state.get(
+        key,
+        {
+            "failed_at": [],
+            "blocked_until": 0,
+        },
+    )
+    entry["failed_at"] = [
+        failed_at
+        for failed_at in entry.get("failed_at", [])
+        if now - failed_at <= LOGIN_RATE_LIMIT_WINDOW_SECONDS
+    ]
+    entry["failed_at"].append(now)
+
+    if len(entry["failed_at"]) >= LOGIN_RATE_LIMIT_ATTEMPTS:
+        entry["blocked_until"] = now + LOGIN_RATE_LIMIT_BLOCK_SECONDS
+        login_rate_limit_state[key] = entry
+        return True, LOGIN_RATE_LIMIT_BLOCK_SECONDS
+
+    login_rate_limit_state[key] = entry
+    return False, 0
+
+
+def clear_login_failures():
+
+    login_rate_limit_state.pop(login_rate_limit_key(), None)
+
+
+def rate_limited_response(retry_after=None):
+
+    response, status_code = render_error_page(
+        429,
+        "Too Many Login Attempts",
+        "Too many failed login attempts. Please wait briefly before trying again.",
+    )
+    response = app.make_response((response, status_code))
+
+    if retry_after:
+        response.headers["Retry-After"] = str(int(retry_after))
+
+    return response
+
+
+SENSITIVE_CACHE_ENDPOINTS = {
+    "employee_file",
+    "safety_document_file",
+    "daily_log_file",
+    "punchlist_file",
+    "pat_document_file",
+    "id_cards",
+    "uploaded_file",
+    "photos",
+    "master_tracker",
+    "open_excel",
+    "daily_operations_export",
+    "site_completion_report_pdf",
+    "site_completion_report_excel",
+    "project_management_report_pdf",
+    "project_management_report_excel",
+    "personnel_safety_report_export",
+    "daily_operations_report_export",
+    "punchlist_management_report_export",
+    "pat_acceptance_report_export",
+    "site_handover_package",
+    "audit_logs",
+    "users",
+    "profile",
+}
+
+
+@app.after_request
+def apply_security_headers(response):
+
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
+    response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+
+    if request.endpoint in SENSITIVE_CACHE_ENDPOINTS or (
+        session.get("admin_id") and response.mimetype == "text/html"
+    ):
+        response.headers["Cache-Control"] = "no-store, private, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+
+    return response
+
+
+@app.errorhandler(400)
+def handle_bad_request(error):
+
+    return render_error_page(400, "Bad Request", "The request could not be processed.")
+
+
+@app.errorhandler(403)
+def handle_forbidden(error):
+
+    return render_error_page(403, "Access Denied", "You do not have permission to access this page.")
+
+
+@app.errorhandler(404)
+def handle_not_found(error):
+
+    return render_error_page(404, "Page Not Found", "The page you requested could not be found.")
+
+
+@app.errorhandler(405)
+def handle_method_not_allowed(error):
+
+    return render_error_page(405, "Method Not Allowed", "This action is not available from that request method.")
+
+
+@app.errorhandler(429)
+def handle_too_many_requests(error):
+
+    return render_error_page(429, "Too Many Requests", "Please wait briefly before trying again.")
+
+
+@app.errorhandler(RequestEntityTooLarge)
+def handle_file_too_large(error):
+
+    return render_error_page(413, "File Too Large", "The uploaded file is larger than the allowed limit.")
+
+
+@app.errorhandler(Exception)
+def handle_unexpected_error(error):
+
+    if isinstance(error, HTTPException):
+        status_code = error.code or 500
+        title = error.name or "Request Error"
+        return render_error_page(
+            status_code,
+            title,
+            "The request could not be completed.",
+        )
+
+    audit_security_event_once(
+        "APP_ERROR",
+        "An unexpected application error occurred.",
+        entity_type="route",
+        entity_id=request.path,
+    )
+    return render_error_page(
+        500,
+        "Unexpected Server Error",
+        "Something went wrong while processing the request. Please try again or contact the system administrator.",
+    )
 
 
 def validate_session_account():
@@ -893,6 +1280,7 @@ def inject_auth_context():
         "effective_role": effective_role,
         "can": can,
         "static_asset": static_asset,
+        "csrf_token": csrf_token,
         "full_employee_name": full_employee_name,
         "ROLE_LABELS": ROLE_LABELS,
         "ROLE_FORM_LABELS": ROLE_FORM_LABELS,
@@ -4601,6 +4989,15 @@ def login():
 
     if request.method == "POST":
 
+        limited, retry_after = login_rate_limit_status()
+
+        if limited:
+            audit_security_event_once(
+                "AUTH_LOGIN_RATE_LIMITED",
+                "Login temporarily blocked after repeated failed attempts.",
+            )
+            return rate_limited_response(retry_after)
+
         username = clean_text(request.form.get("username"))
         password = request.form.get("password", "")
 
@@ -4620,11 +5017,14 @@ def login():
 
         if admin and admin[4] and check_password_hash(admin[2], password):
 
+            clear_login_failures()
             session.clear()
+            session.permanent = True
             session["admin_id"] = admin[0]
             session["admin"] = admin[1]
             session["role"] = admin[3]
             session["employee_id"] = admin[5]
+            ensure_csrf_token()
 
             cursor.execute(
                 """
@@ -4667,6 +5067,15 @@ def login():
         conn.commit()
         cursor.close()
         conn.close()
+
+        blocked, retry_after = record_login_failure()
+
+        if blocked:
+            audit_security_event_once(
+                "AUTH_LOGIN_RATE_LIMITED",
+                "Login temporarily blocked after repeated failed attempts.",
+            )
+            return rate_limited_response(retry_after)
 
         flash("Invalid username or password.")
 
@@ -14817,9 +15226,16 @@ def site_handover(duid):
     )
 
 
-@app.route("/reports/site/<path:duid>/handover/package")
+@app.route("/reports/site/<path:duid>/handover/package", methods=["GET", "POST"])
 @login_required
 def site_handover_package(duid):
+
+    if request.method != "POST":
+        return render_error_page(
+            405,
+            "Method Not Allowed",
+            "Use the handover page button to generate a handover package.",
+        )
 
     conn = connect_db()
     cursor = conn.cursor()
@@ -15003,16 +15419,16 @@ def reset_system():
 #############################################
 
 
-@app.route("/logout")
+@app.route("/logout", methods=["POST"])
+@login_required
 def logout():
 
-    if session.get("admin"):
-        audit_event(
-            "AUTH_LOGOUT",
-            "admin",
-            session.get("admin_id"),
-            "User logged out.",
-        )
+    audit_event(
+        "AUTH_LOGOUT",
+        "admin",
+        session.get("admin_id"),
+        "User logged out.",
+    )
 
     session.clear()
     return redirect("/")
@@ -15023,4 +15439,4 @@ def logout():
 #############################################
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(debug=config_bool("RUC_DEBUG", False))

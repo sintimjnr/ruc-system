@@ -236,6 +236,7 @@
           {% endif %}
           {% if can('manage_acceptance') %}
             <form method="POST" action="{{ url_for('site_acceptance_action', du_id=site.du_id) }}">
+              {% include "partials/csrf.html" %}
               <input type="hidden" name="project_id" value="{{ site.project_id or '' }}" />
               <input name="acceptance_reference" value="{{ acceptance_info.record.acceptance_reference or '' }}" placeholder="Acceptance Reference" />
               <textarea name="remarks" placeholder="Acceptance Remarks">{{ acceptance_info.record.remarks or '' }}</textarea>
@@ -257,6 +258,7 @@
       {% if can('manage_assignments') %}
         <div class="form-box wide compact-box">
           <form method="POST" action="/site_assignments" class="filter-grid">
+            {% include "partials/csrf.html" %}
             <input type="hidden" name="du_id" value="{{ site.du_id }}" />
             <input type="hidden" name="return_to" value="{{ url_for('site_detail', du_id=site.du_id) }}" />
             <select name="project_id" required>
@@ -353,6 +355,7 @@
       {% if can('manage_tasks') %}
         <div class="form-box wide compact-box">
           <form method="POST" action="/telecom_tasks" class="filter-grid">
+            {% include "partials/csrf.html" %}
             <input type="hidden" name="du_id" value="{{ site.du_id }}" />
             <input type="hidden" name="return_to" value="{{ url_for('site_detail', du_id=site.du_id) }}" />
             <select name="project_id" required>
@@ -411,6 +414,7 @@
             <td>
               {% if can('manage_tasks') %}
                 <form method="POST" action="/telecom_tasks/{{ task.id }}/status" class="table-form">
+                  {% include "partials/csrf.html" %}
                   <input type="hidden" name="return_to" value="{{ url_for('site_detail', du_id=site.du_id) }}" />
                   <select name="status">
                     {% for status in task_statuses %}

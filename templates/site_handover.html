@@ -62,9 +62,12 @@
       </div>
 
       <div class="toolbar">
-        <a class="btn" href="{{ url_for('site_handover_package', duid=site.du_id) }}">
-          {% if package_label.startswith('FINAL') %}Generate Final Handover Package{% else %}Generate Draft Handover Package{% endif %}
-        </a>
+        <form method="POST" action="{{ url_for('site_handover_package', duid=site.du_id) }}" class="inline-form">
+          {% include "partials/csrf.html" %}
+          <button type="submit">
+            {% if package_label.startswith('FINAL') %}Generate Final Handover Package{% else %}Generate Draft Handover Package{% endif %}
+          </button>
+        </form>
       </div>
 
       <h2>Evidence Index Preview</h2>

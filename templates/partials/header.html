@@ -43,7 +43,10 @@
         {% if current_profile.profile_url %}
           <a href="{{ current_profile.profile_url }}">My Profile</a>
         {% endif %}
-        <a href="{{ url_for('logout') }}">Sign Out</a>
+        <form method="POST" action="{{ url_for('logout') }}" class="account-logout-form">
+          {% include "partials/csrf.html" %}
+          <button type="submit">Sign Out</button>
+        </form>
       </div>
     </details>
   </div>

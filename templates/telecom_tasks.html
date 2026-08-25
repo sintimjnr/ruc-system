@@ -9,6 +9,7 @@
         <div class="form-box wide">
           <h2>Create Telecom Task</h2>
           <form method="POST" class="filter-grid">
+            {% include "partials/csrf.html" %}
             <select name="project_id" required>
               <option value="">Project</option>
               {% for project in projects %}
@@ -107,6 +108,7 @@
             <td>
               {% if can('manage_tasks') %}
                 <form method="POST" action="/telecom_tasks/{{ task.id }}/status" class="table-form">
+                  {% include "partials/csrf.html" %}
                   <select name="status">
                     {% for status in statuses %}
                       <option value="{{ status }}" {% if task.status == status %}selected{% endif %}>{{ status }}</option>

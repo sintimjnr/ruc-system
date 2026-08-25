@@ -17,6 +17,7 @@
         </div>
 
         <form method="POST" enctype="multipart/form-data">
+          {% include "partials/csrf.html" %}
           <input type="file" name="tracker" accept=".xlsx" required />
           <button type="submit">Upload Updated Tracker</button>
         </form>

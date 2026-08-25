@@ -10,6 +10,7 @@
         <p class="muted">Project: {{ emp.project_name or '-' }} - {{ emp.project_code or '-' }}</p>
 
         <form method="POST" enctype="multipart/form-data">
+          {% include "partials/csrf.html" %}
           <h3>Basic Information</h3>
           <div class="form-grid">
             <input name="first_name" value="{{ emp.first_name or '' }}" placeholder="First Name" required />

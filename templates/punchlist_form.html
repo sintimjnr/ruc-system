@@ -15,7 +15,8 @@
           <span class="status {{ item.status|lower|replace(' ', '-') if item.status else 'open' }}">{{ item.status or 'OPEN' }}</span>
         </div>
       </div>
-<form method="POST" enctype="multipart/form-data">
+      <form method="POST" enctype="multipart/form-data">
+        {% include "partials/csrf.html" %}
         <div class="form-box wide">
           <h2>Punchlist Item</h2>
           <div class="filter-grid">

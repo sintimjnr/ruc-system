@@ -14,6 +14,7 @@
         <p><a class="btn-small" href="{{ url_for('employee_dossier', employee_id=emp.id) }}">View Dossier</a></p>
 
         <form method="POST">
+          {% include "partials/csrf.html" %}
           <label>ID Number</label>
           <input type="text" name="id_number" placeholder="Example: 2026-309" required />
 

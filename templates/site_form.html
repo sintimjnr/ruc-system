@@ -35,6 +35,7 @@
         <section class="info-panel">
           <h2>RUC Operational Data</h2>
           <form method="POST" class="form-grid">
+            {% include "partials/csrf.html" %}
             {% if mode == 'new' %}
               <input list="duid-options" name="du_id" value="{{ selected_duid }}" placeholder="DUID" required />
               <datalist id="duid-options">

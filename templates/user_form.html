@@ -11,6 +11,7 @@
           This creates or updates a login account only. Employee personal details, project/DUID assignment, official photo, safety documents, and dossiers stay in Employee Registration and Employees.
         </div>
         <form method="POST">
+          {% include "partials/csrf.html" %}
           {% if not user %}
             <label>Username</label>
             <input name="username" required />

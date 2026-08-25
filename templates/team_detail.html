@@ -25,6 +25,7 @@
         <section class="info-panel">
           <h2>Add / Transfer Member</h2>
           <form method="POST" action="{{ url_for('add_team_member', team_id=team.id) }}">
+            {% include "partials/csrf.html" %}
             <select name="employee_id" required>
               <option value="">Employee</option>
               {% for emp in employees %}
@@ -66,6 +67,7 @@
             <td>
               {% if membership.active %}
                 <form class="inline-form" method="POST" action="{{ url_for('end_team_membership', membership_id=membership.id) }}">
+                  {% include "partials/csrf.html" %}
                   <button class="btn-small" type="submit">End</button>
                 </form>
               {% else %}

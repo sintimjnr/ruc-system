@@ -8,6 +8,7 @@
       <div class="form-box wide">
         <h2>Create Permit</h2>
         <form method="POST" enctype="multipart/form-data" class="filter-grid">
+          {% include "partials/csrf.html" %}
           <input name="permit_number" placeholder="Permit Number" required />
           <select name="project_id" required>
             <option value="">Project</option>
@@ -91,6 +92,7 @@
             </td>
             <td>
               <form method="POST" action="/permits/{{ permit.id }}/status" class="table-form">
+                {% include "partials/csrf.html" %}
                 <select name="status">
                   {% for status in statuses %}
                     <option value="{{ status }}" {% if permit.status == status %}selected{% endif %}>{{ status }}</option>

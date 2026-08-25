@@ -14,7 +14,8 @@
           <span class="status {{ record.result|lower|replace(' ', '-') if record.result else 'pending' }}">{{ record.result or 'PENDING' }}</span>
         </div>
       </div>
-<form method="POST" enctype="multipart/form-data">
+      <form method="POST" enctype="multipart/form-data">
+        {% include "partials/csrf.html" %}
         <div class="form-box wide">
           <h2>PAT Details</h2>
           <div class="filter-grid">

@@ -233,6 +233,7 @@
       <div class="nav-section danger-section">
         <span class="nav-section-title">DANGER AREA</span>
         <form method="POST" action="{{ url_for('reset_system') }}" onsubmit="return confirm('Reset project, employee, upload, ID, and operational records?')">
+          {% include "partials/csrf.html" %}
           <button class="nav-danger" type="submit">Reset System</button>
         </form>
       </div>

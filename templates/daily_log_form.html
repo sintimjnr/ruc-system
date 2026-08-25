@@ -15,7 +15,8 @@
           <span class="status {{ site.overall_status|lower|replace(' ', '-') }}">{{ site.overall_status }}</span>
         </div>
       </div>
-<form method="POST" enctype="multipart/form-data">
+      <form method="POST" enctype="multipart/form-data">
+        {% include "partials/csrf.html" %}
         <div class="form-box wide">
           <h2>Report</h2>
           <div class="filter-grid">

@@ -8,6 +8,7 @@
 <div class="form-box">
         <h2>{% if team %}Edit Team{% else %}Create Team{% endif %}</h2>
         <form method="POST">
+          {% include "partials/csrf.html" %}
           <label>Team Name</label>
           <input name="name" value="{{ team.name if team else '' }}" required />
 
