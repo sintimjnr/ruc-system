@@ -5,6 +5,7 @@
 
 {% block content %}
 <div class="container">
+  {% if show_operational_reports %}
       <div class="summary-grid">
         <div class="card">Projects<br /><br /><b>{{ total_projects }}</b></div>
         <div class="card">Operational Sites<br /><br /><b>{{ operational_sites }}</b></div>
@@ -13,34 +14,41 @@
         <div class="card">PAT Records<br /><br /><b>{{ pat_records_count }}</b></div>
         <div class="card">Accepted Sites<br /><br /><b>{{ accepted_sites }}</b></div>
       </div>
+  {% endif %}
 
       <div class="report-grid">
-        <a class="report-card" href="{{ url_for('site_report_select') }}">
-          <h2>Site Completion Report</h2>
-          <p>Site status, personnel, safety, daily operations, punchlist, PAT, acceptance, and evidence summary.</p>
-        </a>
-        {% if current_effective_role != 'team_leader' %}
+        {% if show_operational_reports %}
+          <a class="report-card" href="{{ url_for('site_report_select') }}">
+            <h2>Site Completion Report</h2>
+            <p>Site status, personnel, safety, daily operations, punchlist, PAT, acceptance, and evidence summary.</p>
+          </a>
+        {% endif %}
+        {% if show_project_reports %}
           <a class="report-card" href="{{ url_for('project_report_select') }}">
             <h2>Project Management Report</h2>
             <p>Project progress, site table, safety, attendance, daily activity, PAT, and acceptance control.</p>
           </a>
         {% endif %}
-        <a class="report-card" href="{{ url_for('personnel_safety_report') }}">
-          <h2>Personnel / Safety Report</h2>
-          <p>Personnel assignment and safety compliance reporting with project, DUID, role, and status filters.</p>
-        </a>
-        <a class="report-card" href="{{ url_for('daily_operations_report') }}">
-          <h2>Daily Operations Report</h2>
-          <p>Daily reporting, progress movement, attendance, blockers, and recent work completed.</p>
-        </a>
-        <a class="report-card" href="{{ url_for('punchlist_management_report') }}">
-          <h2>Punchlist Report</h2>
-          <p>Punchlist status, priority, owner, dates, overdue items, and verification information.</p>
-        </a>
-        <a class="report-card" href="{{ url_for('pat_acceptance_report') }}">
-          <h2>PAT / Acceptance Report</h2>
-          <p>PAT results, acceptance status, readiness, and handover audit information.</p>
-        </a>
+        {% if show_personnel_reports %}
+          <a class="report-card" href="{{ url_for('personnel_safety_report') }}">
+            <h2>Personnel / Safety Report</h2>
+            <p>Personnel assignment and safety compliance reporting with project, DUID, role, and status filters.</p>
+          </a>
+        {% endif %}
+        {% if show_operational_reports %}
+          <a class="report-card" href="{{ url_for('daily_operations_report') }}">
+            <h2>Daily Operations Report</h2>
+            <p>Daily reporting, progress movement, attendance, blockers, and recent work completed.</p>
+          </a>
+          <a class="report-card" href="{{ url_for('punchlist_management_report') }}">
+            <h2>Punchlist Report</h2>
+            <p>Punchlist status, priority, owner, dates, overdue items, and verification information.</p>
+          </a>
+          <a class="report-card" href="{{ url_for('pat_acceptance_report') }}">
+            <h2>PAT / Acceptance Report</h2>
+            <p>PAT results, acceptance status, readiness, and handover audit information.</p>
+          </a>
+        {% endif %}
       </div>
     </div>
 {% endblock %}

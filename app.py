@@ -519,8 +519,6 @@ ROLE_PERMISSIONS = {
         "manage_safety",
         "generate_ids",
         "view_id_cards",
-        "view_master_tracker",
-        "view_project_workbooks",
         "export_reports",
     },
     "team_leader": {
@@ -1720,13 +1718,28 @@ def get_projects_for_select():
 
     conn = connect_db()
     cursor = conn.cursor()
-    cursor.execute(
-        """
-        SELECT id, project_name, region, company, project_code
-        FROM projects
-        ORDER BY date_created DESC, id DESC
-        """
-    )
+
+    if is_team_leader_role():
+        cursor.execute(
+            """
+            SELECT DISTINCT p.id, p.project_name, p.region, p.company, p.project_code, p.date_created
+            FROM projects p
+            JOIN teams t ON t.project_id = p.id
+            WHERE t.active IS TRUE
+              AND t.team_leader_admin_id=%s
+            ORDER BY p.date_created DESC, p.id DESC
+            """,
+            (session.get("admin_id"),),
+        )
+    else:
+        cursor.execute(
+            """
+            SELECT id, project_name, region, company, project_code
+            FROM projects
+            ORDER BY date_created DESC, id DESC
+            """
+        )
+
     projects = rows_to_dicts(cursor)
     cursor.close()
     conn.close()
@@ -1767,15 +1780,35 @@ def get_towercos_for_select():
 
     conn = connect_db()
     cursor = conn.cursor()
-    cursor.execute(
-        """
-        SELECT DISTINCT towerco
-        FROM globe_nlz
-        WHERE towerco IS NOT NULL
-          AND TRIM(towerco) <> ''
-        ORDER BY towerco
-        """
-    )
+
+    if is_team_leader_role():
+        duids = get_team_leader_duids(cursor)
+
+        if duids:
+            cursor.execute(
+                """
+                SELECT DISTINCT towerco
+                FROM globe_nlz
+                WHERE du_id = ANY(%s)
+                  AND towerco IS NOT NULL
+                  AND TRIM(towerco) <> ''
+                ORDER BY towerco
+                """,
+                (duids,),
+            )
+        else:
+            cursor.execute("SELECT NULL WHERE FALSE")
+    else:
+        cursor.execute(
+            """
+            SELECT DISTINCT towerco
+            FROM globe_nlz
+            WHERE towerco IS NOT NULL
+              AND TRIM(towerco) <> ''
+            ORDER BY towerco
+            """
+        )
+
     towercos = [row[0] for row in cursor.fetchall()]
     cursor.close()
     conn.close()
@@ -2087,6 +2120,117 @@ def duid_for_uploaded_path(cursor, rel_path):
     return None
 
 
+def site_file_context_for_uploaded_path(cursor, rel_path):
+
+    variants = stored_file_path_variants(rel_path)
+
+    if not variants:
+        return None
+
+    cursor.execute(
+        """
+        SELECT 'daily_operations' AS module, dsl.duid
+        FROM daily_log_files dlf
+        JOIN daily_site_logs dsl ON dsl.id = dlf.daily_log_id
+        WHERE dlf.file_path = ANY(%s)
+           OR dlf.original_filename = ANY(%s)
+        ORDER BY dlf.id DESC
+        LIMIT 1
+        """,
+        (variants, variants),
+    )
+    row = cursor.fetchone()
+
+    if row:
+        return {"module": row[0], "duid": row[1]}
+
+    cursor.execute(
+        """
+        SELECT 'punchlist' AS module, pi.duid
+        FROM punchlist_files pf
+        JOIN punchlist_items pi ON pi.id = pf.punchlist_item_id
+        WHERE pf.file_path = ANY(%s)
+           OR pf.filename = ANY(%s)
+        ORDER BY pf.id DESC
+        LIMIT 1
+        """,
+        (variants, variants),
+    )
+    row = cursor.fetchone()
+
+    if row:
+        return {"module": row[0], "duid": row[1]}
+
+    cursor.execute(
+        """
+        SELECT 'pat' AS module, duid
+        FROM pat_records
+        WHERE document_path = ANY(%s)
+           OR document_filename = ANY(%s)
+        ORDER BY id DESC
+        LIMIT 1
+        """,
+        (variants, variants),
+    )
+    row = cursor.fetchone()
+
+    if row:
+        return {"module": row[0], "duid": row[1]}
+
+    cursor.execute(
+        """
+        SELECT 'incident' AS module, ir.du_id
+        FROM incident_attachments ia
+        JOIN incident_reports ir ON ir.id = ia.incident_report_id
+        WHERE ia.file_path = ANY(%s)
+           OR ia.original_filename = ANY(%s)
+        ORDER BY ia.id DESC
+        LIMIT 1
+        """,
+        (variants, variants),
+    )
+    row = cursor.fetchone()
+
+    if row:
+        return {"module": row[0], "duid": row[1]}
+
+    cursor.execute(
+        """
+        SELECT 'permit' AS module, du_id
+        FROM permit_to_work
+        WHERE file_path = ANY(%s)
+        ORDER BY id DESC
+        LIMIT 1
+        """,
+        (variants,),
+    )
+    row = cursor.fetchone()
+
+    if row:
+        return {"module": row[0], "duid": row[1]}
+
+    normalized = variants[0]
+    parts = normalized.split("/")
+
+    if (
+        len(parts) >= 7
+        and parts[0] == "static"
+        and parts[1] == "uploads"
+        and parts[2] == "projects"
+        and parts[4] == "sites"
+    ):
+        module_map = {
+            "daily_logs": "daily_operations",
+            "punchlist": "punchlist",
+            "pat": "pat",
+            "incidents": "incident",
+            "permits": "permit",
+        }
+        return {"module": module_map.get(parts[6], "site"), "duid": parts[5]}
+
+    return None
+
+
 def authorize_stored_file_access(rel_path):
 
     rel_path = clean_text(rel_path).replace("\\", "/").lstrip("/")
@@ -2095,20 +2239,57 @@ def authorize_stored_file_access(rel_path):
     if not rel_path or rel_path == "." or rel_path.startswith("../") or "/../" in rel_path:
         return "Invalid file path"
 
-    if is_super_admin_role() or is_hr_role():
+    if is_super_admin_role():
         return None
-
-    if not is_team_leader_role():
-        return access_denied("This file is outside your authorized access.")
 
     conn = connect_db()
     cursor = conn.cursor()
 
     try:
         employee_id = employee_id_for_uploaded_path(cursor, rel_path)
+        site_file_context = site_file_context_for_uploaded_path(cursor, rel_path)
+
+        if is_hr_role():
+            if employee_id and not site_file_context:
+                return None
+
+            audit_scope_denied(
+                conn,
+                "file",
+                rel_path,
+                "Denied HR access to a non-personnel upload.",
+            )
+            return access_denied("This file is outside your HR personnel and safety access.")
+
+        if not is_team_leader_role():
+            return access_denied("This file is outside your authorized access.")
 
         if employee_id:
             denied = enforce_team_leader_employee_scope(cursor, conn, employee_id)
+            return denied
+
+        if site_file_context:
+            module = site_file_context.get("module")
+            module_permissions = {
+                "daily_operations": ("manage_operations",),
+                "punchlist": ("manage_punchlist",),
+                "pat": ("view_pat", "manage_pat"),
+                "incident": ("manage_incidents",),
+                "permit": ("manage_permits",),
+                "site": ("team_leader_portal",),
+            }
+            required_permissions = module_permissions.get(module, ("team_leader_portal",))
+
+            if not any(can(permission) for permission in required_permissions):
+                audit_scope_denied(
+                    conn,
+                    "file",
+                    rel_path,
+                    f"Denied Team Leader access to {module} file without module permission.",
+                )
+                return access_denied("This file is outside your authorized module access.")
+
+            denied = enforce_team_leader_site_scope(cursor, conn, site_file_context.get("duid"))
             return denied
 
         duid = duid_for_uploaded_path(cursor, rel_path)
@@ -9191,7 +9372,7 @@ def safety_compliance():
 
 
 @app.route("/safety_documents", methods=["GET", "POST"])
-@login_required
+@permission_required("manage_safety")
 def safety_documents():
 
     conn = connect_db()
@@ -9431,7 +9612,7 @@ def safety_documents():
 
 
 @app.route("/sites")
-@login_required
+@any_permission_required("manage_sites", "team_leader_portal")
 def sites():
 
     conn = connect_db()
@@ -9654,7 +9835,7 @@ def new_site():
 
 
 @app.route("/sites/<path:du_id>")
-@login_required
+@any_permission_required("manage_sites", "team_leader_portal")
 def site_detail(du_id):
 
     du_id = validate_duid_value(du_id)
@@ -9968,7 +10149,7 @@ def edit_site(du_id):
 
 
 @app.route("/daily_operations")
-@login_required
+@permission_required("manage_operations")
 def daily_operations():
 
     filters = {
@@ -10053,7 +10234,7 @@ def daily_operations():
 
 
 @app.route("/daily_operations/export")
-@login_required
+@permission_required("manage_operations")
 def daily_operations_export():
 
     filters = {
@@ -10310,7 +10491,7 @@ def new_daily_log(du_id):
 
 
 @app.route("/daily_logs/<int:log_id>")
-@login_required
+@permission_required("manage_operations")
 def daily_log_detail(log_id):
 
     conn = connect_db()
@@ -10584,7 +10765,7 @@ def edit_daily_log(log_id):
 
 
 @app.route("/daily_log_files/<int:file_id>")
-@login_required
+@permission_required("manage_operations")
 def daily_log_file(file_id):
 
     conn = connect_db()
@@ -10624,7 +10805,7 @@ def daily_log_file(file_id):
 
 
 @app.route("/site_assignments", methods=["GET", "POST"])
-@login_required
+@permission_required("manage_assignments")
 def site_assignments():
 
     if not can("manage_assignments"):
@@ -10798,7 +10979,7 @@ def site_assignments():
 
 
 @app.route("/telecom_tasks", methods=["GET", "POST"])
-@login_required
+@permission_required("manage_tasks")
 def telecom_tasks():
 
     conn = connect_db()
@@ -10982,7 +11163,7 @@ def telecom_tasks():
 
 
 @app.route("/telecom_tasks/<task_id>/status", methods=["POST"])
-@login_required
+@permission_required("manage_tasks")
 def update_telecom_task_status(task_id):
 
     if not can("manage_tasks"):
@@ -11056,7 +11237,7 @@ def update_telecom_task_status(task_id):
 
 
 @app.route("/permits", methods=["GET", "POST"])
-@login_required
+@permission_required("manage_permits")
 def permits():
 
     conn = connect_db()
@@ -11209,7 +11390,7 @@ def permits():
 
 
 @app.route("/permits/<permit_id>/status", methods=["POST"])
-@login_required
+@permission_required("manage_permits")
 def update_permit_status(permit_id):
 
     if not can("manage_permits"):
@@ -11249,14 +11430,14 @@ def update_permit_status(permit_id):
 
 
 @app.route("/toolbox_talks", methods=["GET", "POST"])
-@login_required
+@permission_required("manage_toolbox")
 def toolbox_talks():
 
     conn = connect_db()
     cursor = conn.cursor()
 
     if request.method == "POST":
-        if not can("manage_operations"):
+        if not can("manage_toolbox"):
             cursor.close()
             conn.close()
             return access_denied()
@@ -11394,7 +11575,7 @@ def toolbox_talks():
 
 
 @app.route("/incidents", methods=["GET", "POST"])
-@login_required
+@permission_required("manage_incidents")
 def incidents():
 
     conn = connect_db()
@@ -11580,7 +11761,7 @@ def incidents():
 
 
 @app.route("/incidents/<incident_id>/status", methods=["POST"])
-@login_required
+@permission_required("manage_incidents")
 def update_incident_status(incident_id):
 
     if not can("manage_incidents"):
@@ -12179,7 +12360,7 @@ def id_cards(filename):
 
 
 @app.route("/punchlist")
-@login_required
+@permission_required("manage_punchlist")
 def punchlist():
 
     filters = {
@@ -12411,7 +12592,7 @@ def new_punchlist_item(du_id):
 
 
 @app.route("/punchlist/<int:item_id>")
-@login_required
+@permission_required("manage_punchlist")
 def punchlist_detail(item_id):
 
     conn = connect_db()
@@ -12619,7 +12800,7 @@ def edit_punchlist_item(item_id):
 
 
 @app.route("/punchlist_files/<int:file_id>")
-@login_required
+@permission_required("manage_punchlist")
 def punchlist_file(file_id):
 
     conn = connect_db()
@@ -12654,7 +12835,7 @@ def punchlist_file(file_id):
 
 
 @app.route("/pat")
-@login_required
+@any_permission_required("view_pat", "manage_pat")
 def pat_history():
 
     filters = {
@@ -12923,7 +13104,7 @@ def edit_pat_record(pat_id):
 
 
 @app.route("/pat_records/<int:pat_id>/file")
-@login_required
+@any_permission_required("view_pat", "manage_pat")
 def pat_document_file(pat_id):
 
     conn = connect_db()
@@ -14705,7 +14886,7 @@ def build_document_index_workbook(index_rows):
 
 
 @app.route("/reports")
-@login_required
+@permission_required("export_reports")
 def reports_center():
 
     conn = connect_db()
@@ -14743,6 +14924,13 @@ def reports_center():
             open_punchlists = 0
             pat_records_count = 0
             accepted_sites = 0
+    elif is_hr_role():
+        total_projects = 0
+        operational_sites = 0
+        daily_reports = 0
+        open_punchlists = 0
+        pat_records_count = 0
+        accepted_sites = 0
     else:
         cursor.execute("SELECT COUNT(*) FROM projects")
         total_projects = cursor.fetchone()[0]
@@ -14768,11 +14956,14 @@ def reports_center():
         open_punchlists=open_punchlists,
         pat_records_count=pat_records_count,
         accepted_sites=accepted_sites,
+        show_operational_reports=is_super_admin_role() or is_team_leader_role(),
+        show_project_reports=is_super_admin_role(),
+        show_personnel_reports=can("manage_personnel") or can("manage_safety") or can("view_team"),
     )
 
 
 @app.route("/reports/site")
-@login_required
+@any_permission_required("manage_sites", "team_leader_portal")
 def site_report_select():
 
     duid = clean_text(request.args.get("duid"))
@@ -14801,7 +14992,7 @@ def site_report_select():
 
 
 @app.route("/reports/site/<path:duid>")
-@login_required
+@any_permission_required("manage_sites", "team_leader_portal")
 def site_completion_report(duid):
 
     conn = connect_db()
@@ -14824,7 +15015,7 @@ def site_completion_report(duid):
 
 
 @app.route("/reports/site/<path:duid>/pdf")
-@login_required
+@any_permission_required("manage_sites", "team_leader_portal")
 def site_completion_report_pdf(duid):
 
     conn = connect_db()
@@ -14853,7 +15044,7 @@ def site_completion_report_pdf(duid):
 
 
 @app.route("/reports/site/<path:duid>/excel")
-@login_required
+@any_permission_required("manage_sites", "team_leader_portal")
 def site_completion_report_excel(duid):
 
     conn = connect_db()
@@ -14878,7 +15069,7 @@ def site_completion_report_excel(duid):
 
 
 @app.route("/reports/project")
-@login_required
+@permission_required("manage_projects")
 def project_report_select():
 
     if is_team_leader_role():
@@ -14896,7 +15087,7 @@ def project_report_select():
 
 
 @app.route("/reports/project/<int:project_id>")
-@login_required
+@permission_required("manage_projects")
 def project_management_report(project_id):
 
     if is_team_leader_role():
@@ -14915,7 +15106,7 @@ def project_management_report(project_id):
 
 
 @app.route("/reports/project/<int:project_id>/pdf")
-@login_required
+@permission_required("manage_projects")
 def project_management_report_pdf(project_id):
 
     if is_team_leader_role():
@@ -14945,7 +15136,7 @@ def project_management_report_pdf(project_id):
 
 
 @app.route("/reports/project/<int:project_id>/excel")
-@login_required
+@permission_required("manage_projects")
 def project_management_report_excel(project_id):
 
     if is_team_leader_role():
@@ -14966,7 +15157,7 @@ def project_management_report_excel(project_id):
 
 
 @app.route("/reports/personnel")
-@login_required
+@any_permission_required("manage_personnel", "manage_safety", "view_team")
 def personnel_safety_report():
 
     filters = {
@@ -14993,7 +15184,7 @@ def personnel_safety_report():
 
 
 @app.route("/reports/personnel/export")
-@login_required
+@any_permission_required("manage_personnel", "manage_safety", "view_team")
 def personnel_safety_report_export():
 
     filters = {
@@ -15011,7 +15202,7 @@ def personnel_safety_report_export():
 
 
 @app.route("/reports/daily")
-@login_required
+@permission_required("manage_operations")
 def daily_operations_report():
 
     filters = {
@@ -15046,7 +15237,7 @@ def daily_operations_report():
 
 
 @app.route("/reports/daily/export")
-@login_required
+@permission_required("manage_operations")
 def daily_operations_report_export():
 
     filters = {
@@ -15071,7 +15262,7 @@ def daily_operations_report_export():
 
 
 @app.route("/reports/punchlist")
-@login_required
+@permission_required("manage_punchlist")
 def punchlist_management_report():
 
     filters = {
@@ -15110,7 +15301,7 @@ def punchlist_management_report():
 
 
 @app.route("/reports/punchlist/export")
-@login_required
+@permission_required("manage_punchlist")
 def punchlist_management_report_export():
 
     filters = {
@@ -15137,7 +15328,7 @@ def punchlist_management_report_export():
 
 
 @app.route("/reports/pat_acceptance")
-@login_required
+@any_permission_required("manage_acceptance", "view_pat", "manage_pat")
 def pat_acceptance_report():
 
     filters = {
@@ -15174,7 +15365,7 @@ def pat_acceptance_report():
 
 
 @app.route("/reports/pat_acceptance/export")
-@login_required
+@any_permission_required("manage_acceptance", "view_pat", "manage_pat")
 def pat_acceptance_report_export():
 
     filters = {
@@ -15200,7 +15391,7 @@ def pat_acceptance_report_export():
 
 
 @app.route("/reports/site/<path:duid>/handover")
-@login_required
+@any_permission_required("manage_sites", "team_leader_portal")
 def site_handover(duid):
 
     conn = connect_db()
@@ -15227,7 +15418,7 @@ def site_handover(duid):
 
 
 @app.route("/reports/site/<path:duid>/handover/package", methods=["GET", "POST"])
-@login_required
+@any_permission_required("manage_sites", "team_leader_portal")
 def site_handover_package(duid):
 
     if request.method != "POST":
