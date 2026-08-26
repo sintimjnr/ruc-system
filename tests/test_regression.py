@@ -4,7 +4,7 @@ import tempfile
 import time
 import unittest
 import zipfile
-from datetime import date
+from datetime import date, datetime, timedelta
 from io import BytesIO
 from pathlib import Path
 from unittest import mock
@@ -30,9 +30,16 @@ class RucRegressionTestCase(unittest.TestCase):
     def setUpClass(cls):
         cls._audit_patch = mock.patch.object(ruc, "audit_event", lambda *args, **kwargs: None)
         cls._audit_patch.start()
+        cls._tracker_download_patch = mock.patch.object(
+            ruc,
+            "record_master_tracker_download_for_edit",
+            lambda *args, **kwargs: ruc.get_master_tracker_status(),
+        )
+        cls._tracker_download_patch.start()
 
     @classmethod
     def tearDownClass(cls):
+        cls._tracker_download_patch.stop()
         cls._audit_patch.stop()
 
     def setUp(self):
@@ -183,7 +190,13 @@ class SecurityRegressionTests(RucRegressionTestCase):
 class RbacRegressionTests(RucRegressionTestCase):
 
     def test_unauthenticated_protected_routes_redirect(self):
-        for path in ["/dashboard", "/users", "/master_tracker", "/reports"]:
+        for path in [
+            "/dashboard",
+            "/users",
+            "/master_tracker",
+            "/upload_master_tracker",
+            "/reports",
+        ]:
             with self.subTest(path=path):
                 self.assertIn(self.get_status(path), {302, 401, 403})
 
@@ -196,6 +209,7 @@ class RbacRegressionTests(RucRegressionTestCase):
             "/sites",
             "/reports",
             "/master_tracker",
+            "/upload_master_tracker",
         ]
 
         for path in allowed_paths:
@@ -212,6 +226,7 @@ class RbacRegressionTests(RucRegressionTestCase):
 
         denied_paths = [
             "/master_tracker",
+            "/upload_master_tracker",
             "/open_excel/52143",
             "/sites/new",
             "/daily_operations",
@@ -234,6 +249,7 @@ class RbacRegressionTests(RucRegressionTestCase):
         denied_paths = [
             "/sites/NL106",
             "/master_tracker",
+            "/upload_master_tracker",
             "/open_excel/52143",
             "/users",
             "/audit_logs",
@@ -508,6 +524,323 @@ class WorkbookSafetyRegressionTests(unittest.TestCase):
             self.assertEqual(worksheet["B3"].value, "'+1+1")
         finally:
             reloaded.close()
+
+
+class MasterTrackerWorkflowRegressionTests(unittest.TestCase):
+
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.work_dir = Path(self.temp_dir.name)
+        self.target = self.work_dir / "NLZ_MASTER_TRACKER.xlsx"
+        self.state_path = self.work_dir / "runtime" / "master_tracker_state.json"
+        self.backup_dir = self.work_dir / "backups"
+        self.original_safe_abs_path = ruc.safe_abs_path
+        self._create_tracker(self.target, ["NL106", "NL106", "NL107"])
+
+    def tearDown(self):
+        self.temp_dir.cleanup()
+
+    def _create_tracker(self, path, duids):
+        workbook = Workbook()
+        worksheet = workbook.active
+        worksheet.title = "GLOBE NLZ"
+        worksheet.append(["DU ID", "Site Name", "TowerCo"])
+
+        for index, duid in enumerate(duids, start=1):
+            worksheet.append([duid, f"Site {index}", f"TowerCo {index}"])
+
+        workbook.save(path)
+        workbook.close()
+
+    def _tracker_bytes(self, duids):
+        workbook = Workbook()
+        worksheet = workbook.active
+        worksheet.title = "GLOBE NLZ"
+        worksheet.append(["DU ID", "Site Name", "TowerCo"])
+
+        for index, duid in enumerate(duids, start=1):
+            worksheet.append([duid, f"Uploaded Site {index}", f"Uploaded TowerCo {index}"])
+
+        buffer = BytesIO()
+        workbook.save(buffer)
+        workbook.close()
+        buffer.seek(0)
+        return buffer
+
+    def _login_as(self, client, role):
+        accounts = {
+            "super_admin": {
+                "admin_id": 2,
+                "admin": "Marian",
+                "role": "super_admin",
+                "employee_id": None,
+            },
+            "hr": {
+                "admin_id": 81,
+                "admin": "LU",
+                "role": "hr",
+                "employee_id": None,
+            },
+            "team_leader": {
+                "admin_id": 82,
+                "admin": "BENJAMIN SINTIM",
+                "role": "team_leader",
+                "employee_id": 17,
+            },
+        }
+
+        with client.session_transaction() as session:
+            session.clear()
+            session.update(accounts[role])
+
+    def _csrf(self, client):
+        with client.session_transaction() as session:
+            session[ruc.CSRF_SESSION_KEY] = "tracker-token"
+
+        return "tracker-token"
+
+    def _safe_abs_path_for_temp_uploads(self, *parts):
+        if parts[:2] == ("excel_files", "master"):
+            upload_dir = self.work_dir / "excel_files" / "master"
+            upload_dir.mkdir(parents=True, exist_ok=True)
+            return str(upload_dir / parts[-1])
+
+        if parts[:2] == ("backups", "master"):
+            self.backup_dir.mkdir(parents=True, exist_ok=True)
+            return str(self.backup_dir)
+
+        return self.original_safe_abs_path(*parts)
+
+    def test_tracker_validation_preserves_existing_duplicates_and_rejects_new_duplicates(self):
+        unchanged = self.work_dir / "unchanged.xlsx"
+        new_unique = self.work_dir / "new_unique.xlsx"
+        increased_duplicate = self.work_dir / "increased_duplicate.xlsx"
+        new_duplicate = self.work_dir / "new_duplicate.xlsx"
+        missing_existing = self.work_dir / "missing_existing.xlsx"
+        malformed = self.work_dir / "malformed.xlsx"
+
+        self._create_tracker(unchanged, ["NL106", "NL106", "NL107"])
+        self._create_tracker(new_unique, ["NL106", "NL106", "NL107", "NL108"])
+        self._create_tracker(increased_duplicate, ["NL106", "NL106", "NL107", "NL107"])
+        self._create_tracker(new_duplicate, ["NL106", "NL106", "NL107", "NL108", "NL108"])
+        self._create_tracker(missing_existing, ["NL106", "NL106", "NL108"])
+        malformed.write_bytes(b"not an xlsx workbook")
+
+        self.assertEqual(ruc.validate_tracker(str(self.target), str(unchanged)), "OK")
+        self.assertEqual(ruc.validate_tracker(str(self.target), str(new_unique)), "OK")
+        self.assertIn(
+            "Duplicate DU ID detected: NL107",
+            ruc.validate_tracker(str(self.target), str(increased_duplicate)),
+        )
+        self.assertIn(
+            "Duplicate DU ID detected: NL108",
+            ruc.validate_tracker(str(self.target), str(new_duplicate)),
+        )
+        self.assertIn(
+            "Missing DU IDs detected",
+            ruc.validate_tracker(str(self.target), str(missing_existing)),
+        )
+
+        with self.assertRaises(ruc.WorkbookSafetyError):
+            ruc.replace_persistent_workbook_file(
+                str(self.target),
+                str(malformed),
+                validator=ruc.validate_tracker,
+                expected_sheets=("GLOBE NLZ",),
+                backup_folder=str(self.backup_dir),
+                operation="master tracker malformed regression",
+            )
+
+    def test_pending_state_survives_rejection_and_clears_after_valid_replacement(self):
+        download_time = datetime(2026, 8, 26, 10, 0, 0)
+        initial_checksum = ruc.file_sha256(self.target)
+
+        initial_status = ruc.get_master_tracker_status(
+            str(self.target), str(self.state_path), now=download_time
+        )
+        self.assertEqual(initial_status["status"], "CURRENT")
+
+        pending_status = ruc.record_master_tracker_download_for_edit(
+            admin_id=2,
+            username="Marian",
+            tracker_path=str(self.target),
+            state_path=str(self.state_path),
+            now=download_time,
+        )
+        self.assertEqual(pending_status["status"], "UPDATE PENDING")
+        self.assertFalse(pending_status["is_overdue"])
+
+        under_threshold = ruc.get_master_tracker_status(
+            str(self.target),
+            str(self.state_path),
+            now=download_time + timedelta(hours=23),
+        )
+        self.assertEqual(under_threshold["status"], "UPDATE PENDING")
+        self.assertFalse(under_threshold["is_overdue"])
+
+        overdue = ruc.get_master_tracker_status(
+            str(self.target),
+            str(self.state_path),
+            now=download_time + timedelta(hours=25),
+        )
+        self.assertEqual(overdue["status"], "UPDATE PENDING")
+        self.assertTrue(overdue["is_overdue"])
+
+        duplicate_candidate = self.work_dir / "duplicate_candidate.xlsx"
+        self._create_tracker(duplicate_candidate, ["NL106", "NL106", "NL107", "NL107"])
+
+        with self.assertRaises(ruc.WorkbookValidationError):
+            ruc.replace_persistent_workbook_file(
+                str(self.target),
+                str(duplicate_candidate),
+                validator=ruc.validate_tracker,
+                expected_sheets=("GLOBE NLZ",),
+                backup_folder=str(self.backup_dir),
+                operation="master tracker duplicate regression",
+            )
+
+        self.assertEqual(ruc.file_sha256(self.target), initial_checksum)
+        rejected_status = ruc.record_master_tracker_upload_rejected(
+            "Duplicate DU ID detected: NL107",
+            admin_id=2,
+            username="Marian",
+            tracker_path=str(self.target),
+            state_path=str(self.state_path),
+            now=download_time + timedelta(hours=1),
+        )
+        self.assertEqual(rejected_status["status"], "UPDATE PENDING")
+
+        valid_candidate = self.work_dir / "valid_candidate.xlsx"
+        self._create_tracker(valid_candidate, ["NL106", "NL106", "NL107", "NL108"])
+        ruc.replace_persistent_workbook_file(
+            str(self.target),
+            str(valid_candidate),
+            validator=ruc.validate_tracker,
+            expected_sheets=("GLOBE NLZ",),
+            backup_folder=str(self.backup_dir),
+            operation="master tracker valid regression",
+        )
+        accepted_status = ruc.record_master_tracker_upload_accepted(
+            admin_id=2,
+            username="Marian",
+            tracker_path=str(self.target),
+            state_path=str(self.state_path),
+            now=download_time + timedelta(hours=2),
+        )
+
+        self.assertEqual(accepted_status["status"], "CURRENT")
+        self.assertFalse(accepted_status["is_pending"])
+        self.assertNotEqual(accepted_status["approved_checksum"], initial_checksum)
+
+    def test_missing_or_corrupt_pending_metadata_fails_safely(self):
+        status = ruc.get_master_tracker_status(str(self.target), str(self.state_path))
+        self.assertEqual(status["status"], "CURRENT")
+        self.assertFalse(status["metadata_warning"])
+
+        self.state_path.parent.mkdir(parents=True, exist_ok=True)
+        self.state_path.write_text("{bad json", encoding="utf-8")
+
+        status = ruc.get_master_tracker_status(str(self.target), str(self.state_path))
+        self.assertEqual(status["status"], "CURRENT")
+        self.assertTrue(status["metadata_warning"])
+
+    def test_download_route_records_pending_only_for_authorized_super_admin(self):
+        client = ruc.app.test_client()
+
+        patches = [
+            mock.patch.object(ruc, "MASTER_TRACKER_PATH", str(self.target)),
+            mock.patch.object(ruc, "MASTER_TRACKER_STATE_PATH", str(self.state_path)),
+            mock.patch.object(ruc, "audit_event", lambda *args, **kwargs: None),
+        ]
+
+        with patches[0], patches[1], patches[2]:
+            self.assertIn(client.get("/master_tracker").status_code, {302, 401, 403})
+            self.assertFalse(self.state_path.exists())
+
+            self._login_as(client, "hr")
+            self.assertEqual(client.get("/master_tracker").status_code, 403)
+            self.assertFalse(self.state_path.exists())
+
+            self._login_as(client, "team_leader")
+            self.assertEqual(client.get("/master_tracker").status_code, 403)
+            self.assertFalse(self.state_path.exists())
+
+            self._login_as(client, "super_admin")
+            response = client.get("/master_tracker")
+            try:
+                self.assertEqual(response.status_code, 200)
+            finally:
+                response.close()
+
+            self.assertTrue(self.state_path.exists())
+            status = ruc.get_master_tracker_status(str(self.target), str(self.state_path))
+            self.assertEqual(status["status"], "UPDATE PENDING")
+
+    def test_upload_route_rejected_candidate_keeps_pending_and_valid_upload_clears_it(self):
+        client = ruc.app.test_client()
+        self._login_as(client, "super_admin")
+        token = self._csrf(client)
+        audit_actions = []
+
+        patches = [
+            mock.patch.object(ruc, "MASTER_TRACKER_PATH", str(self.target)),
+            mock.patch.object(ruc, "MASTER_TRACKER_STATE_PATH", str(self.state_path)),
+            mock.patch.object(ruc, "safe_abs_path", self._safe_abs_path_for_temp_uploads),
+            mock.patch.object(
+                ruc,
+                "audit_event",
+                lambda action, *args, **kwargs: audit_actions.append(action),
+            ),
+        ]
+
+        with patches[0], patches[1], patches[2], patches[3]:
+            ruc.record_master_tracker_download_for_edit(
+                admin_id=2,
+                username="Marian",
+                tracker_path=str(self.target),
+                state_path=str(self.state_path),
+                now=datetime(2026, 8, 26, 10, 0, 0),
+            )
+
+            rejected = client.post(
+                "/upload_master_tracker",
+                data={
+                    ruc.CSRF_FORM_FIELD: token,
+                    "tracker": (
+                        self._tracker_bytes(["NL106", "NL106", "NL107", "NL107"]),
+                        "tracker.xlsx",
+                    ),
+                },
+                content_type="multipart/form-data",
+            )
+            self.assertEqual(rejected.status_code, 302)
+            self.assertEqual(
+                ruc.get_master_tracker_status(str(self.target), str(self.state_path))[
+                    "status"
+                ],
+                "UPDATE PENDING",
+            )
+            self.assertIn("MASTER_TRACKER_UPLOAD_REJECTED", audit_actions)
+
+            accepted = client.post(
+                "/upload_master_tracker",
+                data={
+                    ruc.CSRF_FORM_FIELD: token,
+                    "tracker": (
+                        self._tracker_bytes(["NL106", "NL106", "NL107", "NL108"]),
+                        "tracker.xlsx",
+                    ),
+                },
+                content_type="multipart/form-data",
+            )
+            self.assertEqual(accepted.status_code, 302)
+            self.assertEqual(
+                ruc.get_master_tracker_status(str(self.target), str(self.state_path))[
+                    "status"
+                ],
+                "CURRENT",
+            )
+            self.assertIn("MASTER_TRACKER_UPLOAD_ACCEPTED", audit_actions)
 
 
 class BackupVerificationRegressionTests(unittest.TestCase):

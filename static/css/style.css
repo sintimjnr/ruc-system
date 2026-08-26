@@ -1417,6 +1417,83 @@ button:hover {
     box-shadow: var(--shadow-soft);
 }
 
+.master-tracker-banner,
+.master-tracker-status {
+    align-items: center;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-left: 6px solid var(--primary);
+    border-radius: 8px;
+    box-shadow: var(--shadow-soft);
+    display: flex;
+    gap: 16px;
+    justify-content: space-between;
+    margin-bottom: 18px;
+    padding: 14px 16px;
+}
+
+.master-tracker-status {
+    align-items: flex-start;
+    background: var(--surface-secondary);
+}
+
+.master-tracker-banner.is-pending,
+.master-tracker-status.is-pending {
+    border-left-color: var(--warning);
+}
+
+.master-tracker-banner.is-overdue,
+.master-tracker-status.is-overdue {
+    border-left-color: var(--danger);
+}
+
+.master-tracker-banner h2,
+.master-tracker-status h3 {
+    color: var(--text);
+    margin: 2px 0 5px;
+}
+
+.master-tracker-banner p,
+.master-tracker-status p {
+    color: var(--text-muted);
+    margin: 0;
+}
+
+.master-tracker-status p + p {
+    margin-top: 5px;
+}
+
+.status-label {
+    color: var(--text-muted);
+    display: inline-block;
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 0;
+    text-transform: uppercase;
+}
+
+.tracker-status-pill {
+    background: var(--accent-soft);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    color: var(--text);
+    flex: 0 0 auto;
+    font-size: 12px;
+    font-weight: 800;
+    padding: 7px 10px;
+}
+
+.is-overdue .tracker-status-pill {
+    background: rgba(220, 53, 69, 0.12);
+    color: var(--danger);
+}
+
+.tracker-reminder {
+    color: var(--danger) !important;
+    font-weight: 700;
+    margin-top: 7px !important;
+}
+
 .dashboard-filter-strip {
     align-items: center;
     background: var(--surface-secondary);

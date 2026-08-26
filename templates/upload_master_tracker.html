@@ -8,6 +8,35 @@
       <div class="card upload-card">
         <h2>Upload Master Tracker</h2>
 
+        {% if tracker_status %}
+          <div class="master-tracker-status {% if tracker_status.is_pending %}is-pending{% endif %} {% if tracker_status.is_overdue %}is-overdue{% endif %}">
+            <div>
+              <span class="status-label">Current Master Tracker</span>
+              <h3>{{ tracker_status.version_label }}</h3>
+              <p>
+                {% if tracker_status.is_pending %}
+                  Update pending. An editing copy was downloaded{% if tracker_status.last_downloaded_at_display %} on {{ tracker_status.last_downloaded_at_display }}{% endif %}{% if tracker_status.last_downloaded_by %} by {{ tracker_status.last_downloaded_by }}{% endif %}, and no newer approved upload has been accepted.
+                {% else %}
+                  Master Tracker is current.
+                {% endif %}
+              </p>
+              {% if tracker_status.approved_at_display %}
+                <p>Approved version timestamp: {{ tracker_status.approved_at_display }}.</p>
+              {% endif %}
+              {% if tracker_status.last_uploaded_at_display %}
+                <p>Last accepted upload: {{ tracker_status.last_uploaded_at_display }}.</p>
+              {% endif %}
+              {% if tracker_status.is_overdue %}
+                <p class="tracker-reminder">Reminder: this editing copy has been pending for more than {{ tracker_status.reminder_hours }} hours.</p>
+              {% endif %}
+              {% if tracker_status.metadata_warning %}
+                <p class="tracker-reminder">Status metadata could not be read, so the current workbook remains active.</p>
+              {% endif %}
+            </div>
+            <span class="tracker-status-pill">{{ tracker_status.status }}</span>
+          </div>
+        {% endif %}
+
         <div class="info">
           <b>Important Instructions</b><br /><br />
           - Upload only the <b>NLZ Master Tracker</b><br />
@@ -21,6 +50,10 @@
           <input type="file" name="tracker" accept=".xlsx" required />
           <button type="submit">Upload Updated Tracker</button>
         </form>
+
+        <div class="back">
+          <a href="{{ url_for('master_tracker') }}">Download Current Master Tracker</a>
+        </div>
 
         <div class="back">
           <a href="{{ url_for('reports_center') }}">Back to Reporting Center</a>

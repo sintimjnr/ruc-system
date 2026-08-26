@@ -51,6 +51,22 @@
 {% block content %}
   <div class="container dashboard-workspace">
     {% if dashboard_view == 'super_admin' %}
+      {% if master_tracker_status and master_tracker_status.is_pending %}
+        <section class="master-tracker-banner is-pending {% if master_tracker_status.is_overdue %}is-overdue{% endif %}">
+          <div>
+            <span class="status-label">Master Tracker</span>
+            <h2>{{ master_tracker_status.status }}</h2>
+            <p>
+              An editing copy of {{ master_tracker_status.version_label }} was downloaded{% if master_tracker_status.last_downloaded_at_display %} on {{ master_tracker_status.last_downloaded_at_display }}{% endif %}{% if master_tracker_status.last_downloaded_by %} by {{ master_tracker_status.last_downloaded_by }}{% endif %}. The current approved workbook remains active until a validated upload is accepted.
+            </p>
+            {% if master_tracker_status.is_overdue %}
+              <p class="tracker-reminder">Reminder: no newer approved upload has been accepted after {{ master_tracker_status.reminder_hours }} hours.</p>
+            {% endif %}
+          </div>
+          <a class="btn-small" href="{{ url_for('upload_master_tracker') }}">Review Tracker</a>
+        </section>
+      {% endif %}
+
       <section class="dashboard-filter-strip">
         <div>
           <h2>Operational Scope</h2>

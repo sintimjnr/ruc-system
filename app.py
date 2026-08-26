@@ -6,12 +6,13 @@ from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from PIL import Image, ImageDraw, ImageFont
 from contextlib import contextmanager
 import hashlib
+import json
 import os
 import random
 import secrets
 from werkzeug.utils import secure_filename
 import shutil
-from datetime import datetime, date, timedelta, time
+from datetime import datetime, date, timedelta, time, timezone
 import time as time_module
 from werkzeug.security import generate_password_hash, check_password_hash
 from flask import send_from_directory
@@ -485,6 +486,10 @@ PAT_RESULTS = ["PENDING", "PASSED", "PASSED WITH PUNCHLIST", "FAILED"]
 ACCEPTANCE_STATUSES = ["NOT READY", "READY", "ACCEPTED", "REJECTED"]
 RUNTIME_DIR = os.path.join(BASE_DIR, "runtime")
 WORKBOOK_LOCK_DIR = os.path.join(RUNTIME_DIR, "locks")
+MASTER_TRACKER_STATE_PATH = os.path.join(RUNTIME_DIR, "master_tracker_state.json")
+MASTER_TRACKER_PENDING_REMINDER_HOURS = config_int(
+    "MASTER_TRACKER_PENDING_REMINDER_HOURS", 24, minimum=1, maximum=720
+)
 WORKBOOK_TEMP_PREFIX = ".~ruc_tmp_"
 WORKBOOK_LOCK_TIMEOUT_SECONDS = config_int(
     "WORKBOOK_LOCK_TIMEOUT_SECONDS", 30, minimum=1, maximum=300
@@ -522,6 +527,323 @@ class WorkbookBusyError(WorkbookSafetyError):
 
 class WorkbookValidationError(WorkbookSafetyError):
     pass
+
+
+def current_timestamp():
+
+    return datetime.now().replace(microsecond=0)
+
+
+def parse_iso_datetime(value):
+
+    if not value:
+        return None
+
+    try:
+        normalized = str(value).strip()
+
+        if normalized.endswith("Z"):
+            normalized = normalized[:-1] + "+00:00"
+
+        parsed = datetime.fromisoformat(normalized)
+
+        if parsed.tzinfo is not None:
+            parsed = parsed.astimezone(timezone.utc).replace(tzinfo=None)
+
+        return parsed.replace(microsecond=0)
+    except (TypeError, ValueError):
+        return None
+
+
+def format_display_datetime(value):
+
+    parsed = parse_iso_datetime(value) if not isinstance(value, datetime) else value
+
+    if parsed:
+        return parsed.strftime("%d %b %Y %H:%M")
+
+    return ""
+
+
+def file_sha256(file_path):
+
+    digest = hashlib.sha256()
+
+    with open(file_path, "rb") as file_handle:
+        for chunk in iter(lambda: file_handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+
+    return digest.hexdigest()
+
+
+def read_json_file(file_path):
+
+    try:
+        with open(file_path, "r", encoding="utf-8") as json_file:
+            data = json.load(json_file)
+
+        return data if isinstance(data, dict) else {}
+    except (OSError, json.JSONDecodeError, TypeError, ValueError):
+        return {}
+
+
+def write_json_file_atomic(file_path, data):
+
+    folder_path = os.path.dirname(file_path)
+    os.makedirs(folder_path, exist_ok=True)
+    temp_path = os.path.join(
+        folder_path,
+        f"{WORKBOOK_TEMP_PREFIX}{uuid.uuid4().hex}_{os.path.basename(file_path)}",
+    )
+
+    try:
+        with open(temp_path, "w", encoding="utf-8") as json_file:
+            json.dump(data, json_file, indent=2, sort_keys=True)
+            json_file.write("\n")
+
+        os.replace(temp_path, file_path)
+    finally:
+        if os.path.exists(temp_path):
+            try:
+                os.remove(temp_path)
+            except OSError:
+                pass
+
+
+def master_tracker_file_snapshot(tracker_path=None):
+
+    tracker_path = tracker_path or MASTER_TRACKER_PATH
+
+    if not os.path.exists(tracker_path):
+        return {"exists": False}
+
+    modified_at = datetime.fromtimestamp(os.path.getmtime(tracker_path)).replace(
+        microsecond=0
+    )
+    checksum = file_sha256(tracker_path)
+
+    return {
+        "exists": True,
+        "filename": os.path.basename(tracker_path),
+        "checksum": checksum,
+        "short_checksum": checksum[:12],
+        "modified_at": modified_at.isoformat(),
+        "modified_at_display": format_display_datetime(modified_at),
+        "size": os.path.getsize(tracker_path),
+    }
+
+
+def master_tracker_version_label(checksum, timestamp):
+
+    parsed = parse_iso_datetime(timestamp) or current_timestamp()
+    short_checksum = clean_text(checksum)[:8] or "unknown"
+    return f"MT-{parsed.strftime('%Y%m%d-%H%M')}-{short_checksum}"
+
+
+def get_master_tracker_status(
+    tracker_path=None,
+    state_path=None,
+    now=None,
+):
+
+    tracker_path = tracker_path or MASTER_TRACKER_PATH
+    state_path = state_path or MASTER_TRACKER_STATE_PATH
+    now = now or current_timestamp()
+    snapshot = master_tracker_file_snapshot(tracker_path)
+
+    if not snapshot.get("exists"):
+        return {
+            "status": "MISSING",
+            "is_pending": False,
+            "is_overdue": False,
+            "version_label": "Unavailable",
+            "approved_at_display": "",
+            "last_downloaded_at_display": "",
+            "last_uploaded_at_display": "",
+            "last_rejected_upload_at_display": "",
+            "last_downloaded_by": "",
+            "reminder_hours": MASTER_TRACKER_PENDING_REMINDER_HOURS,
+            "metadata_warning": False,
+        }
+
+    metadata_warning = os.path.exists(state_path) and not read_json_file(state_path)
+    state = read_json_file(state_path)
+    approved_checksum = state.get("approved_checksum")
+    approved_at = state.get("approved_at")
+
+    if approved_checksum != snapshot["checksum"] or not approved_at:
+        approved_checksum = snapshot["checksum"]
+        approved_at = snapshot["modified_at"]
+
+    last_downloaded_at = parse_iso_datetime(state.get("last_downloaded_at"))
+    last_uploaded_at = parse_iso_datetime(state.get("last_uploaded_at"))
+    downloaded_checksum = state.get("downloaded_checksum")
+    accepted_after_download = bool(
+        last_downloaded_at and last_uploaded_at and last_uploaded_at >= last_downloaded_at
+    )
+    pending = bool(
+        last_downloaded_at
+        and downloaded_checksum == snapshot["checksum"]
+        and not accepted_after_download
+    )
+
+    pending_hours = 0
+
+    if pending:
+        pending_hours = max((now - last_downloaded_at).total_seconds() / 3600, 0)
+
+    is_overdue = pending and pending_hours >= MASTER_TRACKER_PENDING_REMINDER_HOURS
+
+    return {
+        "status": "UPDATE PENDING" if pending else "CURRENT",
+        "is_pending": pending,
+        "is_overdue": is_overdue,
+        "pending_hours": round(pending_hours, 1),
+        "version_label": master_tracker_version_label(approved_checksum, approved_at),
+        "approved_checksum": approved_checksum,
+        "approved_short_checksum": approved_checksum[:12],
+        "approved_at": approved_at,
+        "approved_at_display": format_display_datetime(approved_at),
+        "last_downloaded_at": state.get("last_downloaded_at"),
+        "last_downloaded_at_display": format_display_datetime(
+            state.get("last_downloaded_at")
+        ),
+        "last_downloaded_by": clean_text(state.get("last_downloaded_by")),
+        "last_uploaded_at": state.get("last_uploaded_at"),
+        "last_uploaded_at_display": format_display_datetime(state.get("last_uploaded_at")),
+        "last_rejected_upload_at": state.get("last_rejected_upload_at"),
+        "last_rejected_upload_at_display": format_display_datetime(
+            state.get("last_rejected_upload_at")
+        ),
+        "reminder_hours": MASTER_TRACKER_PENDING_REMINDER_HOURS,
+        "metadata_warning": metadata_warning,
+    }
+
+
+def read_master_tracker_state(state_path=None):
+
+    state_path = state_path or MASTER_TRACKER_STATE_PATH
+    return read_json_file(state_path)
+
+
+def write_master_tracker_state(state, state_path=None):
+
+    state_path = state_path or MASTER_TRACKER_STATE_PATH
+    safe_state = dict(state or {})
+    safe_state["schema_version"] = 1
+    write_json_file_atomic(state_path, safe_state)
+    return safe_state
+
+
+def record_master_tracker_download_for_edit(
+    admin_id=None,
+    username=None,
+    tracker_path=None,
+    state_path=None,
+    now=None,
+):
+
+    tracker_path = tracker_path or MASTER_TRACKER_PATH
+    state_path = state_path or MASTER_TRACKER_STATE_PATH
+    snapshot = master_tracker_file_snapshot(tracker_path)
+
+    if not snapshot.get("exists"):
+        return get_master_tracker_status(tracker_path, state_path, now)
+
+    now = now or current_timestamp()
+    state = read_master_tracker_state(state_path)
+    approved_checksum = state.get("approved_checksum")
+    approved_at = state.get("approved_at")
+
+    if approved_checksum != snapshot["checksum"] or not approved_at:
+        approved_checksum = snapshot["checksum"]
+        approved_at = snapshot["modified_at"]
+
+    state.update(
+        {
+            "tracker_filename": snapshot["filename"],
+            "approved_checksum": approved_checksum,
+            "approved_at": approved_at,
+            "approved_size": snapshot["size"],
+            "last_downloaded_at": now.isoformat(),
+            "last_downloaded_by": clean_text(username),
+            "last_downloaded_admin_id": admin_id,
+            "downloaded_checksum": snapshot["checksum"],
+            "last_checked_at": now.isoformat(),
+        }
+    )
+    write_master_tracker_state(state, state_path)
+    return get_master_tracker_status(tracker_path, state_path, now)
+
+
+def record_master_tracker_upload_accepted(
+    admin_id=None,
+    username=None,
+    tracker_path=None,
+    state_path=None,
+    now=None,
+):
+
+    tracker_path = tracker_path or MASTER_TRACKER_PATH
+    state_path = state_path or MASTER_TRACKER_STATE_PATH
+    snapshot = master_tracker_file_snapshot(tracker_path)
+
+    if not snapshot.get("exists"):
+        return get_master_tracker_status(tracker_path, state_path, now)
+
+    now = now or current_timestamp()
+    state = read_master_tracker_state(state_path)
+    state.update(
+        {
+            "tracker_filename": snapshot["filename"],
+            "approved_checksum": snapshot["checksum"],
+            "approved_at": now.isoformat(),
+            "approved_size": snapshot["size"],
+            "last_uploaded_at": now.isoformat(),
+            "last_uploaded_by": clean_text(username),
+            "last_uploaded_admin_id": admin_id,
+            "last_checked_at": now.isoformat(),
+        }
+    )
+    write_master_tracker_state(state, state_path)
+    return get_master_tracker_status(tracker_path, state_path, now)
+
+
+def record_master_tracker_upload_rejected(
+    reason,
+    admin_id=None,
+    username=None,
+    tracker_path=None,
+    state_path=None,
+    now=None,
+):
+
+    tracker_path = tracker_path or MASTER_TRACKER_PATH
+    state_path = state_path or MASTER_TRACKER_STATE_PATH
+    now = now or current_timestamp()
+    state = read_master_tracker_state(state_path)
+    snapshot = master_tracker_file_snapshot(tracker_path)
+
+    if snapshot.get("exists") and (
+        state.get("approved_checksum") != snapshot["checksum"]
+        or not state.get("approved_at")
+    ):
+        state["approved_checksum"] = snapshot["checksum"]
+        state["approved_at"] = snapshot["modified_at"]
+        state["approved_size"] = snapshot["size"]
+        state["tracker_filename"] = snapshot["filename"]
+
+    state.update(
+        {
+            "last_rejected_upload_at": now.isoformat(),
+            "last_rejected_upload_by": clean_text(username),
+            "last_rejected_upload_admin_id": admin_id,
+            "last_rejected_upload_reason": clean_text(reason)[:240],
+            "last_checked_at": now.isoformat(),
+        }
+    )
+    write_master_tracker_state(state, state_path)
+    return get_master_tracker_status(tracker_path, state_path, now)
 
 
 def workbook_error_message(exc):
@@ -5732,6 +6054,28 @@ def sync_site_assignment(cursor, project_id, employee_id, du_id, role):
 @permission_required("view_master_tracker")
 def master_tracker():
 
+    if not os.path.exists(MASTER_TRACKER_PATH):
+        flash("Master Tracker workbook is not available.")
+        return redirect(url_for("reports_center"))
+
+    if request.method == "GET":
+        tracker_status = get_master_tracker_status()
+
+        try:
+            tracker_status = record_master_tracker_download_for_edit(
+                admin_id=session.get("admin_id"),
+                username=session.get("admin"),
+            )
+        except Exception:
+            app.logger.warning("Unable to record Master Tracker download-for-edit state.")
+
+        audit_event(
+            "MASTER_TRACKER_DOWNLOADED_FOR_EDIT",
+            "master_tracker",
+            None,
+            f"Downloaded Master Tracker editing copy for {tracker_status['version_label']}.",
+        )
+
     return send_file(MASTER_TRACKER_PATH, as_attachment=True)
 
 
@@ -5745,6 +6089,7 @@ def master_tracker():
 def upload_master_tracker():
 
     master_path = MASTER_TRACKER_PATH
+    tracker_status = get_master_tracker_status()
 
     if request.method == "POST":
 
@@ -5752,10 +6097,22 @@ def upload_master_tracker():
 
         if not file or file.filename == "":
             flash("No file selected.")
+            audit_event(
+                "MASTER_TRACKER_UPLOAD_REJECTED",
+                "master_tracker",
+                None,
+                "Rejected Master Tracker upload: no file selected.",
+            )
             return redirect(url_for("upload_master_tracker"))
 
         if not allowed_file(file.filename, {"xlsx"}):
             flash("Only .xlsx files are allowed.")
+            audit_event(
+                "MASTER_TRACKER_UPLOAD_REJECTED",
+                "master_tracker",
+                None,
+                "Rejected Master Tracker upload: invalid file type.",
+            )
             return redirect(url_for("upload_master_tracker"))
 
         upload_path = safe_abs_path(
@@ -5775,16 +6132,51 @@ def upload_master_tracker():
                 operation="master tracker upload",
             )
         except WorkbookSafetyError as exc:
-            flash("Master Tracker was not updated. " + workbook_error_message(exc))
+            rejection_reason = workbook_error_message(exc)
+
+            try:
+                tracker_status = record_master_tracker_upload_rejected(
+                    rejection_reason,
+                    admin_id=session.get("admin_id"),
+                    username=session.get("admin"),
+                )
+            except Exception:
+                app.logger.warning("Unable to record rejected Master Tracker upload.")
+
+            audit_event(
+                "MASTER_TRACKER_UPLOAD_REJECTED",
+                "master_tracker",
+                None,
+                f"Rejected Master Tracker upload: {rejection_reason}",
+            )
+            flash("Master Tracker was not updated. " + rejection_reason)
             return redirect(url_for("upload_master_tracker"))
         finally:
             if os.path.exists(upload_path):
                 os.remove(upload_path)
 
+        try:
+            tracker_status = record_master_tracker_upload_accepted(
+                admin_id=session.get("admin_id"),
+                username=session.get("admin"),
+            )
+        except Exception:
+            tracker_status = get_master_tracker_status()
+            app.logger.warning("Unable to record accepted Master Tracker upload.")
+
+        audit_event(
+            "MASTER_TRACKER_UPLOAD_ACCEPTED",
+            "master_tracker",
+            None,
+            f"Accepted Master Tracker upload as {tracker_status['version_label']}.",
+        )
         flash("Master Tracker updated successfully.")
         return redirect(url_for("upload_master_tracker"))
 
-    return render_template("upload_master_tracker.html")
+    return render_template(
+        "upload_master_tracker.html",
+        tracker_status=tracker_status,
+    )
 
 
 #############################################
@@ -6818,6 +7210,7 @@ def dashboard():
     return render_template(
         "dashboard.html",
         dashboard_view="super_admin" if is_super_admin_role() else "hr",
+        master_tracker_status=get_master_tracker_status() if is_super_admin_role() else None,
         towercos=towercos,
         regions=regions,
         dashboard_site_filter_active=dashboard_site_filter_active,
@@ -8385,7 +8778,8 @@ def team_leader_dashboard():
     conn = connect_db()
     cursor = conn.cursor()
     cursor.execute(
-        """
+        f"""
+        {SITE_REFERENCE_CTE}
         SELECT t.id,
                t.name,
                t.project_id,
@@ -8393,15 +8787,15 @@ def team_leader_dashboard():
                t.active,
                p.project_name,
                p.project_code,
-               COALESCE(g.site_name, g.sitename, g.du_name, pr.du_name) AS display_site_name,
+               COALESCE(g.site_name, g.sitename, g.globe_du_name, pr.planning_du_name) AS display_site_name,
                ts.current_stage,
                ts.overall_progress,
                ts.overall_status,
                ts.pat_status
         FROM teams t
         LEFT JOIN projects p ON t.project_id = p.id
-        LEFT JOIN globe_nlz g ON g.du_id = t.du_id
-        LEFT JOIN planning_reference pr ON pr.du_id = t.du_id
+        LEFT JOIN globe_sites g ON g.du_id = t.du_id
+        LEFT JOIN planning_sites pr ON pr.du_id = t.du_id
         LEFT JOIN telecom_sites ts ON ts.du_id = t.du_id
         WHERE t.active IS TRUE
           AND t.team_leader_admin_id=%s
