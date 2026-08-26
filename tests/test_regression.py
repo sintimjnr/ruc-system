@@ -4,6 +4,7 @@ import tempfile
 import time
 import unittest
 import zipfile
+from datetime import date
 from io import BytesIO
 from pathlib import Path
 from unittest import mock
@@ -399,6 +400,114 @@ class WorkbookSafetyRegressionTests(unittest.TestCase):
     def test_validation_failure_prevents_success_state(self):
         with self.assertRaises(ruc.WorkbookValidationError):
             ruc.validate_workbook_file(str(self.target), expected_sheets=("Missing",))
+
+    def test_excel_safe_text_neutralizes_formula_like_business_text(self):
+        cases = {
+            "Benjamin": "Benjamin",
+            "=1+1": "'=1+1",
+            "+1+1": "'+1+1",
+            "-1+1": "'-1+1",
+            "@SUM(A1:A2)": "'@SUM(A1:A2)",
+            "=-390532-21025-10": "'=-390532-21025-10",
+        }
+
+        for source_value, expected_value in cases.items():
+            with self.subTest(source_value=source_value):
+                self.assertEqual(ruc.excel_safe_text(source_value), expected_value)
+
+    def test_excel_safe_row_preserves_numbers_dates_and_intentional_formulas(self):
+        workbook_path = self.work_dir / "types.xlsx"
+        workbook = Workbook()
+        worksheet = workbook.active
+        worksheet.title = "Sheet"
+        worksheet["A1"] = "=SUM(1,1)"
+        ruc.append_excel_row(
+            worksheet,
+            [123, date(2026, 8, 26), "=1+1", "+1+1"],
+            text_columns={3, 4},
+        )
+        workbook.save(workbook_path)
+        workbook.close()
+
+        reloaded = load_workbook(workbook_path, data_only=False)
+        try:
+            worksheet = reloaded["Sheet"]
+            self.assertEqual(worksheet["A1"].data_type, "f")
+            self.assertEqual(worksheet["A2"].value, 123)
+            self.assertEqual(worksheet["B2"].value.date(), date(2026, 8, 26))
+            self.assertEqual(worksheet["C2"].data_type, "s")
+            self.assertEqual(worksheet["C2"].value, "'=1+1")
+            self.assertEqual(worksheet["D2"].data_type, "s")
+            self.assertEqual(worksheet["D2"].value, "'+1+1")
+        finally:
+            reloaded.close()
+
+    def test_access_info_row_escapes_kojo_formula_like_mobile_on_temp_workbook(self):
+        workbook_path = self.work_dir / "access_info.xlsx"
+        workbook = ruc.build_project_workbook_template()
+        ruc.write_access_info_row(
+            workbook,
+            {"region": "MINDANAO"},
+            {
+                "id": 1,
+                "first_name": "KOJO",
+                "middle_name": "",
+                "last_name": "TETE",
+                "position": "RIGGER",
+                "mobile": "=-390532-21025-10",
+                "email": "JUNIORSINTIMKOREE@GMAIL.COM",
+                "phone_type": "ANDROID",
+                "telecom_role": "RIGGER",
+                "assigned_du_id": "NL106",
+                "overall_safety_status": "MISSING",
+            },
+        )
+        workbook.save(workbook_path)
+        workbook.close()
+
+        reloaded = load_workbook(workbook_path, data_only=False)
+        try:
+            worksheet = reloaded["ACCESS INFO"]
+            self.assertEqual(worksheet["A2"].value, "KOJO TETE")
+            self.assertEqual(worksheet["E2"].data_type, "s")
+            self.assertEqual(worksheet["E2"].value, "'=-390532-21025-10")
+            self.assertEqual(worksheet["M2"].value, "NL106")
+        finally:
+            reloaded.close()
+
+    def test_report_workbook_escapes_text_without_changing_typed_values(self):
+        workbook_path = self.work_dir / "report.xlsx"
+
+        with ruc.app.test_request_context():
+            workbook = ruc.build_report_workbook(
+                "=Injected Title",
+                [
+                    (
+                        "Formula Risk",
+                        ["NAME", "COUNT", "DATE"],
+                        [
+                            ["=1+1", 42, date(2026, 8, 26)],
+                            ["Benjamin", "+1+1", None],
+                        ],
+                    )
+                ],
+            )
+
+        workbook.save(workbook_path)
+        workbook.close()
+
+        reloaded = load_workbook(workbook_path, data_only=False)
+        try:
+            summary = reloaded["SUMMARY"]
+            worksheet = reloaded["Formula Risk"]
+            self.assertEqual(summary["B1"].value, "'=Injected Title")
+            self.assertEqual(worksheet["A2"].value, "'=1+1")
+            self.assertEqual(worksheet["B2"].value, 42)
+            self.assertEqual(worksheet["C2"].value.date(), date(2026, 8, 26))
+            self.assertEqual(worksheet["A3"].value, "Benjamin")
+            self.assertEqual(worksheet["B3"].value, "'+1+1")
+        finally:
+            reloaded.close()
 
 
 class BackupVerificationRegressionTests(unittest.TestCase):

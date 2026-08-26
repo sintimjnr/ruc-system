@@ -1952,6 +1952,55 @@ def clean_text(value):
     return str(value).strip()
 
 
+EXCEL_FORMULA_TRIGGER_PREFIXES = ("=", "+", "-", "@")
+
+
+def excel_safe_text(value):
+
+    if value is None:
+        return None
+
+    if not isinstance(value, str):
+        return value
+
+    visible_value = value.lstrip(" \t\r\n")
+
+    if visible_value.startswith(EXCEL_FORMULA_TRIGGER_PREFIXES):
+        return "'" + value
+
+    return value
+
+
+def excel_safe_row(values, text_columns=None):
+
+    if text_columns is None:
+        return [excel_safe_text(value) if isinstance(value, str) else value for value in values]
+
+    text_columns = set(text_columns)
+    return [
+        excel_safe_text(value) if index in text_columns else value
+        for index, value in enumerate(values, start=1)
+    ]
+
+
+def append_excel_row(ws, values, text_columns=None):
+
+    ws.append(excel_safe_row(values, text_columns))
+
+
+def write_excel_row(ws, row, values, text_columns=None):
+
+    safe_values = excel_safe_row(values, text_columns)
+
+    for col, value in enumerate(safe_values, start=1):
+        ws.cell(row=row, column=col).value = value
+
+
+def write_excel_text_cell(ws, row, column, value):
+
+    ws.cell(row=row, column=column).value = excel_safe_text(value)
+
+
 def clean_date(value):
 
     value = clean_text(value)
@@ -4089,8 +4138,7 @@ def sync_daily_log_to_project_workbook(cursor, daily_log_id):
             log["updated_at"],
         ]
 
-        for col, value in enumerate(values, start=1):
-            ws.cell(row=row, column=col).value = value
+        write_excel_row(ws, row, values, text_columns={3, 4, 7, 8, 9, 10, 11})
 
         attendance_ws = wb["ATTENDANCE"]
         rows_to_delete = []
@@ -4103,7 +4151,8 @@ def sync_daily_log_to_project_workbook(cursor, daily_log_id):
             attendance_ws.delete_rows(current_row, 1)
 
         for attendance in attendance_rows:
-            attendance_ws.append(
+            append_excel_row(
+                attendance_ws,
                 [
                     log["id"],
                     log["report_date"],
@@ -4116,7 +4165,8 @@ def sync_daily_log_to_project_workbook(cursor, daily_log_id):
                     str(attendance.get("time_out") or ""),
                     attendance.get("safety_status_snapshot"),
                     attendance.get("remarks"),
-                ]
+                ],
+                text_columns={3, 5, 6, 7, 8, 9, 10, 11},
             )
 
         apply_project_workbook_formatting(wb)
@@ -4521,8 +4571,7 @@ def sync_punchlist_item_to_project_workbook(cursor, item_id):
             item.get("updated_at"),
         ]
 
-        for col, value in enumerate(values, start=1):
-            ws.cell(row=row, column=col).value = value
+        write_excel_row(ws, row, values, text_columns={2, 3, 4, 5, 6, 7, 8, 13})
 
         apply_project_workbook_formatting(wb)
 
@@ -4719,8 +4768,7 @@ def sync_pat_record_to_project_workbook(cursor, pat_id):
             record.get("updated_at"),
         ]
 
-        for col, value in enumerate(values, start=1):
-            ws.cell(row=row, column=col).value = value
+        write_excel_row(ws, row, values, text_columns={2, 3, 5, 6, 7, 8, 9, 10})
 
         apply_project_workbook_formatting(wb)
 
@@ -5420,8 +5468,12 @@ def write_access_info_row(wb, project, employee, old_name=None):
         employee.get("overall_safety_status", ""),
     ]
 
-    for col, value in enumerate(values, start=1):
-        ws.cell(row=row, column=col).value = value
+    write_excel_row(
+        ws,
+        row,
+        values,
+        text_columns={1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 17},
+    )
 
     widths = [28, 10, 18, 18, 18, 32, 18, 25, 32, 25, 32, 18, 18, 16, 16, 18, 18]
     for col, width in enumerate(widths, start=1):
@@ -5467,16 +5519,16 @@ def update_master_tracker_safety(employee):
         if row is None:
             row = ws.max_row + 1
 
-        ws.cell(row=row, column=1).value = du_id
+        write_excel_text_cell(ws, row, 1, du_id)
         ws.cell(row=row, column=2).value = employee_id
-        ws.cell(row=row, column=3).value = full_employee_name(employee)
-        ws.cell(row=row, column=4).value = employee.get("telecom_role", "")
+        write_excel_text_cell(ws, row, 3, full_employee_name(employee))
+        write_excel_text_cell(ws, row, 4, employee.get("telecom_role", ""))
         ws.cell(row=row, column=5).value = employee.get("project_id", "")
         ws.cell(row=row, column=6).value = employee.get("nbi_expiry_date", "")
         ws.cell(row=row, column=7).value = employee.get("wah_expiry_date", "")
         ws.cell(row=row, column=8).value = employee.get("first_aid_expiry_date", "")
-        ws.cell(row=row, column=9).value = employee.get("overall_safety_status", "")
-        ws.cell(row=row, column=10).value = datetime.now().strftime("%Y-%m-%d %H:%M")
+        write_excel_text_cell(ws, row, 9, employee.get("overall_safety_status", ""))
+        write_excel_text_cell(ws, row, 10, datetime.now().strftime("%Y-%m-%d %H:%M"))
 
     return update_persistent_workbook(
         MASTER_TRACKER_PATH,
@@ -9530,7 +9582,7 @@ def form(code):
 
                 ws.add_image(img, "B" + str(row))
 
-                ws["B" + str(row + 1)] = full_name
+                write_excel_text_cell(ws, row + 1, 2, full_name)
 
             #################################
             # INSERT CLIENT STYLE IMAGES
@@ -9550,8 +9602,8 @@ def form(code):
 
             row = ws6.max_row + 1
 
-            ws6.cell(row=row, column=1).value = full_name
-            ws6.cell(row=row, column=2).value = sec_number
+            write_excel_text_cell(ws6, row, 1, full_name)
+            write_excel_text_cell(ws6, row, 2, sec_number)
             ws6.cell(row=row, column=3).value = sec_expiry
 
             ws6.column_dimensions["A"].width = 30
@@ -10967,7 +11019,8 @@ def daily_operations_export():
     )
 
     for log in logs:
-        ws.append(
+        append_excel_row(
+            ws,
             [
                 log.get("report_date"),
                 log.get("duid"),
@@ -10982,7 +11035,8 @@ def daily_operations_export():
                 log.get("submitted_by"),
                 log.get("attendance_count"),
                 log.get("present_count"),
-            ]
+            ],
+            text_columns={2, 3, 4, 7, 8, 9, 10, 11},
         )
 
     apply_daily_operations_export_formatting(ws)
@@ -12902,13 +12956,13 @@ def generate_id(code, employee_id):
 
             row = ws.max_row + 2
 
-            ws.cell(row=row, column=1).value = name
-            ws.cell(row=row, column=2).value = id_number
-            ws.cell(row=row, column=3).value = expiry
+            write_excel_text_cell(ws, row, 1, name)
+            write_excel_text_cell(ws, row, 2, id_number)
+            write_excel_text_cell(ws, row, 3, expiry)
             ws.cell(row=row, column=5).value = emp["id"]
-            ws.cell(row=row, column=6).value = telecom_role
-            ws.cell(row=row, column=7).value = assigned_du_id
-            ws.cell(row=row, column=8).value = emp["overall_safety_status"]
+            write_excel_text_cell(ws, row, 6, telecom_role)
+            write_excel_text_cell(ws, row, 7, assigned_du_id)
+            write_excel_text_cell(ws, row, 8, emp["overall_safety_status"])
 
             img = ExcelImage(front_file)
             img.width = 420
@@ -14104,10 +14158,10 @@ def style_report_sheet(ws):
 def append_report_sheet(wb, title, headers, rows):
 
     ws = wb.create_sheet(title[:31])
-    ws.append(headers)
+    append_excel_row(ws, headers)
 
     for row in rows:
-        ws.append(row)
+        append_excel_row(ws, row)
 
     style_report_sheet(ws)
     return ws
@@ -14118,9 +14172,9 @@ def build_report_workbook(title, sheet_specs):
     wb = Workbook()
     summary = wb.active
     summary.title = "SUMMARY"
-    summary.append(["REPORT", title])
-    summary.append(["GENERATED", datetime.now()])
-    summary.append(["GENERATED BY", session.get("admin", "System")])
+    append_excel_row(summary, ["REPORT", title])
+    append_excel_row(summary, ["GENERATED", datetime.now()])
+    append_excel_row(summary, ["GENERATED BY", session.get("admin", "System")])
     summary.column_dimensions["A"].width = 22
     summary.column_dimensions["B"].width = 42
     summary["A1"].font = Font(bold=True)
