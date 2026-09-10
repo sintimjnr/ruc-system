@@ -16669,95 +16669,150 @@ def reset_system():
     cursor = conn.cursor()
 
     #################################
-    # CLEAR DATABASE
+    # CLEAR OPERATIONAL DATABASE DATA
     #################################
 
-    reset_tables = [
-        "punchlist_files",
-        "site_acceptance",
-        "pat_records",
-        "punchlist_items",
-        "incident_attachments",
-        "daily_log_files",
-        "daily_attendance",
-        "daily_site_logs",
-        "toolbox_attendance",
-        "incident_reports",
-        "toolbox_talks",
-        "permit_to_work",
-        "telecom_tasks",
-        "telecom_sites",
-        "safety_documents",
-        "site_assignments",
-        "employees",
-        "projects",
-    ]
-    cursor.execute(
-        """
-        SELECT table_name
-        FROM information_schema.tables
-        WHERE table_schema='public'
-          AND table_name = ANY(%s)
-        """,
-        (reset_tables,),
-    )
-    existing_tables = [row[0] for row in cursor.fetchall()]
+    try:
+        # Never allow a reset if there is no Super Admin account.
+        cursor.execute(
+            """
+            SELECT COUNT(*)
+            FROM admins
+            WHERE LOWER(BTRIM(COALESCE(role, ''))) = 'super_admin'
+            """
+        )
 
-    ordered_existing_tables = [table for table in reset_tables if table in existing_tables]
+        super_admin_count = cursor.fetchone()[0]
 
-    if ordered_existing_tables:
-        table_list = ", ".join(ordered_existing_tables)
-        cursor.execute(f"TRUNCATE TABLE {table_list} RESTART IDENTITY CASCADE")
+        if super_admin_count < 1:
+            raise RuntimeError(
+                "System reset aborted because no Super Admin account exists."
+            )
 
-    audit_event(
-        "SYSTEM_RESET",
-        "system",
-        "reset_system",
-        "System reset route executed.",
-        conn=conn,
-    )
-    conn.commit()
-    cursor.close()
-    conn.close()
+        # Delete operational/test data in dependency-safe order.
+        #
+        # IMPORTANT:
+        # - Do NOT use TRUNCATE.
+        # - Preserve Super Admin accounts.
+        # - Preserve audit_logs.
+        # - Preserve globe_nlz.
+        # - Preserve planning_reference.
+        # - Preserve institutions/reference data.
+        delete_statements = [
+            "DELETE FROM punchlist_files",
+            "DELETE FROM incident_attachments",
+            "DELETE FROM daily_log_files",
+            "DELETE FROM daily_attendance",
+            "DELETE FROM toolbox_attendance",
+            "DELETE FROM site_acceptance",
+            "DELETE FROM pat_records",
+            "DELETE FROM punchlist_items",
+            "DELETE FROM incident_reports",
+            "DELETE FROM daily_site_logs",
+            "DELETE FROM toolbox_talks",
+            "DELETE FROM permit_to_work",
+            "DELETE FROM telecom_tasks",
+            "DELETE FROM safety_documents",
+            "DELETE FROM site_assignments",
+            "DELETE FROM team_memberships",
+            "DELETE FROM teams",
+            "DELETE FROM telecom_sites",
+            "DELETE FROM employees",
+            "DELETE FROM projects",
+        ]
+
+        for statement in delete_statements:
+            cursor.execute(statement)
+
+        # Remove all HR, Team Leader and other non-Super-Admin logins.
+        # Keep every Super Admin account.
+        cursor.execute(
+            """
+            DELETE FROM admins
+            WHERE LOWER(BTRIM(COALESCE(role, ''))) <> 'super_admin'
+            """
+        )
+
+        # Keep the security history and record this reset.
+        audit_event(
+            "SYSTEM_RESET",
+            "system",
+            "reset_system",
+            (
+                "System reset completed. Operational/test database data "
+                "was cleared. Super Admin accounts, audit history and "
+                "master/reference data were preserved."
+            ),
+            conn=conn,
+        )
+
+        conn.commit()
+
+    except Exception:
+        conn.rollback()
+
+        app.logger.exception(
+            "System reset database cleanup failed."
+        )
+
+        return (
+            "System Reset Failed. No database changes were committed. "
+            "Contact the system administrator.",
+            500,
+        )
+
+    finally:
+        cursor.close()
+        conn.close()
 
     #################################
-    # DELETE UPLOAD FILES
+    # CLEAR OPERATIONAL FILES
     #################################
 
-    upload_folders = [
-        "uploads/photos",
-        "uploads/nbi",
-        "uploads/certificates",
-        "uploads/signatures",
-        "uploads/secid",
-        "uploads/wah",
-        os.path.join("static", "uploads", "projects"),
-        "id_cards",
-    ]
+    try:
+        # Legacy employee/document uploads.
+        clear_folder_contents(LEGACY_UPLOAD_DIR)
 
-    for folder in upload_folders:
+        # Current project/employee uploads.
+        clear_folder_contents(
+            os.path.join(STATIC_UPLOAD_DIR, "projects")
+        )
 
-        clear_folder_contents(safe_abs_path(folder))
+        # Generated ID cards.
+        clear_folder_contents(ID_CARD_DIR)
 
-    #################################
-    # DELETE ONLY PROJECT EXCEL FILES
-    #################################
+        # Generated reports/handover packages.
+        clear_folder_contents(GENERATED_REPORTS_DIR)
 
-    excel_folder = EXCEL_DIR
+        #################################
+        # CLEAR PROJECT EXCEL WORKBOOKS
+        #################################
 
-    if os.path.exists(excel_folder):
+        # Only delete top-level project workbooks.
+        # The excel_files/master folder and Master Tracker are preserved.
+        if os.path.isdir(EXCEL_DIR):
 
-        for file in os.listdir(excel_folder):
+            for name in os.listdir(EXCEL_DIR):
 
-            file_path = os.path.join(excel_folder, file)
+                file_path = os.path.join(EXCEL_DIR, name)
 
-            # Skip master folder
-            if os.path.isdir(file_path):
-                continue
+                if (
+                    os.path.isfile(file_path)
+                    and name.lower().endswith(".xlsx")
+                ):
+                    os.remove(file_path)
 
-            # Delete only project Excel files
-            if file.endswith(".xlsx"):
-                os.remove(file_path)
+    except Exception:
+        app.logger.exception(
+            "System reset file cleanup failed."
+        )
+
+        return (
+            "Reset Partially Completed. The database was cleared, "
+            "but some operational files could not be removed. "
+            "Do not run Reset System again. Contact the system administrator.",
+            500,
+        )
 
     return "System Reset Successfully"
 
