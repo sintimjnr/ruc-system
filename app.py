@@ -6367,6 +6367,15 @@ def dashboard_count_label(count, singular, plural=None):
     return f"{count} {label}"
 
 
+def dashboard_operational_site_rows(rows):
+
+    return [
+        site
+        for site in rows
+        if site.get("operational_site_id") is not None
+    ]
+
+
 @app.route("/dashboard")
 @login_required
 def dashboard():
@@ -6581,6 +6590,12 @@ def dashboard():
 
     for site in dashboard_site_rows:
         decorate_site_row(site)
+
+    # Reference DUIDs remain available for lookup, but dashboard
+    # operational metrics must count only registered telecom sites.
+    dashboard_site_rows = dashboard_operational_site_rows(
+        dashboard_site_rows
+    )
 
     dashboard_site_duids = [
         site["du_id"] for site in dashboard_site_rows if site.get("du_id")
@@ -16694,9 +16709,9 @@ def reset_system():
         # IMPORTANT:
         # - Do NOT use TRUNCATE.
         # - Preserve Super Admin accounts.
-        # - Preserve audit_logs.
+        # - Clear old audit_logs, then record this reset as the first new audit event.
         # - Preserve globe_nlz.
-        # - Preserve planning_reference.
+        # - Clear planning_reference.
         # - Preserve institutions/reference data.
         delete_statements = [
             "DELETE FROM punchlist_files",
@@ -16717,6 +16732,8 @@ def reset_system():
             "DELETE FROM team_memberships",
             "DELETE FROM teams",
             "DELETE FROM telecom_sites",
+            "DELETE FROM planning_reference",
+            "DELETE FROM audit_logs",
             "DELETE FROM employees",
             "DELETE FROM projects",
         ]
@@ -16733,15 +16750,15 @@ def reset_system():
             """
         )
 
-        # Keep the security history and record this reset.
+        # Start a fresh audit trail with this reset as the first event.
         audit_event(
             "SYSTEM_RESET",
             "system",
             "reset_system",
             (
-                "System reset completed. Operational/test database data "
-                "was cleared. Super Admin accounts, audit history and "
-                "master/reference data were preserved."
+                "System reset completed. Operational/test data, Planning "
+                "Reference and old audit history were cleared. Super Admin "
+                "accounts, Globe reference data and the Master Tracker were preserved."
             ),
             conn=conn,
         )
@@ -16814,7 +16831,8 @@ def reset_system():
             500,
         )
 
-    return "System Reset Successfully"
+    flash("System reset completed successfully.", "success")
+    return redirect(url_for("dashboard"))
 
 
 #############################################

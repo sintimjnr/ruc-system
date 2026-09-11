@@ -232,7 +232,7 @@
     {% if can('reset_system') %}
       <div class="nav-section danger-section">
         <span class="nav-section-title">DANGER AREA</span>
-        <form method="POST" action="{{ url_for('reset_system') }}" onsubmit="return confirm('Reset project, employee, upload, ID, and operational records?')">
+        <form method="POST" action="{{ url_for('reset_system') }}" onsubmit="return confirm('Reset operational data, Planning Reference, old Audit Logs, uploads, IDs, and non-Super-Admin accounts? Master Tracker, Globe reference data, and Super Admin accounts will be preserved.')">
           {% include "partials/csrf.html" %}
           <button class="nav-danger" type="submit">Reset System</button>
         </form>

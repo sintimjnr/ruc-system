@@ -186,6 +186,254 @@ class SecurityRegressionTests(RucRegressionTestCase):
         self.assertEqual(response.headers.get("Pragma"), "no-cache")
         self.assertEqual(response.headers.get("Expires"), "0")
 
+    def test_dashboard_reference_only_duids_do_not_count_as_operational_sites(self):
+        rows = [
+            {
+                "du_id": "GLOBE-REF",
+                "operational_site_id": None,
+                "latest_pat_result": "PENDING",
+            },
+            {
+                "du_id": "PLANNING-REF",
+                "operational_site_id": None,
+                "latest_pat_result": "MISSING",
+            },
+            {
+                "du_id": "RUC-001",
+                "operational_site_id": 42,
+                "latest_pat_result": "PENDING",
+            },
+        ]
+
+        operational_rows = ruc.dashboard_operational_site_rows(rows)
+
+        self.assertEqual(len(operational_rows), 1)
+        self.assertEqual(operational_rows[0]["du_id"], "RUC-001")
+
+        pending_pat_count = len(
+            [
+                site
+                for site in operational_rows
+                if ruc.clean_text(site.get("latest_pat_result")).upper()
+                in ("", "MISSING", "PENDING")
+            ]
+        )
+
+        self.assertEqual(pending_pat_count, 1)
+
+    def test_reset_system_success_uses_safe_order_and_redirects(self):
+        conn = mock.MagicMock()
+        cursor = mock.MagicMock()
+        conn.cursor.return_value = cursor
+        cursor.fetchone.return_value = (2,)
+
+        events = []
+
+        def record_execute(statement, *args, **kwargs):
+            normalized = " ".join(statement.split())
+            events.append(("sql", normalized))
+
+        def record_audit(action, *args, **kwargs):
+            events.append(("audit", action))
+
+        def record_commit():
+            events.append(("commit", None))
+
+        def record_cleanup(folder):
+            events.append(("cleanup", folder))
+
+        cursor.execute.side_effect = record_execute
+        conn.commit.side_effect = record_commit
+
+        expected_deletes = [
+            "DELETE FROM punchlist_files",
+            "DELETE FROM incident_attachments",
+            "DELETE FROM daily_log_files",
+            "DELETE FROM daily_attendance",
+            "DELETE FROM toolbox_attendance",
+            "DELETE FROM site_acceptance",
+            "DELETE FROM pat_records",
+            "DELETE FROM punchlist_items",
+            "DELETE FROM incident_reports",
+            "DELETE FROM daily_site_logs",
+            "DELETE FROM toolbox_talks",
+            "DELETE FROM permit_to_work",
+            "DELETE FROM telecom_tasks",
+            "DELETE FROM safety_documents",
+            "DELETE FROM site_assignments",
+            "DELETE FROM team_memberships",
+            "DELETE FROM teams",
+            "DELETE FROM telecom_sites",
+            "DELETE FROM planning_reference",
+            "DELETE FROM audit_logs",
+            "DELETE FROM employees",
+            "DELETE FROM projects",
+        ]
+
+        self.login_as("super_admin")
+        with self.client.session_transaction() as session:
+            session[ruc.CSRF_SESSION_KEY] = "reset-token"
+
+        with (
+            mock.patch.object(ruc, "validate_session_account", return_value=True),
+            mock.patch.object(ruc, "connect_db", return_value=conn),
+            mock.patch.object(ruc, "audit_event", side_effect=record_audit) as audit_mock,
+            mock.patch.object(
+                ruc, "clear_folder_contents", side_effect=record_cleanup
+            ) as cleanup_mock,
+            mock.patch.object(ruc.os.path, "isdir", return_value=False),
+        ):
+            response = self.client.post(
+                "/reset_system",
+                data={ruc.CSRF_FORM_FIELD: "reset-token"},
+            )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(response.headers["Location"].endswith("/dashboard"))
+
+        sql_statements = [
+            value for kind, value in events if kind == "sql"
+        ]
+
+        self.assertIn("SELECT COUNT(*) FROM admins", sql_statements[0])
+        self.assertIn("super_admin", sql_statements[0])
+        self.assertEqual(sql_statements[1:-1], expected_deletes)
+        self.assertIn("DELETE FROM admins", sql_statements[-1])
+        self.assertIn("<>", sql_statements[-1])
+        self.assertIn("super_admin", sql_statements[-1])
+        self.assertFalse(
+            any("TRUNCATE" in sql.upper() for sql in sql_statements)
+        )
+
+        audit_logs_index = events.index(
+            ("sql", "DELETE FROM audit_logs")
+        )
+        audit_index = events.index(("audit", "SYSTEM_RESET"))
+        commit_index = events.index(("commit", None))
+        first_cleanup_index = next(
+            index
+            for index, event in enumerate(events)
+            if event[0] == "cleanup"
+        )
+
+        self.assertLess(audit_logs_index, audit_index)
+        self.assertLess(audit_index, commit_index)
+        self.assertLess(commit_index, first_cleanup_index)
+
+        conn.commit.assert_called_once_with()
+        conn.rollback.assert_not_called()
+        audit_mock.assert_called_once()
+        cleanup_mock.assert_has_calls(
+            [
+                mock.call(ruc.LEGACY_UPLOAD_DIR),
+                mock.call(
+                    ruc.os.path.join(
+                        ruc.STATIC_UPLOAD_DIR,
+                        "projects",
+                    )
+                ),
+                mock.call(ruc.ID_CARD_DIR),
+                mock.call(ruc.GENERATED_REPORTS_DIR),
+            ]
+        )
+        self.assertEqual(cleanup_mock.call_count, 4)
+        cursor.close.assert_called_once_with()
+        conn.close.assert_called_once_with()
+
+        with self.client.session_transaction() as session:
+            self.assertIn(
+                (
+                    "success",
+                    "System reset completed successfully.",
+                ),
+                session.get("_flashes", []),
+            )
+
+    def test_reset_system_database_failure_rolls_back_without_file_cleanup(self):
+        conn = mock.MagicMock()
+        cursor = mock.MagicMock()
+        conn.cursor.return_value = cursor
+        cursor.fetchone.return_value = (2,)
+
+        def fail_on_planning_reference(statement, *args, **kwargs):
+            normalized = " ".join(statement.split())
+
+            if normalized == "DELETE FROM planning_reference":
+                raise RuntimeError("mock database failure")
+
+        cursor.execute.side_effect = fail_on_planning_reference
+
+        self.login_as("super_admin")
+        with self.client.session_transaction() as session:
+            session[ruc.CSRF_SESSION_KEY] = "reset-token"
+
+        with (
+            mock.patch.object(ruc, "validate_session_account", return_value=True),
+            mock.patch.object(ruc, "connect_db", return_value=conn),
+            mock.patch.object(ruc, "audit_event") as audit_mock,
+            mock.patch.object(ruc, "clear_folder_contents") as cleanup_mock,
+            mock.patch.object(ruc.app.logger, "exception"),
+        ):
+            response = self.client.post(
+                "/reset_system",
+                data={ruc.CSRF_FORM_FIELD: "reset-token"},
+            )
+
+        self.assertEqual(response.status_code, 500)
+        self.assertIn(
+            b"No database changes were committed",
+            response.data,
+        )
+        conn.rollback.assert_called_once_with()
+        conn.commit.assert_not_called()
+        audit_mock.assert_not_called()
+        cleanup_mock.assert_not_called()
+        cursor.close.assert_called_once_with()
+        conn.close.assert_called_once_with()
+
+    def test_reset_system_aborts_when_no_super_admin_exists(self):
+        conn = mock.MagicMock()
+        cursor = mock.MagicMock()
+        conn.cursor.return_value = cursor
+        cursor.fetchone.return_value = (0,)
+
+        self.login_as("super_admin")
+        with self.client.session_transaction() as session:
+            session[ruc.CSRF_SESSION_KEY] = "reset-token"
+
+        with (
+            mock.patch.object(ruc, "validate_session_account", return_value=True),
+            mock.patch.object(ruc, "connect_db", return_value=conn),
+            mock.patch.object(ruc, "audit_event") as audit_mock,
+            mock.patch.object(ruc, "clear_folder_contents") as cleanup_mock,
+            mock.patch.object(ruc.app.logger, "exception"),
+        ):
+            response = self.client.post(
+                "/reset_system",
+                data={ruc.CSRF_FORM_FIELD: "reset-token"},
+            )
+
+        self.assertEqual(response.status_code, 500)
+        self.assertIn(
+            b"No database changes were committed",
+            response.data,
+        )
+
+        executed_sql = [
+            " ".join(call.args[0].split())
+            for call in cursor.execute.call_args_list
+        ]
+
+        self.assertEqual(len(executed_sql), 1)
+        self.assertIn("SELECT COUNT(*) FROM admins", executed_sql[0])
+        self.assertIn("super_admin", executed_sql[0])
+        conn.rollback.assert_called_once_with()
+        conn.commit.assert_not_called()
+        audit_mock.assert_not_called()
+        cleanup_mock.assert_not_called()
+        cursor.close.assert_called_once_with()
+        conn.close.assert_called_once_with()
+
 
 class RbacRegressionTests(RucRegressionTestCase):
 
