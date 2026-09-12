@@ -25,7 +25,7 @@
             <select name="document_type" required>
               <option value="">Document Type</option>
               {% for document_type in document_types %}
-                <option value="{{ document_type }}" {% if filters.document_type == document_type %}selected{% endif %}>{{ document_type|replace('_', ' ') }}</option>
+                <option value="{{ document_type }}" {% if filters.document_type == document_type %}selected{% endif %}>{{ document_type|replace("_", " ") }}</option>
               {% endfor %}
             </select>
             <input name="reference_number" placeholder="Reference Number" />
