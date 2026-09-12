@@ -1354,7 +1354,6 @@ ROLE_PERMISSIONS = {
         "manage_attendance",
         "manage_tasks",
         "manage_permits",
-        "manage_toolbox",
         "manage_incidents",
         "manage_punchlist",
         "manage_pat",
@@ -1385,7 +1384,6 @@ ROLE_PERMISSIONS = {
         "manage_attendance",
         "manage_operations",
         "manage_tasks",
-        "manage_toolbox",
         "manage_incidents",
         "manage_punchlist",
         "view_pat",
@@ -12593,151 +12591,6 @@ def update_permit_status(permit_id):
 
 
 #############################################
-# TOOLBOX TALKS
-#############################################
-
-
-@app.route("/toolbox_talks", methods=["GET", "POST"])
-@permission_required("manage_toolbox")
-def toolbox_talks():
-
-    conn = connect_db()
-    cursor = conn.cursor()
-
-    if request.method == "POST":
-        if not can("manage_toolbox"):
-            cursor.close()
-            conn.close()
-            return access_denied()
-
-        project_id = clean_text(request.form.get("project_id"))
-        try:
-            du_id = validate_duid_value(request.form.get("du_id"))
-        except ValueError as exc:
-            cursor.close()
-            conn.close()
-            return str(exc)
-
-        denied = enforce_team_leader_site_scope(cursor, conn, du_id)
-
-        if denied:
-            cursor.close()
-            conn.close()
-            return denied
-
-        topic = clean_text(request.form.get("topic"))
-        talk_date = clean_date(request.form.get("date"))
-        conducted_by = clean_text(request.form.get("conducted_by"))
-        notes = clean_text(request.form.get("notes"))
-        employee_ids = request.form.getlist("employee_ids")
-
-        if not duid_exists(cursor, du_id):
-            cursor.close()
-            conn.close()
-            return "Invalid DUID"
-
-        for emp_id in employee_ids:
-            denied = enforce_team_leader_employee_scope(cursor, conn, emp_id)
-
-            if denied:
-                cursor.close()
-                conn.close()
-                return denied
-
-        cursor.execute(
-            """
-            INSERT INTO toolbox_talks(
-                project_id,
-                du_id,
-                topic,
-                date,
-                conducted_by,
-                notes
-            )
-            VALUES(%s,%s,%s,%s,%s,%s)
-            RETURNING id
-            """,
-            (
-                project_id or None,
-                du_id,
-                topic,
-                talk_date,
-                conducted_by or None,
-                notes,
-            ),
-        )
-        toolbox_talk_id = cursor.fetchone()[0]
-
-        for emp_id in employee_ids:
-            cursor.execute(
-                """
-                INSERT INTO toolbox_attendance(
-                    toolbox_talk_id,
-                    employee_id,
-                    attended
-                )
-                VALUES(%s,%s,TRUE)
-                ON CONFLICT(toolbox_talk_id, employee_id)
-                DO UPDATE SET attended=TRUE
-                """,
-                (toolbox_talk_id, emp_id),
-            )
-
-        audit_event(
-            "TOOLBOX_TALK_CREATED",
-            "toolbox_talk",
-            toolbox_talk_id,
-            f"Created toolbox talk for {du_id}.",
-            conn=conn,
-        )
-        conn.commit()
-        cursor.close()
-        conn.close()
-        return redirect("/toolbox_talks")
-
-    conditions = ["TRUE"]
-    params = []
-    add_team_leader_duid_scope(cursor, conditions, params, "tt.du_id")
-
-    cursor.execute(
-        f"""
-        SELECT tt.id,
-               tt.project_id,
-               tt.du_id,
-               tt.topic,
-               tt.date,
-               tt.notes,
-               p.project_name,
-               e.first_name AS conducted_first_name,
-                              e.middle_name AS conducted_middle_name,
-               e.last_name AS conducted_last_name,
-               COUNT(ta.employee_id) AS attendees
-        FROM toolbox_talks tt
-        LEFT JOIN projects p ON tt.project_id = p.id
-        LEFT JOIN employees e ON tt.conducted_by = e.id
-        LEFT JOIN toolbox_attendance ta ON ta.toolbox_talk_id = tt.id AND ta.attended=TRUE
-        WHERE {' AND '.join(conditions)}
-        GROUP BY tt.id, p.project_name, e.first_name, e.middle_name, e.last_name
-        ORDER BY tt.date DESC, tt.id DESC
-        LIMIT 200
-        """,
-        params,
-    )
-    talks = rows_to_dicts(cursor)
-
-    cursor.close()
-    conn.close()
-
-    return render_template(
-        "toolbox_talks.html",
-        talks=talks,
-        projects=get_projects_for_select(),
-        employees=get_employees_for_select(),
-        duids=get_duids_for_select(),
-    )
-
-
-#############################################
 # INCIDENT REPORTING
 #############################################
 
@@ -16762,13 +16615,11 @@ def reset_system():
             "DELETE FROM incident_attachments",
             "DELETE FROM daily_log_files",
             "DELETE FROM daily_attendance",
-            "DELETE FROM toolbox_attendance",
             "DELETE FROM site_acceptance",
             "DELETE FROM pat_records",
             "DELETE FROM punchlist_items",
             "DELETE FROM incident_reports",
             "DELETE FROM daily_site_logs",
-            "DELETE FROM toolbox_talks",
             "DELETE FROM permit_to_work",
             "DELETE FROM telecom_tasks",
             "DELETE FROM safety_documents",

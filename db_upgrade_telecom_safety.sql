@@ -156,40 +156,6 @@ CREATE INDEX IF NOT EXISTS idx_permit_to_work_status
 CREATE INDEX IF NOT EXISTS idx_permit_to_work_valid_until
     ON permit_to_work(valid_until);
 
-CREATE TABLE IF NOT EXISTS toolbox_talks (
-    id SERIAL PRIMARY KEY,
-    project_id INTEGER REFERENCES projects(id) ON DELETE CASCADE,
-    du_id TEXT NOT NULL,
-    topic VARCHAR(200) NOT NULL,
-    date DATE NOT NULL,
-    conducted_by INTEGER REFERENCES employees(id) ON DELETE SET NULL,
-    notes TEXT,
-    created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE INDEX IF NOT EXISTS idx_toolbox_talks_project_id
-    ON toolbox_talks(project_id);
-
-CREATE INDEX IF NOT EXISTS idx_toolbox_talks_du_id
-    ON toolbox_talks(du_id);
-
-CREATE INDEX IF NOT EXISTS idx_toolbox_talks_date
-    ON toolbox_talks(date);
-
-CREATE TABLE IF NOT EXISTS toolbox_attendance (
-    id SERIAL PRIMARY KEY,
-    toolbox_talk_id INTEGER REFERENCES toolbox_talks(id) ON DELETE CASCADE,
-    employee_id INTEGER REFERENCES employees(id) ON DELETE CASCADE,
-    attended BOOLEAN DEFAULT TRUE,
-    signature_path TEXT
-);
-
-CREATE UNIQUE INDEX IF NOT EXISTS uq_toolbox_attendance_talk_employee
-    ON toolbox_attendance(toolbox_talk_id, employee_id);
-
-CREATE INDEX IF NOT EXISTS idx_toolbox_attendance_employee_id
-    ON toolbox_attendance(employee_id);
-
 CREATE TABLE IF NOT EXISTS incident_reports (
     id SERIAL PRIMARY KEY,
     project_id INTEGER REFERENCES projects(id) ON DELETE CASCADE,

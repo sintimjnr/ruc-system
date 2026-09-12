@@ -33,11 +33,6 @@
             <span class="nav-icon">TK</span><span class="nav-text">Tasks</span>
           </a>
         {% endif %}
-        {% if can('manage_operations') %}
-          <a class="nav-link {% if shell_active_module == 'toolbox' %}is-active{% endif %}" href="{{ url_for('toolbox_talks') }}" title="Toolbox Talks">
-            <span class="nav-icon">TB</span><span class="nav-text">Toolbox Talks</span>
-          </a>
-        {% endif %}
         {% if can('manage_incidents') %}
           <a class="nav-link {% if shell_active_module == 'incidents' %}is-active{% endif %}" href="{{ url_for('incidents') }}" title="Incidents">
             <span class="nav-icon">IN</span><span class="nav-text">Incidents</span>
@@ -146,11 +141,6 @@
         {% if can('manage_permits') %}
           <a class="nav-link {% if shell_active_module == 'permits' %}is-active{% endif %}" href="{{ url_for('permits') }}" title="Permits">
             <span class="nav-icon">PT</span><span class="nav-text">Permits</span>
-          </a>
-        {% endif %}
-        {% if can('manage_operations') %}
-          <a class="nav-link {% if shell_active_module == 'toolbox' %}is-active{% endif %}" href="{{ url_for('toolbox_talks') }}" title="Toolbox Talks">
-            <span class="nav-icon">TB</span><span class="nav-text">Toolbox Talks</span>
           </a>
         {% endif %}
         {% if can('manage_incidents') %}

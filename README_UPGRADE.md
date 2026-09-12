@@ -122,7 +122,6 @@ After logging in as an admin:
 10. Create a Site Assignment using an existing DUID.
 11. Create and update a Telecom Task from the global task page or Site Detail.
 12. Create and update a Permit To Work.
-13. Record a Toolbox Talk with attendance.
 14. Create and update an Incident Report with attachments.
 15. Generate an ID card and confirm employee ID, telecom role, DUID, and safety badge appear.
 16. Print the ID preview.

@@ -106,7 +106,7 @@ class RucRegressionTestCase(unittest.TestCase):
 class SecurityRegressionTests(RucRegressionTestCase):
 
     def test_app_import_and_route_count(self):
-        self.assertEqual(len(ruc.app.url_map._rules), 88)
+        self.assertEqual(len(ruc.app.url_map._rules), 87)
 
     def test_secret_key_is_required(self):
         with mock.patch.dict(os.environ, {"SECRET_KEY": ""}, clear=True):
@@ -250,13 +250,11 @@ class SecurityRegressionTests(RucRegressionTestCase):
             "DELETE FROM incident_attachments",
             "DELETE FROM daily_log_files",
             "DELETE FROM daily_attendance",
-            "DELETE FROM toolbox_attendance",
             "DELETE FROM site_acceptance",
             "DELETE FROM pat_records",
             "DELETE FROM punchlist_items",
             "DELETE FROM incident_reports",
             "DELETE FROM daily_site_logs",
-            "DELETE FROM toolbox_talks",
             "DELETE FROM permit_to_work",
             "DELETE FROM telecom_tasks",
             "DELETE FROM safety_documents",
