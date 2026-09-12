@@ -93,11 +93,6 @@
         <a class="nav-link {% if shell_active_module == 'employees' %}is-active{% endif %}" href="{{ url_for('search') }}" title="Employees">
           <span class="nav-icon">EM</span><span class="nav-text">Employees</span>
         </a>
-        {% if can('manage_safety') %}
-          <a class="nav-link {% if shell_active_module == 'safety_documents' %}is-active{% endif %}" href="{{ url_for('safety_documents') }}" title="Safety Documents">
-            <span class="nav-icon">SD</span><span class="nav-text">Safety Documents</span>
-          </a>
-        {% endif %}
         {% if can('generate_ids') %}
           <a class="nav-link {% if shell_active_module == 'id_management' %}is-active{% endif %}" href="{{ url_for('id_generator') }}" title="ID Management">
             <span class="nav-icon">ID</span><span class="nav-text">ID Management</span>
@@ -184,11 +179,6 @@
         {% if can('manage_assignments') %}
           <a class="nav-link {% if shell_active_module == 'assignments' %}is-active{% endif %}" href="{{ url_for('site_assignments') }}" title="Assignments">
             <span class="nav-icon">AS</span><span class="nav-text">Assignments</span>
-          </a>
-        {% endif %}
-        {% if can('manage_safety') %}
-          <a class="nav-link {% if shell_active_module == 'safety_documents' %}is-active{% endif %}" href="{{ url_for('safety_documents') }}" title="Safety Documents">
-            <span class="nav-icon">SD</span><span class="nav-text">Safety Documents</span>
           </a>
         {% endif %}
         {% if can('generate_ids') %}
