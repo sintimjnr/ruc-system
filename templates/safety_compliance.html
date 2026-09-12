@@ -1,77 +1,67 @@
 {% extends "base.html" %}
-{% block active_module %}requirements{% endblock %}
-{% block page_title %}Requirements{% endblock %}
-{% block page_subtitle %}Employee requirement status and validity{% endblock %}
+{% block active_module %}safety{% endblock %}
+{% block page_title %}Safety Compliance{% endblock %}
+{% block page_subtitle %}Personnel safety status{% endblock %}
 
 {% block content %}
 <div class="container">
-  <div class="summary-grid">
-    <div class="card">Total Requirements<br /><br /><b>{{ summary.total }}</b></div>
-    <div class="card">Completed / Valid<br /><br /><b>{{ summary.valid }}</b></div>
-    <div class="card">Expiring Soon<br /><br /><b>{{ summary.expiring_soon }}</b></div>
-    <div class="card">Expired<br /><br /><b>{{ summary.expired }}</b></div>
-    <div class="card">Missing<br /><br /><b>{{ summary.missing }}</b></div>
-  </div>
+      <div class="form-box wide">
+        <h2>Compliance Filters</h2>
+        <form method="GET" class="filter-grid">
+          <select name="status">
+            <option value="">All Statuses</option>
+            {% for status in statuses %}
+              <option value="{{ status }}" {% if filters.status == status %}selected{% endif %}>{{ status }}</option>
+            {% endfor %}
+          </select>
+          <select name="project_id">
+            <option value="">All Projects</option>
+            {% for project in projects %}
+              <option value="{{ project.id }}" {% if filters.project_id == project.id|string %}selected{% endif %}>{{ project.project_name }} - {{ project.project_code }}</option>
+            {% endfor %}
+          </select>
+          <select name="du_id">
+            <option value="">All DUIDs</option>
+            {% for duid in duids %}
+              <option value="{{ duid }}" {% if filters.du_id == duid %}selected{% endif %}>{{ duid }}</option>
+            {% endfor %}
+          </select>
+          <button type="submit">Filter</button>
+        </form>
+      </div>
 
-  <div class="form-box wide">
-    <h2>Requirement Filters</h2>
-    <form method="GET" class="filter-grid">
-      <select name="project_id">
-        <option value="">All Projects</option>
-        {% for project in projects %}
-          <option value="{{ project.id }}" {% if filters.project_id == project.id|string %}selected{% endif %}>{{ project.project_name }} - {{ project.project_code }}</option>
+      <h2>Personnel Safety Status</h2>
+      <table>
+        <tr>
+          <th>Employee</th>
+          <th>Role</th>
+          <th>DUID</th>
+          <th>Project</th>
+          <th>NBI</th>
+          <th>WAH</th>
+          <th>First Aid</th>
+          <th>Overall</th>
+          <th>Action</th>
+        </tr>
+        {% for emp in employees %}
+          <tr>
+            <td>{{ emp.full_name }}</td>
+            <td>{{ emp.telecom_role or emp.position or '-' }}</td>
+            <td>
+              {% if emp.assigned_du_id %}
+                <a href="{{ url_for('site_detail', du_id=emp.assigned_du_id) }}">{{ emp.assigned_du_id }}</a>
+              {% else %}
+                -
+              {% endif %}
+            </td>
+            <td>{{ emp.project_name or emp.project_code or '-' }}</td>
+            <td><span class="status {{ emp.nbi_status|lower|replace(' ', '-') }}">{{ emp.nbi_status }}</span></td>
+            <td><span class="status {{ emp.wah_status|lower|replace(' ', '-') }}">{{ emp.wah_status }}</span></td>
+            <td><span class="status {{ emp.first_aid_status|lower|replace(' ', '-') }}">{{ emp.first_aid_status }}</span></td>
+            <td><span class="status {{ emp.overall_safety_status|lower|replace(' ', '-') }}">{{ emp.overall_safety_status }}</span></td>
+            <td><a class="btn-small" href="{{ url_for('employee_dossier', employee_id=emp.id) }}">View Dossier</a></td>
+          </tr>
         {% endfor %}
-      </select>
-      <input name="employee" value="{{ filters.employee }}" placeholder="Employee name or ID" />
-      <select name="requirement_type">
-        <option value="">All Requirement Types</option>
-        {% for requirement_type in requirement_types %}
-          <option value="{{ requirement_type }}" {% if filters.requirement_type == requirement_type %}selected{% endif %}>{{ requirement_type|replace('_', ' ') }}</option>
-        {% endfor %}
-      </select>
-      <select name="status">
-        <option value="">All Statuses</option>
-        {% for status in statuses %}
-          <option value="{{ status }}" {% if filters.status == status %}selected{% endif %}>{{ status }}</option>
-        {% endfor %}
-      </select>
-      <button type="submit">Filter Requirements</button>
-    </form>
-  </div>
-
-  <h2>Requirements</h2>
-  <table>
-    <tr>
-      <th>Employee</th>
-      <th>Project</th>
-      <th>Requirement Type</th>
-      <th>Reference</th>
-      <th>Issue Date</th>
-      <th>Expiry Date</th>
-      <th>Status</th>
-      <th>Actions</th>
-    </tr>
-    {% for requirement in requirements %}
-      <tr>
-        <td>{{ requirement.employee_name }}</td>
-        <td>{{ requirement.project_name }}</td>
-        <td>{{ requirement.requirement_type|replace('_', ' ') }}</td>
-        <td>{{ requirement.reference_number or '-' }}</td>
-        <td>{{ requirement.issue_date or '-' }}</td>
-        <td>{{ requirement.expiry_date or '-' }}</td>
-        <td><span class="status {{ requirement.status|lower|replace(' ', '-') }}">{{ requirement.status }}</span></td>
-        <td>
-          <a class="btn-small" href="{{ url_for('employee_dossier', employee_id=requirement.employee_id) }}">View</a>
-          {% if can('manage_safety') %}
-            <a class="btn-small" href="{{ url_for('safety_documents', employee_id=requirement.employee_id, document_type=requirement.requirement_type) }}">{{ 'Add' if requirement.status == 'MISSING' else 'Renew' }}</a>
-          {% endif %}
-        </td>
-      </tr>
-    {% else %}
-      <tr>
-        <td colspan="8">No requirements match the selected filters.</td>
-      </tr>
-    {% endfor %}
-  </table>
-</div>
+      </table>
+    </div>
 {% endblock %}

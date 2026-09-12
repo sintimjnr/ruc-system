@@ -10392,8 +10392,7 @@ def safety_compliance():
 
     filters = {
         "project_id": clean_text(request.args.get("project_id")),
-        "employee": clean_text(request.args.get("employee")),
-        "requirement_type": clean_text(request.args.get("requirement_type")),
+        "du_id": clean_text(request.args.get("du_id")),
         "status": clean_text(request.args.get("status")),
     }
     conditions = ["TRUE"]
@@ -10403,13 +10402,9 @@ def safety_compliance():
         conditions.append("e.project_id=%s")
         params.append(filters["project_id"])
 
-    if filters["employee"]:
-        conditions.append(
-            "(CAST(e.id AS TEXT) ILIKE %s OR "
-            "CONCAT_WS(' ', e.first_name, e.middle_name, e.last_name) ILIKE %s)"
-        )
-        employee_search = f"%{filters['employee']}%"
-        params.extend([employee_search, employee_search])
+    if filters["du_id"]:
+        conditions.append("e.assigned_du_id=%s")
+        params.append(filters["du_id"])
 
     add_team_leader_employee_scope(cursor, conditions, params, "e.id")
 
@@ -10427,14 +10422,8 @@ def safety_compliance():
                e.nbi,
                e.wah_file,
                e.first_aid_file,
-               e.nbi_reference,
-               e.nbi_issue_date,
                e.nbi_expiry_date,
-               e.wah_reference,
-               e.wah_issue_date,
                e.wah_expiry_date,
-               e.first_aid_reference,
-               e.first_aid_issue_date,
                e.first_aid_expiry_date,
                p.project_name,
                p.project_code
@@ -10447,47 +10436,15 @@ def safety_compliance():
     )
     employees = rows_to_dicts(cursor)
 
-    requirement_definitions = (
-        ("NBI", "nbi_reference", "nbi_issue_date", "nbi_expiry_date", "nbi"),
-        ("WAH", "wah_reference", "wah_issue_date", "wah_expiry_date", "wah_file"),
-        ("FIRST_AID", "first_aid_reference", "first_aid_issue_date", "first_aid_expiry_date", "first_aid_file"),
-    )
-    all_requirements = []
     for employee in employees:
+        employee.update(safety_summary_from_employee(employee))
         employee["full_name"] = full_employee_name(employee)
-        for requirement_type, reference_key, issue_key, expiry_key, file_key in requirement_definitions:
-            all_requirements.append(
-                {
-                    "employee_id": employee["id"],
-                    "employee_name": employee["full_name"],
-                    "project_name": employee.get("project_name") or employee.get("project_code") or "-",
-                    "requirement_type": requirement_type,
-                    "reference_number": employee.get(reference_key),
-                    "issue_date": employee.get(issue_key),
-                    "expiry_date": employee.get(expiry_key),
-                    "status": calculate_document_status(
-                        employee.get(expiry_key), bool(employee.get(file_key))
-                    ),
-                }
-            )
 
-    summary = {
-        "total": len(all_requirements),
-        "valid": sum(item["status"] == "VALID" for item in all_requirements),
-        "expiring_soon": sum(item["status"] == "EXPIRING SOON" for item in all_requirements),
-        "expired": sum(item["status"] == "EXPIRED" for item in all_requirements),
-        "missing": sum(item["status"] == "MISSING" for item in all_requirements),
-    }
-    requirements = all_requirements
-    if filters["requirement_type"]:
-        requirements = [
-            item
-            for item in requirements
-            if item["requirement_type"] == filters["requirement_type"]
-        ]
     if filters["status"]:
-        requirements = [
-            item for item in requirements if item["status"] == filters["status"]
+        employees = [
+            employee
+            for employee in employees
+            if employee["overall_safety_status"] == filters["status"]
         ]
 
     cursor.close()
@@ -10495,11 +10452,10 @@ def safety_compliance():
 
     return render_template(
         "safety_compliance.html",
-        requirements=requirements,
-        summary=summary,
+        employees=employees,
         projects=get_projects_for_select(),
+        duids=get_duids_for_select(),
         filters=filters,
-        requirement_types=["NBI", "WAH", "FIRST_AID"],
         statuses=["VALID", "EXPIRING SOON", "EXPIRED", "MISSING"],
     )
 
